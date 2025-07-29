@@ -10,6 +10,7 @@ from config.settings import settings
 
 class Picamera2Adapter(ICamera):
 	def __init__(self, camera_index: int) -> None:
+		self.active = False
 		from picamera2 import Picamera2
 
 		self.picam = Picamera2(camera_num=camera_index)
@@ -22,7 +23,13 @@ class Picamera2Adapter(ICamera):
 		print(self.picam.camera_properties_)
 
 	def start(self) -> None:
+		if self.active:
+			self.stop()
 		self.picam.start()
+		self.active = True
+		
+	def status(self) -> str:
+		return 'active' if self.active else 'inactive'
 
 	def get_frame(self) -> Frame:
 		data: NDArray[uint8] = self.picam.capture_array()
@@ -30,3 +37,11 @@ class Picamera2Adapter(ICamera):
 
 	def stop(self) -> None:
 		self.picam.stop()
+		self.picam.close()
+		self.active = False
+		
+	def restart(self) -> None:
+		self.stop()
+		self.start()
+
+	

@@ -18,6 +18,6 @@ class IStream(ABC):
 		pass
 
 	@abstractmethod
-	def get_feed(self) -> list[bytes]:
+	def get_feed(self) -> bytes:
 		"""Retrieve data from the stream."""
 		pass

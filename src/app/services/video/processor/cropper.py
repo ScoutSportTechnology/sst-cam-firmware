@@ -6,7 +6,7 @@ from app.models.tracking.zoom import ZoomData
 from config.settings import settings
 
 
-class Cropper:
+class VideoCroppingService:
 	def __init__(self, target_size: tuple[int, int] = (1920, 1080)) -> None:
 		self.target_size: tuple[int, int] = target_size
 
