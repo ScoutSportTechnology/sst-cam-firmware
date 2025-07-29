@@ -1,5 +1,5 @@
-from .cropper import VideoCroppingService
 from .postprocessor import VideoPostProcessorService
 from .preprocessor import VideoPreProcessorService
+from .transformer import VideoTransformationService
 
-__all__ = ['VideoCroppingService', 'VideoPostProcessorService', 'VideoPreProcessorService']
+__all__ = ['VideoTransformationService', 'VideoPostProcessorService', 'VideoPreProcessorService']

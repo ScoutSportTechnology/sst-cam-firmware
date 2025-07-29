@@ -13,4 +13,3 @@ class StreamRoutes(IApiRoutes):
 		self.api.add_route('/api/stream/start', self.controller.start, methods=['GET'])
 		self.api.add_route('/api/stream/stop', self.controller.stop, methods=['GET'])
 		self.api.add_route('/api/stream/status', self.controller.status, methods=['GET'])
-		self.api.add_route('/api/stream/feed', self.controller.feed, methods=['GET'])

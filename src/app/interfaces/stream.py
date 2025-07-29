@@ -1,23 +1,17 @@
 from abc import ABC, abstractmethod
+from collections.abc import Generator
+from typing import Any
 
 
 class IStream(ABC):
 	@abstractmethod
-	def start(self) -> None:
-		"""Start the stream."""
-		pass
+	def start(self) -> None: ...
 
 	@abstractmethod
-	def stop(self) -> None:
-		"""Stop the stream."""
-		pass
+	def stop(self) -> None: ...
 
 	@abstractmethod
-	def get_status(self) -> str:
-		"""Get the current status of the stream."""
-		pass
+	def get_status(self) -> str: ...
 
 	@abstractmethod
-	def get_feed(self) -> bytes:
-		"""Retrieve data from the stream."""
-		pass
+	def feed(self) -> Generator[bytes, Any, None]: ...

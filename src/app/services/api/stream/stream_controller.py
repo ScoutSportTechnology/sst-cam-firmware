@@ -1,4 +1,5 @@
-from io import BytesIO
+from collections.abc import Generator
+from typing import Any
 
 from app.interfaces import IStream
 from app.interfaces.api.controller import IApiController
@@ -19,7 +20,6 @@ class StreamController(IApiController):
 	def status(self) -> dict:
 		return {'status': self.stream_service.get_status()}
 
-	def feed(self) -> Generator[bytes, None, None]:
-		while True:
-			frame_list = self.stream_service.get_feed()
-			yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_list[2] + b'\r\n')
+	def feed(self):
+		for frame_bytes in self.stream_service.feed():
+			yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')

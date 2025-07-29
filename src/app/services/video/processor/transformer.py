@@ -6,11 +6,11 @@ from app.models.tracking.zoom import ZoomData
 from config.settings import settings
 
 
-class VideoCroppingService:
+class VideoTransformationService:
 	def __init__(self, target_size: tuple[int, int] = (1920, 1080)) -> None:
 		self.target_size: tuple[int, int] = target_size
 
-	def crop(self, frames: Frame, zoom: ZoomData) -> Frame:
+	def process(self, frames: Frame, zoom: ZoomData) -> Frame:
 		frame_width, frame_height = frames.data.shape[1], frames.data.shape[0]
 		crop_w: int = max(16, int(frame_width * (1 - zoom.zoom_level)))
 		crop_h: int = max(9, int(frame_height * (1 - zoom.zoom_level)))
