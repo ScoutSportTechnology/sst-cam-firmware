@@ -22,8 +22,9 @@ class StreamSettings:
 	Access via Settings.stream
 	"""
 
-	stream_url: str
-	stream_key: str
+	url: str
+	key: str
+	resolution: tuple[int, int] = (3840, 1080)
 	bitrate: str = '4000k'
 	preset: str = 'veryfast'
 

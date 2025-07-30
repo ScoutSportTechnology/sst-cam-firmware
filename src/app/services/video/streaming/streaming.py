@@ -35,7 +35,9 @@ class StreamService(IStream):
 			if not self.active:
 				break
 
-			success, buffer = cv2.imencode(image_format, frame.data)
+			success, buffer = cv2.imencode(
+				image_format, frame.data, (int(cv2.IMWRITE_JPEG_QUALITY), 100)
+			)
 			if not success:
 				continue
 			bytes = buffer.tobytes()

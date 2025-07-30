@@ -18,7 +18,7 @@ class StreamController(IApiController):
 			<style>
 				body { font-family: sans-serif; text-align: center; margin-top: 40px; }
 				button { margin: 5px; padding: 10px 20px; font-size: 16px; }
-				img { width: 80%; max-width: 800px; border: 2px solid #444; }
+				img { width: 100%; max-width: none; height: auto; }
 			</style>
 		</head>
 		<body>
@@ -37,7 +37,7 @@ class StreamController(IApiController):
 
         async function startStream() {
           await fetch('/api/stream/start');
-          streamImg.src = '/api/stream/feed?' + new Date().getTime();  // 🔁 forzar recarga
+          streamImg.src = '/api/stream/feed?' + new Date().getTime();
           checkStatus();
         }
 

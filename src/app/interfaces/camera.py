@@ -15,9 +15,12 @@ class ICamera(ABC):
 
 	@abstractmethod
 	def stop(self) -> None: ...
-	
+
 	@abstractmethod
 	def restart(self) -> None: ...
-	
+
 	@abstractmethod
 	def status(self) -> str: ...
+	
+	@abstractmethod
+	def focus(self) -> None: ...
