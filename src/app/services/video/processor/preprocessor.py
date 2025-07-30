@@ -14,6 +14,6 @@ class VideoPreProcessorService:
 		# colored = cv2.cvtColor(frame.data, cv2.COLOR_RGB2BGR)
 		data = frame.data
 		timestamp = frame.timestamp
-		reduced_noise = cv2.bilateralFilter(data, d=5, sigmaColor=50, sigmaSpace=50)
+		reduced_noise = cv2.bilateralFilter(data, d=5, sigmaColor=75, sigmaSpace=75)
 		processed_frame = reduced_noise
 		return Frame(data=processed_frame, timestamp=timestamp)

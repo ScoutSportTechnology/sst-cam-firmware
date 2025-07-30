@@ -14,6 +14,9 @@ class IStream(ABC):
 
 	@abstractmethod
 	def get_status(self) -> str: ...
+	
+	@abstractmethod
+	def focus(self) -> None: ...
 
 	@abstractmethod
 	def feed(

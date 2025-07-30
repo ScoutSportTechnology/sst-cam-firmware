@@ -25,6 +25,9 @@ class StreamService(IStream):
 
 	def get_status(self) -> str:
 		return 'active' if self.active else 'inactive'
+		
+	def focus(self) -> None:
+		self.video_service.focus()
 
 	def feed(
 		self,

@@ -20,6 +20,10 @@ class StreamController(IApiController):
 	def status(self) -> dict:
 		return {'status': self.stream_service.get_status()}
 
+	def focus(self) -> dict:
+		self.stream_service.focus()
+		return {'status': 'Focus adjusted'}
+
 	def feed(self) -> Generator[bytes, Any, None]:
 		for frame_bytes in self.stream_service.feed('.jpeg'):
 			yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'

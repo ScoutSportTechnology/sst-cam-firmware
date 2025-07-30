@@ -36,3 +36,9 @@ class StreamRoutes(IApiRoutes):
 			methods=['GET'],
 			response_model=ResponseModel.stream_status,
 		)
+		self.api.add_route(
+      '/api/stream/focus',
+      self.controller.focus,
+      methods=['GET'],
+      response_model=ResponseModel.empty,
+    )

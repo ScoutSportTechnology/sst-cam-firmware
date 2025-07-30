@@ -32,6 +32,10 @@ class VideoService:
 	def status(self) -> str:
 		return 'active' if self.active else 'inactive'
 
+	def focus(self) -> None:
+		self.cam0.focus()
+		self.cam1.focus()
+
 	def get_frames(self) -> None:
 		self.frame0 = self.cam0.get_frame()
 		self.frame1 = self.cam1.get_frame()
