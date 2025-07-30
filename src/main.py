@@ -21,7 +21,6 @@ def main() -> None:
 	ApiService(api=api_adapter, stream_service=stream_service)
 	WebService(api=api_adapter)
 
-	# Expose the FastAPI app
 	app = api_adapter.expose()
 
 	uvicorn.run(app, host='0.0.0.0', port=8000)

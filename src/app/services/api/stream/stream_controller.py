@@ -22,4 +22,4 @@ class StreamController(IApiController):
 
 	def feed(self) -> Generator[bytes, Any, None]:
 		for frame_bytes in self.stream_service.feed('.jpeg'):
-			yield frame_bytes
+			yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'

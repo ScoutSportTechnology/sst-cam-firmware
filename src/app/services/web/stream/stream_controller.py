@@ -25,19 +25,39 @@ class StreamController(IApiController):
 			<h1>StrixCam Stream</h1>
 			<img src="/api/stream/feed" alt="Video Stream">
 			<div>
-				<button onclick="fetch('/api/stream/start')">Start</button>
-				<button onclick="fetch('/api/stream/stop')">Stop</button>
-				<button onclick="checkStatus()">Status</button>
+				<button id="startBtn">Start</button>
+        <button id="stopBtn">Stop</button>
+        <button id="statusBtn">Status</button>
 			</div>
 			<p id="status">Status: Unknown</p>
 
 			<script>
-				async function checkStatus() {
-					const res = await fetch('/api/stream/status');
-					const data = await res.json();
-					document.getElementById('status').innerText = 'Status: ' + data.status;
-				}
-			</script>
+        const streamImg = document.querySelector('img');
+        const statusP = document.getElementById('status');
+
+        async function startStream() {
+          await fetch('/api/stream/start');
+          streamImg.src = '/api/stream/feed?' + new Date().getTime();  // 🔁 forzar recarga
+          checkStatus();
+        }
+
+        async function stopStream() {
+          await fetch('/api/stream/stop');
+          streamImg.src = '';  // 🔌 desconectar stream
+          checkStatus();
+        }
+
+        async function checkStatus() {
+          const res = await fetch('/api/stream/status');
+          const data = await res.json();
+          statusP.innerText = 'Status: ' + data.status;
+        }
+
+        document.querySelector('#startBtn').onclick = startStream;
+        document.querySelector('#stopBtn').onclick = stopStream;
+        document.querySelector('#statusBtn').onclick = checkStatus;
+      </script>
+
 		</body>
 		</html>
 		"""
