@@ -1,6 +1,6 @@
-from models.tracking.detection import DetectionData
-from models.tracking.motion import MotionData
-from models.tracking.zoom import ZoomData
+from app.models.tracking.detection import DetectionData
+from app.models.tracking.motion import MotionData
+from app.models.tracking.zoom import ZoomData
 
 
 class ZoomService:

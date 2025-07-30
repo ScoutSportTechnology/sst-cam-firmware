@@ -5,33 +5,39 @@ import cv2
 
 from app.interfaces.stream import IStream
 from app.models import Frame
-from app.models.frame import Frame
+from app.services.video.video import VideoService
 
 
 class StreamService(IStream):
-	def __init__(
-		self,
-		image_format: str,
-		frame: Frame,
-	):
-		self.image_format = image_format
-		self.frame = frame
+	def __init__(self, video_service: VideoService):
 		self.active = False
+		self.video_service = video_service
 
 	def start(self) -> None:
-		if self.active:
-			self.stop()
-		self.active = True
+		if not self.active:
+			self.video_service.start()
+			self.active = True
 
 	def stop(self):
-		self.active = False
+		if self.active:
+			self.video_service.stop()
+			self.active = False
 
 	def get_status(self) -> str:
 		return 'active' if self.active else 'inactive'
 
-	def feed(self) -> Generator[bytes, Any, None]:
-		while self.active:
-			success, buffer = cv2.imencode(self.image_format, self.frame.data)
+	def feed(
+		self,
+		image_format: str,
+	) -> Generator[bytes, Any, None]:
+		frame_gen: Generator[Frame, None, None] = self.video_service.frames()
+		for frame in frame_gen:
+			if not self.active:
+				break
+
+			success, buffer = cv2.imencode(image_format, frame.data)
 			if not success:
 				continue
-			yield buffer.tobytes()
+			bytes = buffer.tobytes()
+
+			yield bytes

@@ -2,9 +2,11 @@ import uvicorn
 
 from app.adapters.hardware.camera import Picamera2Adapter
 from app.adapters.software.api import FastAPIAdapter
+from app.services.api import ApiService
 from app.services.api.stream import StreamRoutes
 from app.services.video import VideoService
 from app.services.video.streaming import StreamService
+from app.services.web import WebService
 
 
 def main() -> None:
@@ -12,13 +14,12 @@ def main() -> None:
 	camera_1 = Picamera2Adapter(1)
 
 	video_service = VideoService(cam0=camera_0, cam1=camera_1)
-	
-	video_service.preprocess()
-	video_service.postprocess()
-	stream_service = video_service.stream('.jpg')
 
+	stream_service = StreamService(video_service)
 	api_adapter = FastAPIAdapter()
-	StreamRoutes(api=api_adapter, stream_service=stream_service).register()
+
+	ApiService(api=api_adapter, stream_service=stream_service)
+	WebService(api=api_adapter)
 
 	# Expose the FastAPI app
 	app = api_adapter.expose()

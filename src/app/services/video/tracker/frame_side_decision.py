@@ -1,6 +1,5 @@
-from models.tracking.frame_side_decision import FrameSideDecision, Side
-from models.tracking.motion import MotionData
-
+from app.models.tracking.frame_side_decision import FrameSideDecision, Side
+from app.models.tracking.motion import MotionData
 from config.settings import Settings
 
 

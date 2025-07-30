@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from typing import Any
 
+from app.models import Frame
+
 
 class IStream(ABC):
 	@abstractmethod
@@ -14,4 +16,7 @@ class IStream(ABC):
 	def get_status(self) -> str: ...
 
 	@abstractmethod
-	def feed(self) -> Generator[bytes, Any, None]: ...
+	def feed(
+		self,
+		image_format: str,
+	) -> Generator[bytes, Any, None]: ...

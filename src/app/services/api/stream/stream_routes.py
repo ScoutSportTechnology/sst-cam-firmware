@@ -1,7 +1,7 @@
 from app.interfaces import IStream
 from app.interfaces.api import IApi, IApiRoutes
-
-from .stream_controller import StreamController
+from app.models.api import ResponseModel
+from app.services.api.stream.stream_controller import StreamController
 
 
 class StreamRoutes(IApiRoutes):
@@ -9,7 +9,30 @@ class StreamRoutes(IApiRoutes):
 		self.api = api
 		self.controller = StreamController(stream_service)
 
+		self.register()
+
 	def register(self) -> None:
-		self.api.add_route('/api/stream/start', self.controller.start, methods=['GET'])
-		self.api.add_route('/api/stream/stop', self.controller.stop, methods=['GET'])
-		self.api.add_route('/api/stream/status', self.controller.status, methods=['GET'])
+		self.api.add_route(
+			'/api/stream/start',
+			self.controller.start,
+			methods=['GET'],
+			response_model=ResponseModel.empty,
+		)
+		self.api.add_route(
+			'/api/stream/stop',
+			self.controller.stop,
+			methods=['GET'],
+			response_model=ResponseModel.empty,
+		)
+		self.api.add_route(
+			'/api/stream/status',
+			self.controller.status,
+			methods=['GET'],
+			response_model=ResponseModel.empty,
+		)
+		self.api.add_route(
+			'/api/stream/feed',
+			self.controller.feed,
+			methods=['GET'],
+			response_model=ResponseModel.stream_status,
+		)

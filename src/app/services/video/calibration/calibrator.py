@@ -5,9 +5,9 @@ import time
 import cv2
 import numpy as np
 
-from adapters.camera import picamera2
+from app.adapters.hardware.camera import Picamera2Adapter
+from app.interfaces import ICamera
 from config.settings import settings
-from core.interfaces.camera import ICamera
 
 
 def calibrate_camera_from_images(cameras: list[ICamera], board_size: tuple = (9, 7)) -> None:

@@ -1,7 +1,6 @@
-from models.general.point import Point
-from models.tracking.detection import DetectionData
-from models.tracking.motion import MotionData
-
+from app.models.general.point import Point
+from app.models.tracking.detection import DetectionData
+from app.models.tracking.motion import MotionData
 from config.settings import Settings
 
 
