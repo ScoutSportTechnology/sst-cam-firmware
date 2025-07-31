@@ -25,6 +25,7 @@ class StreamSettings:
 	url: str
 	key: str
 	resolution: tuple[int, int] = (3840, 1080)
+	fps: int = 60
 	bitrate: str = '4000k'
 	preset: str = 'veryfast'
 

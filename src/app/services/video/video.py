@@ -3,7 +3,7 @@ from collections.abc import Generator
 from app.interfaces.camera import ICamera
 from app.models.frame import Frame
 from app.models.tracking import DetectionData, FrameSideDecision, MotionData, ZoomData
-from app.services.video import overlay, processor, streaming, tracker
+from app.services.video import overlay, processor, stream, tracker
 
 
 class VideoService:

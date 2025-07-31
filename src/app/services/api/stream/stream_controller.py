@@ -1,13 +1,19 @@
+import threading
 from collections.abc import Generator
 from typing import Any
 
 from app.interfaces import IStream
 from app.interfaces.api.controller import IApiController
+from app.models.stream import EncodeType, StreamProvider
+from app.services.video.stream import StreamProviderService
+from config.settings import Settings
 
 
 class StreamController(IApiController):
 	def __init__(self, stream_service: IStream) -> None:
 		self.stream_service = stream_service
+		self.stream_provider = stream_service.provider
+		self.settings = Settings
 
 	def start(self) -> dict:
 		self.stream_service.start()
@@ -25,5 +31,17 @@ class StreamController(IApiController):
 		return {'status': 'Focus adjusted'}
 
 	def feed(self) -> Generator[bytes, Any, None]:
-		for frame_bytes in self.stream_service.feed('.jpeg'):
-			yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
+		stream_provider_service = StreamProviderService(self.stream_provider)
+		if self.stream_provider == StreamProvider.HTTP:
+			feed = self.stream_service.feed(format=EncodeType.JPEG)
+			provided = stream_provider_service.provide(feed)
+			yield from provided or [b'']
+		elif self.stream_provider == StreamProvider.RTMP:
+			feed = self.stream_service.feed()
+			threading.Thread(
+				target=stream_provider_service.provide,
+				args=(feed,),
+				kwargs={'url': self.settings.stream.url, 'format': EncodeType.H264},
+				daemon=True,
+			).start()
+			yield b'RTMP stream started'
