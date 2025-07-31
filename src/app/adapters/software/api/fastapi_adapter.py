@@ -1,5 +1,6 @@
 # src/app/adapters/api/fastapi_adapter.py
 
+
 from collections.abc import Callable
 from typing import Any
 

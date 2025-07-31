@@ -5,7 +5,6 @@ import time
 import cv2
 import numpy as np
 
-from app.adapters.hardware.camera import Picamera2Adapter
 from app.interfaces import ICamera
 from config.settings import settings
 

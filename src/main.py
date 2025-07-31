@@ -1,3 +1,5 @@
+import logging
+
 import uvicorn
 
 from app.adapters.hardware.camera import Picamera2Adapter
@@ -23,7 +25,9 @@ def main() -> None:
 
 	app = api_adapter.expose()
 
-	uvicorn.run(app, host='0.0.0.0', port=8000)
+	uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info')
+	logger = logging.getLogger('uvicorn.error')
+	logger.info('StrixCam is running on http://localhost:8000')
 
 
 if __name__ == '__main__':

@@ -22,8 +22,8 @@ class StreamSettings:
 	Access via Settings.stream
 	"""
 
-	url: str
-	key: str
+	url: str = "rtmp://192.168.101.191/live/livestream"
+	key: str = "your_stream_key"
 	resolution: tuple[int, int] = (3840, 1080)
 	fps: int = 60
 	bitrate: str = '4000k'

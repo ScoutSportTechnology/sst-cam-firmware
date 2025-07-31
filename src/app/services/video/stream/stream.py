@@ -7,7 +7,7 @@ import ffmpeg
 from app.interfaces.stream import IStream
 from app.models import Frame
 from app.models.stream import EncodeType, StreamProvider
-from app.services.video.video import VideoService
+from app.services.video import VideoService
 from config.settings import Settings
 
 

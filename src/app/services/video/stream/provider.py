@@ -3,6 +3,8 @@ from subprocess import Popen
 from typing import Any
 
 import ffmpeg
+import uvicorn
+import uvicorn.logging
 
 from app.models.stream import EncodeType, StreamProvider
 from config.settings import Settings
@@ -48,7 +50,10 @@ class StreamProviderService:
 				try:
 					for frame in feed:
 						if process.stdin:
+							print('Sending frame to ffmpeg...', flush=True)
 							process.stdin.write(frame)
+						else:
+							print('No stdin available for ffmpeg process.', flush=True)
 				finally:
 					if process.stdin:
 						process.stdin.close()
