@@ -1,6 +1,7 @@
 # src/app/adapters/api/fastapi_adapter.py
 
 
+import logging
 from collections.abc import Callable
 from typing import Any
 

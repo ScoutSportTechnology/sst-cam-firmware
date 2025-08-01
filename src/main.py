@@ -24,10 +24,7 @@ def main() -> None:
 	WebService(api=api_adapter)
 
 	app = api_adapter.expose()
-
-	uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info')
-	logger = logging.getLogger('uvicorn.error')
-	logger.info('StrixCam is running on http://localhost:8000')
+	uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info', access_log=True)
 
 
 if __name__ == '__main__':

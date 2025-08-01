@@ -11,6 +11,8 @@ class EncodeType(Enum):
 	HEVC = 'HEVC'
 	VP8 = 'VP8'
 	VP9 = 'VP9'
+	FLV = 'flv'
+	BGR24 = 'bgr24'
 
 	def __str__(self) -> str:
 		return self.value

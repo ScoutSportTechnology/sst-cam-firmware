@@ -11,7 +11,7 @@ class CameraSettings:
 
 	fov: int = 120
 	resolution: tuple[int, int] = (1920, 1080)
-	frame_rate: int = 60
+	frame_rate: int = 30
 	format: str = 'RGB888'
 
 
@@ -25,8 +25,8 @@ class StreamSettings:
 	url: str = "rtmp://192.168.101.191/live/livestream"
 	key: str = "your_stream_key"
 	resolution: tuple[int, int] = (3840, 1080)
-	fps: int = 60
-	bitrate: str = '4000k'
+	fps: int = 30
+	bitrate: int = 4000
 	preset: str = 'veryfast'
 
 
