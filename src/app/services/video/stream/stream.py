@@ -43,7 +43,7 @@ class StreamService(IStream):
 	def feed(
 		self,
 		format: EncodeType | None = None,
-	) -> Generator[bytes, Any, None]:
+	) -> Generator[bytes | Frame, Any, None]:
 		frame_gen: Generator[Frame, None, None] = self.video_service.frames()
 
 		if format is not None:
@@ -69,7 +69,7 @@ class StreamService(IStream):
 				if not self.active:
 					self.logger.error('Stream is inactive, breaking feed loop.')
 					break
-				yield frame.data.tobytes()
+				yield frame
 		else:
 			for frame in frame_gen:
 				self.logger.debug('Processing frame to bytes')

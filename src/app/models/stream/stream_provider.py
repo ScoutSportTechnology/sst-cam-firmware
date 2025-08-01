@@ -9,6 +9,7 @@ class StreamProvider(Enum):
 	RTMP = 'rtmp'
 	RTSP = 'rtsp'
 	HTTP = 'http'
+	FFMPEG = 'ffmpeg'
 
 	def __str__(self) -> str:
 		return self.value

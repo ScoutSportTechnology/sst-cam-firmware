@@ -1,6 +1,9 @@
+import subprocess
 import threading
 from collections.abc import Generator
 from typing import Any
+
+from sympy import true
 
 from app.interfaces import IStream
 from app.interfaces.api.controller import IApiController
@@ -39,7 +42,7 @@ class StreamController(IApiController):
 	def feed(self) -> Generator[bytes, Any, None]:
 		stream_provider_service = StreamProviderService(self.stream_provider)
 		if self.stream_provider == StreamProvider.HTTP:
-			feed = self.stream_service.feed(format=EncodeType.JPEG)
+			feed = self.stream_service.feed()
 			provided = stream_provider_service.provide(feed)
 			yield from provided or [b'']
 		elif self.stream_provider == StreamProvider.RTMP:
@@ -57,4 +60,28 @@ class StreamController(IApiController):
 				daemon=True,
 			).start()
 			self.logger.debug('RTMP stream started with URL: %s', url)
-			yield b'RTMP streaming...'
+			for _ in feed:
+				yield b'RTMP streaming...'
+		elif self.stream_provider == StreamProvider.FFMPEG:
+			self.logger.debug('Starting to provide FFMPEG stream with feed...')
+			cmd = [
+				'ffmpeg',
+				'-re',
+				'-f',
+				'lavfi',
+				'-i',
+				'testsrc=duration=30:size=1920x1080:rate=15',
+				'-c:v',
+				'libx264',
+				'-preset',
+				'ultrafast',
+				'-tune',
+				'zerolatency',
+				'-f',
+				'flv',
+				'rtmp://192.168.101.191/live/livestream',
+			]
+			process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+			self.logger.debug(f'Process Logs {process.stdout} {process.stderr}')
+			while True:
+				yield b'FFMPEG streaming...'

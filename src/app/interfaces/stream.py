@@ -28,7 +28,7 @@ class IStream(ABC):
 	def feed(
 		self,
 		format: EncodeType | None = None,
-	) -> Generator[bytes, Any, None]: ...
+	) -> Generator[bytes | Frame, Any, None]: ...
 
 	@property
 	@abstractmethod
