@@ -15,73 +15,51 @@ from config.settings import Settings
 
 
 class StreamController(IApiController):
-	def __init__(self, stream_service: IStream) -> None:
+	def __init__(self, stream_service: IStream, provider: StreamProvider) -> None:
 		self.stream_service = stream_service
-		self.stream_provider = stream_service.provider
+		self.stream_provider = provider
 		self.settings = Settings
 		self.logger = Logger(name='stream_controller')
+		self.active = False
+
+	@property
+	def provider(self) -> StreamProvider:
+		return self.stream_provider
 
 	def start(self) -> dict:
-		self.stream_service.start()
-		self.logger.debug('Stream started with provider: %s', self.stream_provider.value)
+		if not self.active:
+			self.stream_service.start()
+			self.logger.debug(f'Stream started with provider: {self.stream_provider.value}')
+			self.active = True
 		return {'status': 'Stream started'}
 
 	def stop(self) -> dict:
-		self.stream_service.stop()
-		self.logger.debug('Stream stopped with provider: %s', self.stream_provider.value)
+		if self.active:
+			self.stream_service.stop()
+			self.logger.debug(f'Stream stopped with provider: {self.stream_provider.value}')
+			self.active = False
 		return {'status': 'Stream stopped'}
 
 	def status(self) -> dict:
-		return {'status': self.stream_service.get_status()}
+		return {'status': 'active' if self.active else 'inactive'}
 
 	def focus(self) -> dict:
-		self.logger.debug('Adjusting focus for stream provider: %s', self.stream_provider.value)
-		self.stream_service.focus()
-		return {'status': 'Focus adjusted'}
+		if self.active:
+			self.logger.debug(f'Adjusting focus for stream provider: {self.stream_provider.value}')
+			self.stream_service.focus()
+			return {'status': 'Focus adjusted'}
+		else:
+			self.logger.warning('Cannot adjust focus, stream is not active')
+			return {'status': 'Stream is inactive, cannot adjust focus'}
 
 	def feed(self) -> Generator[bytes, Any, None]:
-		stream_provider_service = StreamProviderService(self.stream_provider)
-		if self.stream_provider == StreamProvider.HTTP:
-			feed = self.stream_service.feed()
-			provided = stream_provider_service.provide(feed)
-			yield from provided or [b'']
-		elif self.stream_provider == StreamProvider.RTMP:
-			self.logger.debug('Starting to provide RTMP stream with feed...')
-			feed = self.stream_service.feed()
-			if not isinstance(feed, Generator):
-				self.logger.debug('RTMP stream feed is empty, not starting stream.')
-				yield b''
-			url = self.settings.stream.url or 'rtmp://192.168.101.191/live/livestream'
-			self.logger.debug(f'Starting RTMP stream with URL: {url}')
-			threading.Thread(
-				target=stream_provider_service.provide,
-				args=(),
-				kwargs={'feed': feed, 'url': url, 'format': EncodeType.H264},
-				daemon=True,
-			).start()
-			self.logger.debug('RTMP stream started with URL: %s', url)
-			for _ in feed:
-				yield b'RTMP streaming...'
-		elif self.stream_provider == StreamProvider.FFMPEG:
-			self.logger.debug('Starting to provide FFMPEG stream with feed...')
-			cmd = [
-				'ffmpeg',
-				'-re',
-				'-f',
-				'lavfi',
-				'-i',
-				'testsrc=duration=30:size=1920x1080:rate=15',
-				'-c:v',
-				'libx264',
-				'-preset',
-				'ultrafast',
-				'-tune',
-				'zerolatency',
-				'-f',
-				'flv',
-				'rtmp://192.168.101.191/live/livestream',
-			]
-			process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-			self.logger.debug(f'Process Logs {process.stdout} {process.stderr}')
-			while True:
-				yield b'FFMPEG streaming...'
+		if self.active:
+			feed = self.stream_service.feed(
+				stream_provider=self.stream_provider, url='rtmp://192.168.101.191/live/livestream'
+			)
+			yield from feed
+			return
+		else:
+			self.logger.warning('Stream is not active, cannot provide feed')
+			yield b'Stream is inactive, cannot provide feed'
+			return

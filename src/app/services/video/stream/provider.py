@@ -22,14 +22,10 @@ class StreamProviderService:
 
 	def provide(
 		self,
-		feed: Generator[bytes | Frame, Any | None, None],
+		feed: Generator[Frame, Any | None, None],
 		url: str | None = None,
 	) -> Generator[bytes, Any, None] | None:
-		if self.provider == StreamProvider.HTTP:
-			feed = cast(Generator[bytes, Any, None], feed)
-			for frame in feed:
-				yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame + b'\r\n'
-		elif self.provider == StreamProvider.RTMP:
+		if self.provider == StreamProvider.RTMP:
 			width, height = self.settings.stream.resolution
 			fps = self.settings.stream.fps
 			cmd = [
@@ -55,25 +51,22 @@ class StreamProviderService:
 				'flv',
 				url,
 			]
-			process = subprocess.Popen(
-				cmd,
-				# stdin=PIPE,
-			)
-			try:
-				for frame in cast(Generator[Frame, Any, None], feed):
-					if process.stdin is not None:
+			process = subprocess.Popen(cmd, stdin=PIPE, stdout=PIPE)
+			if process.stdin is not None:
+				for frame in feed:
+					try:
 						process.stdin.write(frame.data.tobytes())
-					else:
-						self.logger.error('process.stdin is None, cannot write frame data.')
+					except Exception as e:
+						self.logger.error(f'Error writing frame data: {e}')
 						break
-			finally:
-				if process.stdin is not None:
-					process.stdin.close()
-					process.wait()
-				else:
-					self.logger.error('process.stdin is None, cannot close stdin.')
-		elif self.provider == StreamProvider.RTSP:
-			feed = cast(Generator[Frame, Any, None], feed)
+				process.stdin.close()
+				process.wait()
+			else:
+				self.logger.error('process.stdin is None, cannot close stdin.')
+
+		elif (
+			self.provider == StreamProvider.RTSP
+		):  # RTSP streaming is not implemented in this example, placeholder for RTMP using av
 			width, height = self.settings.stream.resolution
 			fps = self.settings.stream.fps
 			time_base = Fraction(1, self.settings.stream.fps)
@@ -93,8 +86,8 @@ class StreamProviderService:
 				container.mux(packet)
 			self.logger.debug('Closing container after encoding frame')
 			container.close()
-			yield b'RTMP streaming...'
+			return
+
 		else:
 			for frame in feed:
-				frame = cast(Frame, frame) if not isinstance(frame, bytes) else frame
-				yield frame if isinstance(frame, bytes) else frame.data.tobytes()
+				yield frame.data.tobytes()

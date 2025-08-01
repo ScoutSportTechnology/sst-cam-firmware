@@ -27,9 +27,6 @@ class IStream(ABC):
 	@abstractmethod
 	def feed(
 		self,
-		format: EncodeType | None = None,
-	) -> Generator[bytes | Frame, Any, None]: ...
-
-	@property
-	@abstractmethod
-	def provider(self) -> StreamProvider: ...
+		stream_provider: StreamProvider,
+		url: str | None = None,
+	) -> Generator[bytes, Any, None]: ...
