@@ -1,7 +1,4 @@
-import logging
-import subprocess
-from subprocess import PIPE, Popen
-
+import keyboard
 import uvicorn
 
 from app.adapters.hardware.camera import Picamera2Adapter
@@ -22,13 +19,18 @@ def main() -> None:
 
 	stream_service = StreamService(video_service)
 
-	stream_controller = StreamController(stream_service, provider=StreamProvider.FFMPEG)
+	stream_controller = StreamController(stream_service, provider=StreamProvider.RTSP)
 
 	stream_controller.start()
 	gen = stream_controller.feed()
 
 	for chunk in gen:
 		print(chunk)
+
+	if keyboard.is_pressed('q'):
+		stream_controller.stop()
+		print('Stream stopped')
+		return
 
 	# api_adapter = FastAPIAdapter()
 	# ApiService(api=api_adapter, stream_service=stream_service)

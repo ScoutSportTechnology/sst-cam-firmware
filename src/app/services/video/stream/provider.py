@@ -1,15 +1,15 @@
 import subprocess
 from collections.abc import Generator
 from fractions import Fraction
-from subprocess import PIPE, Popen
-from typing import Any, cast
+from subprocess import DEVNULL, PIPE
+from typing import Any
 
 import av
 import ffmpeg
 import numpy as np
 
 from app.models import Frame
-from app.models.stream import EncodeType, StreamProvider
+from app.models.stream import StreamProvider
 from app.services.logger import Logger
 from config.settings import Settings
 
@@ -40,7 +40,7 @@ class StreamProviderService:
 				'-r',
 				str(fps),
 				'-i',
-				'-',  # read from stdin
+				'-',
 				'-c:v',
 				'libx264',
 				'-preset',
@@ -51,7 +51,7 @@ class StreamProviderService:
 				'flv',
 				url,
 			]
-			process = subprocess.Popen(cmd, stdin=PIPE, stdout=PIPE)
+			process = subprocess.Popen(cmd, stdin=PIPE, stdout=DEVNULL, stderr = DEVNULL)
 			if process.stdin is not None:
 				for frame in feed:
 					try:

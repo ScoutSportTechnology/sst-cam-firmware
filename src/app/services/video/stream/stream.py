@@ -86,9 +86,9 @@ class StreamService(IStream):
 					kwargs={'feed': feed, 'url': url},
 					daemon=True,
 				).start()
-				self.logger.debug(f'RTMP stream started with URL: {url}')
+				self.logger.debug(f'RTSP stream started with URL: {url}')
 				while self.active:
-					yield b'RTMP streaming...'
+					yield b'RTSP streaming...'
 				return
 
 			elif self.provider == StreamProvider.FFMPEG:
