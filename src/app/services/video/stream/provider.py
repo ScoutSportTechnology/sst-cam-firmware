@@ -15,79 +15,110 @@ from config.settings import Settings
 
 
 class StreamProviderService:
-	def __init__(self, provider: StreamProvider) -> None:
+	def __init__(self, provider: StreamProvider, active: bool) -> None:
 		self.provider = provider
 		self.settings = Settings
 		self.logger = Logger(name='stream_provider_service')
+		self.active = active
 
 	def provide(
 		self,
 		feed: Generator[Frame, Any | None, None],
 		url: str | None = None,
-	) -> Generator[bytes, Any, None] | None:
-		if self.provider == StreamProvider.RTMP:
-			width, height = self.settings.stream.resolution
-			fps = self.settings.stream.fps
-			cmd = [
-				'ffmpeg',
-				'-re',
-				'-f',
-				'rawvideo',
-				'-pix_fmt',
-				'bgr24',
-				'-s',
-				f'{width}x{height}',
-				'-r',
-				str(fps),
-				'-i',
-				'-',
-				'-c:v',
-				'libx264',
-				'-preset',
-				'ultrafast',
-				'-tune',
-				'zerolatency',
-				'-f',
-				'flv',
-				url,
-			]
-			process = subprocess.Popen(cmd, stdin=PIPE, stdout=DEVNULL, stderr = DEVNULL)
-			if process.stdin is not None:
-				for frame in feed:
+	) -> Generator[bytes, Any, None]:
+		if self.active:
+			if self.provider == StreamProvider.RTMP:
+				width, height = self.settings.stream.resolution
+				fps = self.settings.stream.fps
+				cmd = [
+					'ffmpeg',
+					'-re',
+					'-f',
+					'rawvideo',
+					'-pix_fmt',
+					'bgr24',
+					'-s',
+					f'{width}x{height}',
+					'-i',
+					'pipe:0',
+					'-c:v',
+					'libx264',
+					'-preset',
+					'ultrafast',
+					'-tune',
+					'zerolatency',
+					'-f',
+					'flv',
+					url,
+				]
+				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
+				process = subprocess.Popen(
+					cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+				)
+				if process.stdin is not None:
 					try:
-						process.stdin.write(frame.data.tobytes())
-					except Exception as e:
-						self.logger.error(f'Error writing frame data: {e}')
-						break
-				process.stdin.close()
-				process.wait()
+						yield b'RTMP streaming...'
+						for frame in feed:
+							frame_data = frame.data.tobytes()
+							process.stdin.write(frame_data)
+					finally:
+						process.terminate()
+						process.wait()
+
+			elif (
+				self.provider == StreamProvider.RTSP
+			):  # RTSP streaming is not implemented in this example, placeholder for RTMP using ffmpeg
+				width, height = self.settings.stream.resolution
+				fps = self.settings.stream.fps
+				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
+				stream = ffmpeg.input(
+					'pipe:0',
+					**({'re': None} if self.settings.stream.realtime else {}),
+					**(
+						{'fflags': self.settings.stream.fflags}
+						if self.settings.stream.fflags
+						else {}
+					),
+					format='rawvideo',
+					pix_fmt='bgr24',
+					s=f'{width}x{height}',
+					r=Fraction(fps),
+					thread_queue_size=self.settings.stream.thread_queue_size,
+				)
+				stream = ffmpeg.output(
+					stream,
+					url,
+					format=self.settings.stream.format,
+					vcodec=self.settings.stream.vcodec,
+					preset=self.settings.stream.preset,
+					tune=self.settings.stream.tune,
+					threads=self.settings.stream.threads,
+					g=self.settings.stream.gop,
+					pix_fmt=self.settings.stream.pixel_format,
+					b=f'{self.settings.stream.bitrate}k',
+					maxrate=f'{self.settings.stream.bitrate}k',
+					bufsize=f'{self.settings.stream.bitrate // 2}k',
+				)
+				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
+				args = stream.get_args()
+				self.logger.debug(f'FFMPEG command: {" ".join(args)}')
+				process = ffmpeg.run_async(
+					stream,
+					pipe_stdin=True,
+					pipe_stdout=True,
+					pipe_stderr=True,
+				)
+				if process.stdin is not None:
+					try:
+						yield b'RTMP streaming...'
+						for frame in feed:
+							process.stdin.write(frame.data.tobytes())
+					finally:
+						process.stdin.close()
+						process.wait()
+
 			else:
-				self.logger.error('process.stdin is None, cannot close stdin.')
-
-		elif (
-			self.provider == StreamProvider.RTSP
-		):  # RTSP streaming is not implemented in this example, placeholder for RTMP using av
-			width, height = self.settings.stream.resolution
-			fps = self.settings.stream.fps
-			time_base = Fraction(1, self.settings.stream.fps)
-			container = av.open(url, 'w', format='flv')
-			stream = container.add_stream(codec_name='h264', rate=fps, GOP_size=1)
-			stream.width, stream.height = (width, height)
-			stream.pix_fmt = 'yuv420p'
-			stream.gop_size = 1
-			for frame_idx, frame in enumerate(feed):
-				av_frame = av.VideoFrame.from_ndarray(frame.data, format='bgr24')
-				av_frame.pts = frame_idx
-				av_frame.time_base = time_base
-
-				for packet in stream.encode(av_frame):
-					container.mux(packet)
-			for packet in stream.encode():
-				container.mux(packet)
-			self.logger.debug('Closing container after encoding frame')
-			container.close()
-			return
-
+				for frame in feed:
+					yield frame.data.tobytes()
 		else:
-			for frame in feed:
-				yield frame.data.tobytes()
+			yield b'Streaming is not active'

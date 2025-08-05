@@ -4,7 +4,6 @@ from collections.abc import Generator
 from typing import Any, final
 
 import cv2
-import ffmpeg
 
 from app.interfaces.stream import IStream
 from app.models import Frame
@@ -47,10 +46,10 @@ class StreamService(IStream):
 		url: str | None = None,
 	) -> Generator[bytes, Any, None]:
 		self.provider = stream_provider
-		
+
 		if self.active and self.video_service.status() == 'active':
 			feed: Generator[Frame, None, None] = self.video_service.frames()
-			stream_provider_service = StreamProviderService(self.provider)
+			stream_provider_service = StreamProviderService(self.provider, self.active)
 			if self.provider == StreamProvider.HTTP:
 				for frame in feed:
 					success, buffer = cv2.imencode(
@@ -66,29 +65,13 @@ class StreamService(IStream):
 				return
 
 			elif self.provider == StreamProvider.RTMP:
-				self.logger.debug(f'Starting RTMP stream with URL: {url}')
-				threading.Thread(
-					target=stream_provider_service.provide,
-					args=(),
-					kwargs={'feed': feed, 'url': url},
-					daemon=True,
-				).start()
 				self.logger.debug(f'RTMP stream started with URL: {url}')
-				while self.active:
-					yield b'RTMP streaming...'
+				yield from stream_provider_service.provide(feed, url)
 				return
 
 			elif self.provider == StreamProvider.RTSP:
-				self.logger.debug(f'Starting RTSP stream with URL: {url}')
-				threading.Thread(
-					target=stream_provider_service.provide,
-					args=(),
-					kwargs={'feed': feed, 'url': url},
-					daemon=True,
-				).start()
 				self.logger.debug(f'RTSP stream started with URL: {url}')
-				while self.active:
-					yield b'RTSP streaming...'
+				yield from stream_provider_service.provide(feed, url)
 				return
 
 			elif self.provider == StreamProvider.FFMPEG:
@@ -110,9 +93,12 @@ class StreamService(IStream):
 					'flv',
 					url,
 				]
-				process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-				self.logger.debug(f'Process Logs {process.stdout} {process.stderr}')
-				yield b'FFMPEG streaming...'
+				process = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+				self.logger.debug(f'Process Logs {process.stdout}')
+				while self.active:
+					yield b'FFMPEG streaming...'
+				process.terminate()
+				process.wait()
 				return
 
 			else:

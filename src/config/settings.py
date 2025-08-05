@@ -22,12 +22,23 @@ class StreamSettings:
 	Access via Settings.stream
 	"""
 
-	url: str = "rtmp://192.168.101.191/live/livestream"
-	key: str = "your_stream_key"
 	resolution: tuple[int, int] = (3840, 1080)
-	fps: int = 30
+	fps: int = 60
+	thread_queue_size: int = 1
+	realtime: bool = True
+	fflags: str = 'nobuffer'
+	vcodec: str = 'h264_v4l2m2m'
+	format: str = 'flv'
+	preset: str = 'ultrafast'
+	tune: str = 'zerolatency'
+	threads: int = 4
+	gop: int = 60
+	pixel_format: str = 'yuv420p'
 	bitrate: int = 4000
-	preset: str = 'veryfast'
+	buffer_seconds: int = 3
+	@property
+	def buffer_size(self) -> int:
+		return self.buffer_seconds * self.fps
 
 
 @dataclass(frozen=True)
@@ -64,7 +75,7 @@ class Settings:
 
 	# class variables initialized once
 	camera: CameraSettings = CameraSettings()
-	stream: StreamSettings = StreamSettings('', '')
+	stream: StreamSettings = StreamSettings()
 	fov: FOVSettings = FOVSettings(camera_settings=camera)
 
 

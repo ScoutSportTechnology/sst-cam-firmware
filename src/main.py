@@ -1,4 +1,3 @@
-import keyboard
 import uvicorn
 
 from app.adapters.hardware.camera import Picamera2Adapter
@@ -26,11 +25,6 @@ def main() -> None:
 
 	for chunk in gen:
 		print(chunk)
-
-	if keyboard.is_pressed('q'):
-		stream_controller.stop()
-		print('Stream stopped')
-		return
 
 	# api_adapter = FastAPIAdapter()
 	# ApiService(api=api_adapter, stream_service=stream_service)
