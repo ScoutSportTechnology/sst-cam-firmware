@@ -19,6 +19,9 @@ class BufferService:
 		self,
 		feed: Generator[Frame, None, None],
 	) -> Generator[Frame, Any, None]:
+		fps = self.settings.stream.fps
+		interval =  (1.0 / fps)
+		next_send = time.time()
 		for _ in range(self.buffer_size):
 			try:
 				frame = next(feed)
@@ -26,24 +29,21 @@ class BufferService:
 				break
 			self.buffer.append(frame)
 
-			fps = self.settings.stream.fps
-			interval = 1.0 / fps
-			next_send = time.time()
-
-			while feed or self.buffer:
+		while feed or self.buffer:
+			if feed:
 				try:
 					frame = next(feed)
 					self.buffer.append(frame)
 				except StopIteration:
 					self.logger.debug('Feed exhausted, waiting for more frames...')
 					frame = None
-				now = time.time()
-				to_sleep = next_send - now
-				if to_sleep > 0:
-					time.sleep(to_sleep)
-				next_send += interval
-				if self.buffer:
-					yield self.buffer.popleft()
-				else:
-					self.logger.debug('Buffer empty, waiting for frames...')
-					continue
+			now = time.time()
+			to_sleep = next_send - now
+			if to_sleep > 0:
+				time.sleep(to_sleep)
+			next_send += interval
+			if self.buffer:
+				yield self.buffer.popleft()
+			else:
+				self.logger.debug('Buffer empty, waiting for frames...')
+				continue

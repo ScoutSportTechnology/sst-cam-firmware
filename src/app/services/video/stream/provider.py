@@ -46,34 +46,21 @@ class StreamProviderService:
 				ctx.width = width
 				ctx.height = height
 				ctx.pix_fmt = 'yuv420p'
-				ctx.bit_rate = 12_000_000  # 12 Mbps
+				ctx.bit_rate = 4_000_000  # 4 Mbps
 				ctx.flags |= CodecFlags.low_delay.value
 				ctx.gop_size = self.settings.stream.buffer_size
 				ctx.options = {
-					'maxrate': '12M',
-					'bufsize': '8M',
-					'g': str(self.settings.stream.buffer_size),
+					'maxrate': '4M',
+					'bufsize': '2M',
 					'profile': 'high',
 					'level': '4.2',
 					'tune': 'zerolatency',
 					'crf': '23',
 				}
 
-				frame_idx = 0
-				interval = 1 / fps
-				next_send = time.time()
 				self.logger.debug('StreamProvider: RTMP streaming started')
 				yield b'RTMP streaming...'
 				for frame_idx, frame in enumerate(feed):
-					now = time.time()
-					to_sleep = next_send - now
-					if to_sleep > 0:
-						time.sleep(to_sleep)
-					next_send += interval
-					try:
-						frame = next(feed)
-					except StopIteration:
-						break
 					av_frame = av.VideoFrame.from_ndarray(
 						frame.data, format=self.settings.camera.pixel_format
 					)

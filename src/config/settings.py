@@ -70,7 +70,7 @@ class StreamSettings:
 	resolution: tuple[int, int] = (1920, 1080)
 	fps: int = 60
 	vcodec: str = 'libx264'
-	buffer_seconds: int = 5
+	buffer_seconds: int = 10
 	buffer_size = buffer_seconds * fps
 
 
