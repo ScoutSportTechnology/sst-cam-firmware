@@ -1,18 +1,65 @@
 from dataclasses import dataclass, field
-from math import radians, tan
+from enum import Enum
+from math import ceil, radians, tan
+
+
+class CaptureMode(Enum):
+	"""
+	Predefined capture modes mapping to resolution, fps, and HDR flag.
+	"""
+
+	NATIVE_2304x1296_56 = ((2304, 1296), 56, False)
+	NATIVE_2304x1296_30 = ((2304, 1296), 30, False)
+	HDR_1536x864_120 = ((1536, 864), 120, True)
+
+	@property
+	def resolution(self) -> tuple[int, int]:
+		return self.value[0]
+
+	@property
+	def fps(self) -> int:
+		return self.value[1]
+
+	@property
+	def hdr(self) -> bool:
+		return self.value[2]
 
 
 @dataclass(frozen=True)
 class CameraSettings:
 	"""
-	Camera parameters: field of view, resolution, frame rate, and pixel format.
+	Camera parameters: field of view, capture mode, and pixel format.
+	Mode drives resolution, fps, and HDR automatically.
 	Access via Settings.camera
 	"""
 
 	fov: int = 120
-	resolution: tuple[int, int] = (1920, 1080)
-	frame_rate: int = 30
-	format: str = 'RGB888'
+
+	mode: CaptureMode = CaptureMode.NATIVE_2304x1296_56
+
+	format: str = 'BGR888'
+
+	sensor_resolution: tuple[int, int] = (4608, 2592)
+	pixel_size: tuple[float, float] = (1.4, 1.4)
+	shutter_type: str = 'Rolling'
+	color_filter: str = 'Quad-Bayer Coded'
+
+	@property
+	def resolution(self) -> tuple[int, int]:
+		return self.mode.resolution
+
+	@property
+	def fps(self) -> int:
+		return self.mode.fps
+
+	@property
+	def hdr(self) -> bool:
+		return self.mode.hdr
+
+	# All supported modes for UI or validation
+	@property
+	def supported_modes(self) -> dict[str, tuple[tuple[int, int], int, bool]]:
+		return {mode.name: (mode.resolution, mode.fps, mode.hdr) for mode in CaptureMode}
 
 
 @dataclass(frozen=True)
@@ -22,23 +69,26 @@ class StreamSettings:
 	Access via Settings.stream
 	"""
 
-	resolution: tuple[int, int] = (3840, 1080)
+	resolution: tuple[int, int] = (1920, 1080)
 	fps: int = 60
 	thread_queue_size: int = 1
 	realtime: bool = True
 	fflags: str = 'nobuffer'
-	vcodec: str = 'h264_v4l2m2m'
+	vcodec: str = 'libx264'
 	format: str = 'flv'
 	preset: str = 'ultrafast'
 	tune: str = 'zerolatency'
-	threads: int = 4
-	gop: int = 60
-	pixel_format: str = 'yuv420p'
-	bitrate: int = 4000
-	buffer_seconds: int = 3
+	pixel_format: str = 'yuv444p'
+	buffer_seconds: int = 5
+	gop: int = fps * buffer_seconds
+	buffer_size = buffer_seconds * fps
+
 	@property
-	def buffer_size(self) -> int:
-		return self.buffer_seconds * self.fps
+	def bitrate(self) -> int:
+		base_bpd = 12_000_000
+		camera_fps = Settings.camera.fps
+		bit_per_frame = base_bpd / camera_fps
+		return int(bit_per_frame * self.fps)
 
 
 @dataclass(frozen=True)

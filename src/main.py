@@ -18,7 +18,7 @@ def main() -> None:
 
 	stream_service = StreamService(video_service)
 
-	stream_controller = StreamController(stream_service, provider=StreamProvider.RTSP)
+	stream_controller = StreamController(stream_service, provider=StreamProvider.RTMP)
 
 	stream_controller.start()
 	gen = stream_controller.feed()

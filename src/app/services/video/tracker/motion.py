@@ -10,7 +10,7 @@ class MotionService:
 	):
 		self.detection_data_old: DetectionData | None = None
 		self.motion_data_old: MotionData | None = None
-		self.dt: float = 1 / Settings.camera.frame_rate
+		self.dt: float = 1 / Settings.camera.fps
 
 	def calculate_motion(
 		self,

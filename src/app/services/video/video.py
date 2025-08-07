@@ -1,9 +1,12 @@
+import time
 from collections.abc import Generator
 
 from app.interfaces.camera import ICamera
 from app.models.frame import Frame
 from app.models.tracking import DetectionData, FrameSideDecision, MotionData, ZoomData
+from app.services.logger import Logger
 from app.services.video import overlay, processor, tracker
+from app.services.video.buffer import BufferService
 
 
 class VideoService:
@@ -16,6 +19,8 @@ class VideoService:
 		self.motion_service = tracker.MotionService()
 		self.zoom_service = tracker.ZoomService()
 		self.side_decider = tracker.FrameSideDecisionService()
+
+		self.logger = Logger(name='video_service')
 
 	def start(self) -> None:
 		if not self.active:
@@ -86,9 +91,15 @@ class VideoService:
 		while self.active:
 			self.get_frames()
 			# self.calibrate()
-			self.preprocess()
+			# self.preprocess()
 			# self.track()
 			# self.transform()
 			# self.overlay()
 			self.postprocess()
-			yield self.frame
+			yield self.frame0
+
+	def feed(self) -> Generator[Frame, None, None]:
+		while self.active:
+			raw_feed = self.frames()
+			buffered_frames = BufferService().feed(raw_feed)
+			yield from buffered_frames

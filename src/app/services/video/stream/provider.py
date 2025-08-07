@@ -1,16 +1,18 @@
-import subprocess
+from collections import deque
 from collections.abc import Generator
 from fractions import Fraction
 from subprocess import DEVNULL, PIPE
 from typing import Any
 
 import av
-import ffmpeg
 import numpy as np
+from av.codec.context import Flags as CodecFlags
+from av.container import Flags as ContainerFlags
 
 from app.models import Frame
 from app.models.stream import StreamProvider
 from app.services.logger import Logger
+from app.services.video.buffer import BufferService
 from config.settings import Settings
 
 
@@ -30,92 +32,46 @@ class StreamProviderService:
 			if self.provider == StreamProvider.RTMP:
 				width, height = self.settings.stream.resolution
 				fps = self.settings.stream.fps
-				cmd = [
-					'ffmpeg',
-					'-re',
-					'-f',
-					'rawvideo',
-					'-pix_fmt',
-					'bgr24',
-					'-s',
-					f'{width}x{height}',
-					'-i',
-					'pipe:0',
-					'-c:v',
-					'libx264',
-					'-preset',
-					'ultrafast',
-					'-tune',
-					'zerolatency',
-					'-f',
-					'flv',
+				time_base = Fraction(1, self.settings.stream.fps)
+				container = av.open(
 					url,
-				]
-				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
-				process = subprocess.Popen(
-					cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+					'w',
+					format='flv',
 				)
-				if process.stdin is not None:
-					try:
-						yield b'RTMP streaming...'
-						for frame in feed:
-							frame_data = frame.data.tobytes()
-							process.stdin.write(frame_data)
-					finally:
-						process.terminate()
-						process.wait()
+				container.flags |= ContainerFlags.no_buffer.value
+				stream = container.add_stream(
+					codec_name='h264',
+					rate=fps,
+				)
+				ctx = stream.codec_context
+				ctx.time_base = time_base
+				ctx.width = width
+				ctx.height = height
+				ctx.pix_fmt = self.settings.stream.pixel_format
+				ctx.bit_rate = self.settings.stream.bitrate
+				ctx.flags |= CodecFlags.low_delay.value
+				ctx.options = {
+					'maxrate': str(self.settings.stream.bitrate),
+					'bufsize': str(self.settings.stream.bitrate // 2),
+					'g': str(self.settings.stream.gop),
+				}
 
-			elif (
-				self.provider == StreamProvider.RTSP
-			):  # RTSP streaming is not implemented in this example, placeholder for RTMP using ffmpeg
-				width, height = self.settings.stream.resolution
-				fps = self.settings.stream.fps
-				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
-				stream = ffmpeg.input(
-					'pipe:0',
-					**({'re': None} if self.settings.stream.realtime else {}),
-					**(
-						{'fflags': self.settings.stream.fflags}
-						if self.settings.stream.fflags
-						else {}
-					),
-					format='rawvideo',
-					pix_fmt='bgr24',
-					s=f'{width}x{height}',
-					r=Fraction(fps),
-					thread_queue_size=self.settings.stream.thread_queue_size,
-				)
-				stream = ffmpeg.output(
-					stream,
-					url,
-					format=self.settings.stream.format,
-					vcodec=self.settings.stream.vcodec,
-					preset=self.settings.stream.preset,
-					tune=self.settings.stream.tune,
-					threads=self.settings.stream.threads,
-					g=self.settings.stream.gop,
-					pix_fmt=self.settings.stream.pixel_format,
-					b=f'{self.settings.stream.bitrate}k',
-					maxrate=f'{self.settings.stream.bitrate}k',
-					bufsize=f'{self.settings.stream.bitrate // 2}k',
-				)
-				self.logger.debug(f'StreamProvider: spawning ffmpeg → {url}')
-				args = stream.get_args()
-				self.logger.debug(f'FFMPEG command: {" ".join(args)}')
-				process = ffmpeg.run_async(
-					stream,
-					pipe_stdin=True,
-					pipe_stdout=True,
-					pipe_stderr=True,
-				)
-				if process.stdin is not None:
-					try:
-						yield b'RTMP streaming...'
-						for frame in feed:
-							process.stdin.write(frame.data.tobytes())
-					finally:
-						process.stdin.close()
-						process.wait()
+				try:
+					yield b'RTMP streaming...'
+					for frame_idx, frame in enumerate(feed):
+						av_frame = av.VideoFrame.from_ndarray(frame.data, format='bgr24')
+						av_frame.pts = frame_idx
+						av_frame.time_base = time_base
+						for packet in stream.encode(av_frame):
+							container.mux(packet)
+					for packet in stream.encode():
+						container.mux(packet)
+					self.logger.debug('Closing container after encoding frame')
+					container.close()
+				finally:
+					self.logger.debug('StreamProvider: RTMP streaming completed')
+					yield b'RTMP streaming completed'
+				return
 
 			else:
 				for frame in feed:

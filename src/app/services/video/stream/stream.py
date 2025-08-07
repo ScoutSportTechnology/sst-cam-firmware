@@ -1,7 +1,5 @@
-import subprocess
-import threading
 from collections.abc import Generator
-from typing import Any, final
+from typing import Any
 
 import cv2
 
@@ -48,7 +46,7 @@ class StreamService(IStream):
 		self.provider = stream_provider
 
 		if self.active and self.video_service.status() == 'active':
-			feed: Generator[Frame, None, None] = self.video_service.frames()
+			feed: Generator[Frame, None, None] = self.video_service.feed()
 			stream_provider_service = StreamProviderService(self.provider, self.active)
 			if self.provider == StreamProvider.HTTP:
 				for frame in feed:
@@ -67,38 +65,6 @@ class StreamService(IStream):
 			elif self.provider == StreamProvider.RTMP:
 				self.logger.debug(f'RTMP stream started with URL: {url}')
 				yield from stream_provider_service.provide(feed, url)
-				return
-
-			elif self.provider == StreamProvider.RTSP:
-				self.logger.debug(f'RTSP stream started with URL: {url}')
-				yield from stream_provider_service.provide(feed, url)
-				return
-
-			elif self.provider == StreamProvider.FFMPEG:
-				self.logger.debug('Starting to provide FFMPEG stream with feed...')
-				cmd = [
-					'ffmpeg',
-					'-re',
-					'-f',
-					'lavfi',
-					'-i',
-					'testsrc=duration=30:size=1920x1080:rate=15',
-					'-c:v',
-					'libx264',
-					'-preset',
-					'ultrafast',
-					'-tune',
-					'zerolatency',
-					'-f',
-					'flv',
-					url,
-				]
-				process = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-				self.logger.debug(f'Process Logs {process.stdout}')
-				while self.active:
-					yield b'FFMPEG streaming...'
-				process.terminate()
-				process.wait()
 				return
 
 			else:
