@@ -66,8 +66,10 @@ class StreamProviderService:
 					)
 					av_frame.pts = frame_idx
 					av_frame.time_base = time_base
+					
 					for packet in stream.encode(av_frame):
 						container.mux(packet)
+						
 				for packet in stream.encode():
 					container.mux(packet)
 				self.logger.debug('Closing container after encoding frame')
