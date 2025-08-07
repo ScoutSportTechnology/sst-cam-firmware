@@ -38,13 +38,13 @@ class Picamera2Adapter(ICamera):
 		self.focus()
 		self.picam.configure(self.video_config)
 		self.active = False
-		self.logger.debug(f'Initialized Picamera2 camera {self.camera_index}')
+		"""self.logger.debug(f'Initialized Picamera2 camera {self.camera_index}')
 		self.logger.debug('Picamera Camera Properties:', self.picam.camera_properties_)
 		self.logger.debug('Picamera Options:', self.picam.options)
 		self.logger.debug('Picamera Controls:', self.picam.controls)
 		self.logger.debug('Picamera Sensor Format:', self.picam.sensor_format)
 		self.logger.debug('Picamera Sensor Modes:', self.picam.sensor_modes_)
-		self.logger.debug('Picamera Sensor Resolution:', self.picam.sensor_resolution)
+		self.logger.debug('Picamera Sensor Resolution:', self.picam.sensor_resolution)"""
 
 	def start(self) -> None:
 		if not self.active:

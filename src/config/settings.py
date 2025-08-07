@@ -34,11 +34,9 @@ class CameraSettings:
 	"""
 
 	fov: int = 120
-
 	mode: CaptureMode = CaptureMode.NATIVE_2304x1296_56
-
-	format: str = 'BGR888'
-
+	format: str = 'YUV420'
+	pixel_format: str = 'yuv420p'
 	sensor_resolution: tuple[int, int] = (4608, 2592)
 	pixel_size: tuple[float, float] = (1.4, 1.4)
 	shutter_type: str = 'Rolling'
@@ -71,24 +69,9 @@ class StreamSettings:
 
 	resolution: tuple[int, int] = (1920, 1080)
 	fps: int = 60
-	thread_queue_size: int = 1
-	realtime: bool = True
-	fflags: str = 'nobuffer'
 	vcodec: str = 'libx264'
-	format: str = 'flv'
-	preset: str = 'ultrafast'
-	tune: str = 'zerolatency'
-	pixel_format: str = 'yuv444p'
 	buffer_seconds: int = 5
-	gop: int = fps * buffer_seconds
 	buffer_size = buffer_seconds * fps
-
-	@property
-	def bitrate(self) -> int:
-		base_bpd = 12_000_000
-		camera_fps = Settings.camera.fps
-		bit_per_frame = base_bpd / camera_fps
-		return int(bit_per_frame * self.fps)
 
 
 @dataclass(frozen=True)

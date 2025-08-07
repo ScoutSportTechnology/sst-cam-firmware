@@ -1,7 +1,6 @@
-from collections import deque
+import time
 from collections.abc import Generator
 from fractions import Fraction
-from subprocess import DEVNULL, PIPE
 from typing import Any
 
 import av
@@ -12,7 +11,6 @@ from av.container import Flags as ContainerFlags
 from app.models import Frame
 from app.models.stream import StreamProvider
 from app.services.logger import Logger
-from app.services.video.buffer import BufferService
 from config.settings import Settings
 
 
@@ -47,30 +45,47 @@ class StreamProviderService:
 				ctx.time_base = time_base
 				ctx.width = width
 				ctx.height = height
-				ctx.pix_fmt = self.settings.stream.pixel_format
-				ctx.bit_rate = self.settings.stream.bitrate
+				ctx.pix_fmt = 'yuv420p'
+				ctx.bit_rate = 12_000_000  # 12 Mbps
 				ctx.flags |= CodecFlags.low_delay.value
+				ctx.gop_size = self.settings.stream.buffer_size
 				ctx.options = {
-					'maxrate': str(self.settings.stream.bitrate),
-					'bufsize': str(self.settings.stream.bitrate // 2),
-					'g': str(self.settings.stream.gop),
+					'maxrate': '12M',
+					'bufsize': '8M',
+					'g': str(self.settings.stream.buffer_size),
+					'profile': 'high',
+					'level': '4.2',
+					'tune': 'zerolatency',
+					'crf': '23',
 				}
 
-				try:
-					yield b'RTMP streaming...'
-					for frame_idx, frame in enumerate(feed):
-						av_frame = av.VideoFrame.from_ndarray(frame.data, format='bgr24')
-						av_frame.pts = frame_idx
-						av_frame.time_base = time_base
-						for packet in stream.encode(av_frame):
-							container.mux(packet)
-					for packet in stream.encode():
+				frame_idx = 0
+				interval = 1 / fps
+				next_send = time.time()
+				yield b'RTMP streaming...'
+				for frame_idx, frame in enumerate(feed):
+					now = time.time()
+					to_sleep = next_send - now
+					if to_sleep > 0:
+						time.sleep(to_sleep)
+					next_send += interval
+					try:
+						frame = next(feed)
+					except StopIteration:
+						break
+					av_frame = av.VideoFrame.from_ndarray(
+						frame.data, format=self.settings.camera.pixel_format
+					)
+					av_frame.pts = frame_idx
+					av_frame.time_base = time_base
+					for packet in stream.encode(av_frame):
 						container.mux(packet)
-					self.logger.debug('Closing container after encoding frame')
-					container.close()
-				finally:
-					self.logger.debug('StreamProvider: RTMP streaming completed')
-					yield b'RTMP streaming completed'
+				for packet in stream.encode():
+					container.mux(packet)
+				self.logger.debug('Closing container after encoding frame')
+				container.close()
+				self.logger.debug('StreamProvider: RTMP streaming completed')
+				yield b'RTMP streaming completed'
 				return
 
 			else:
