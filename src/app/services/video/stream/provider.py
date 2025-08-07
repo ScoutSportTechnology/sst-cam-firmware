@@ -62,6 +62,7 @@ class StreamProviderService:
 				frame_idx = 0
 				interval = 1 / fps
 				next_send = time.time()
+				self.logger.debug('StreamProvider: RTMP streaming started')
 				yield b'RTMP streaming...'
 				for frame_idx, frame in enumerate(feed):
 					now = time.time()
