@@ -1,4 +1,5 @@
 import time
+from math import ceil
 
 import cv2
 import numpy as np
@@ -31,7 +32,13 @@ class VideoPostProcessorService:
 		frame_data = frame_0_data
 		frame_data = cv2.resize(
 			frame_data,
-			(self.settings.stream.resolution[0], self.settings.stream.resolution[1]),
+			(
+				self.settings.stream.resolution[0],
+				ceil(self.settings.stream.resolution[1]),
+			),
+			interpolation=cv2.INTER_LINEAR,
 		)
+		if self.settings.camera.pix_fmt == 'h264':
+			frame_data = cv2.cvtColor(frame_data, cv2.COLOR_BGR2YUV_I420)
 
 		return Frame(data=frame_data, timestamp=self._last_frame_time)

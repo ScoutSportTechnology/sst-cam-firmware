@@ -26,7 +26,7 @@ class Picamera2Adapter(ICamera):
 
 		if settings.camera.hdr:
 			cam = IMX708(self.camera_index)
-			cam.set_sensor_hdr_mode(True)
+			cam.set_sensor_hdr_mode(False)
 			cam.close()
 
 		self.picam = Picamera2(camera_num=self.camera_index)
@@ -77,7 +77,8 @@ class Picamera2Adapter(ICamera):
 		# print(self.picam.camera_controls)
 
 	def get_frame(self) -> Frame:
-		return self._frame_q.get(timeout=self.timeout)
+		frame = self._frame_q.get(timeout=self.timeout)
+		return frame
 
 	def restart(self) -> None:
 		self.stop()

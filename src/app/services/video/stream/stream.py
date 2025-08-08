@@ -46,7 +46,7 @@ class StreamService(IStream):
 		self.provider = stream_provider
 
 		if self.active and self.video_service.status() == 'active':
-			feed: Generator[Frame, None, None] = self.video_service.feed()
+			feed: Generator[Frame, None, None] = self.video_service.frames()
 			stream_provider_service = StreamProviderService(self.provider, self.active)
 			if self.provider == StreamProvider.HTTP:
 				for frame in feed:
