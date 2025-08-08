@@ -41,6 +41,7 @@ class StreamProviderService:
 					codec_name='h264',
 					rate=fps,
 				)
+				stream.time_base = time_base
 				ctx = stream.codec_context
 				ctx.time_base = time_base
 				ctx.width = width
@@ -51,27 +52,45 @@ class StreamProviderService:
 				ctx.gop_size = self.settings.stream.buffer_size
 				ctx.options = {
 					'maxrate': '4M',
-					'bufsize': '2M',
+					'bufsize': '4M',
 					'profile': 'high',
 					'level': '4.2',
 					'tune': 'zerolatency',
-					'crf': '23',
+					'preset': 'veryfast',
+					'rc-lookahead': '0',
+					'keyint_min': str(self.settings.stream.buffer_size),
+					'g': str(self.settings.stream.buffer_size),
+					'scenecut': '0',
+					'x264-params': 'force-cfr=1:nal-hrd=cbr:bframes=0',
 				}
 
 				self.logger.debug('StreamProvider: RTMP streaming started')
 				yield b'RTMP streaming...'
 				for frame_idx, frame in enumerate(feed):
+					self.logger.debug(
+						f'Frame Size: {frame.data.shape} with format {frame.data.dtype}'
+					)
 					av_frame = av.VideoFrame.from_ndarray(
 						frame.data, format=self.settings.camera.pixel_format
 					)
+					self.logger.debug(
+						f'Frame {frame_idx}: {av_frame.width}x{av_frame.height}, '
+						f'Format: {av_frame.format.name}'
+					)
+					if (
+						av_frame.width != width
+						or av_frame.height != height
+						or av_frame.format.name != self.settings.camera.pixel_format
+					):
+						av_frame = av_frame.reformat(width, height, self.settings.camera.pixel_format)
 					av_frame.pts = frame_idx
-					av_frame.time_base = time_base
-					
+
 					for packet in stream.encode(av_frame):
 						container.mux(packet)
-						
+
 				for packet in stream.encode():
 					container.mux(packet)
+
 				self.logger.debug('Closing container after encoding frame')
 				container.close()
 				self.logger.debug('StreamProvider: RTMP streaming completed')

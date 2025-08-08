@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from app.models.frame import Frame
+from app.services.logger.loger import Logger
 from config.settings import Settings
 
 
@@ -13,6 +14,7 @@ class VideoPostProcessorService:
 		self._last_frame_time = 0
 		self._target_fps = 60
 		self._target_frame_duration = 1.0 / self._target_fps
+		self.logger = Logger(name='video_post_processor_service')
 
 	def process(self, frame_0: Frame, frame_1: Frame) -> Frame:
 		now = time.time()

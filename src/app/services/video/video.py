@@ -96,7 +96,7 @@ class VideoService:
 			# self.transform()
 			# self.overlay()
 			self.postprocess()
-			yield self.frame0
+			yield self.frame
 
 	def feed(self) -> Generator[Frame, None, None]:
 		while self.active:
