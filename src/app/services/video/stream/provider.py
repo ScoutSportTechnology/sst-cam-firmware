@@ -43,56 +43,47 @@ class StreamProviderService:
 					codec_name='h264',
 					rate=fps,
 					options={
-						'preset': 'veryfast',
+						'preset': 'ultrafast',
 						'tune': 'zerolatency',
-						'profile': 'high',
 						'level': '4.2',
-						'b': f'{bitrate}',
-						'x264-params': (
-							f'bitrate={bitrate / 1000}:'
-							f'vbv-maxrate={bitrate / 1000}:'
-							f'vbv-bufsize={bitrate / 1000}:'
-							f'nal-hrd=cbr:'
-							f'filler=1:'
-							f'keyint={gop_size}:'
-							f'min-keyint={gop_size}:'
-							f'scenecut=0:'
-							f'bframes=2:'
-							f'ref=1:'
-							f'rc-lookahead=0:'
-							f'colorprim=bt709:'
-							f'transfer=bt709:'
-							f'colormatrix=bt709:'
-						),
 					},
 				)
-				ctx = stream.codec_context
-				ctx.time_base = time_base
-				ctx.width = width
-				ctx.height = height
-				#ctx.pix_fmt = self.settings.camera.pix_fmt
-				ctx.bit_rate = bitrate
-				ctx.gop_size = gop_size
-				ctx.max_b_frames = 2
 
-				self.logger.debug('StreamProvider: RTMP streaming started')
-				yield b'RTMP streaming...'
-				for frame_idx, frame in enumerate(feed):
-					av_frame = av.VideoFrame.from_ndarray(
-						frame.data, format=self.settings.camera.pix_fmt
-					)
-					av_frame.pts = frame_idx
-					av_frame.time_base = time_base
+				stream.pix_fmt = 'yuv420p'
+				stream.width = width
+				stream.height = height
+				stream.profile = 'high422'
+				stream.gop_size = gop_size
+				stream.bit_rate = bitrate
+				stream.color_primaries = 1 # BT.709
+				stream.color_trc = 1 # BT.709
+				stream.colorspace = 1 # BT.709
+				stream.color_range = 0 # Full range
+				stream.max_b_frames = 2
+				
+				try:
+					self.logger.debug('StreamProvider: RTMP streaming started')
+					yield b'RTMP streaming...'
+					for frame_idx, frame in enumerate(feed):
+						av_frame = av.VideoFrame.from_ndarray(
+							frame.data, format=self.settings.camera.pix_fmt
+						)
+						av_frame.pts = frame_idx
+						av_frame.time_base = time_base
+						
+						for packet in stream.encode(av_frame):
+							container.mux(packet)
 
-					for packet in stream.encode(av_frame):
+					for packet in stream.encode():
 						container.mux(packet)
 
-				for packet in stream.encode():
-					container.mux(packet)
-
-				container.close()
-				yield b'RTMP streaming completed'
-				return
+					container.close()
+					
+					yield b'RTMP streaming completed'
+					return
+				except av.EOFError:
+					self.logger.error('RTMP streaming ended unexpectedly (EOFError)')
+					pass
 
 			else:
 				for frame in feed:

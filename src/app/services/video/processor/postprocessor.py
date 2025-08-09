@@ -28,8 +28,7 @@ class VideoPostProcessorService:
 		frame_0_data = frame_0.data
 		frame_1_data = frame_1.data
 
-		# frame_data = cv2.hconcat((frame_0_data, frame_1_data))
-		frame_data = frame_0_data
+		frame_data = cv2.hconcat((frame_0_data, frame_1_data))
 		frame_data = cv2.resize(
 			frame_data,
 			(
@@ -38,7 +37,5 @@ class VideoPostProcessorService:
 			),
 			interpolation=cv2.INTER_LINEAR,
 		)
-		if self.settings.camera.pix_fmt == 'h264':
-			frame_data = cv2.cvtColor(frame_data, cv2.COLOR_BGR2YUV_I420)
 
 		return Frame(data=frame_data, timestamp=self._last_frame_time)
