@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>StrixCam Stream</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    {{style}}
+  </style>
+  <script src="https://unpkg.com/srs-player@latest/dist/srs.min.js"></script>
+</head>
+<body>
+  <h1>StrixCam Stream</h1>
+
+  <!-- Selector de fuente -->
+  <div class="source-selector">
+    <label><input type="radio" name="source" value="flv" checked> HTTP-FLV</label>
+    <label><input type="radio" name="source" value="hls"> HLS</label>
+  </div>
+
+  <!-- Contenedor srs-player -->
+  <div id="player-container">
+    <video id="player" controls></video>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">Start</button>
+    <button id="stopBtn">Stop</button>
+    <button id="statusBtn">Status</button>
+    <button id="focusBtn">Focus</button>
+  </div>
+  <p id="status">Status: Unknown</p>
+  <script>
+    {{script}}
+  </script>
+</body>
+</html>

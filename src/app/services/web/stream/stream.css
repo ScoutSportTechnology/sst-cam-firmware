@@ -1,0 +1,24 @@
+body {
+  font-family: sans-serif;
+  text-align: center;
+  margin-top: 40px;
+}
+
+button {
+  margin: 5px;
+  padding: 10px 20px;
+  font-size: 16px;
+}
+
+#player {
+  width: 100%;
+  height: auto;
+}
+
+.source-selector {
+  margin-bottom: 20px;
+}
+
+.controls {
+  margin-top: 12px;
+}

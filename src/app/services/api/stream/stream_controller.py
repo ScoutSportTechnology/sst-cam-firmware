@@ -28,8 +28,9 @@ class StreamController(IApiController):
 
 	def start(self) -> dict:
 		if not self.active:
-			self.stream_service.start()
 			self.active = True
+			self.stream_service.start()
+			self.feed()
 
 		return {'status': 'Stream started'}
 

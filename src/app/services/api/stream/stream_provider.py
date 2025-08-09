@@ -90,17 +90,17 @@ class StreamProviderService:
 			stream.pix_fmt = 'yuv420p'
 			stream.width = width
 			stream.height = height
-			stream.profile = 'high'
+			stream.profile = 'high422'
 			stream.gop_size = gop_size
 			stream.bit_rate = bitrate
 			stream.color_primaries = 1  # BT.709
 			stream.color_trc = 1  # BT.709
 			stream.colorspace = 1  # BT.709
 			stream.color_range = 0  # Full range
-			# stream.max_b_frames = 2
+			stream.max_b_frames = 2
 
 			try:
-				self.logger.debug('StreamProvider: RTMP streaming started')
+				self.logger.debug('RTMP streaming started')
 				for frame_idx, frame in enumerate(feed):
 					av_frame = av.VideoFrame.from_ndarray(
 						frame.data, format=self.settings.camera.pix_fmt
@@ -116,7 +116,7 @@ class StreamProviderService:
 				pass
 			finally:
 				container.close()
-				self.logger.debug('StreamProvider: RTMP streaming ended')
+				self.logger.debug('RTMP streaming ended')
 		except Exception as e:
 			self.logger.error(f'RTMP streaming error: {e}')
 			pass
