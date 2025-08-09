@@ -10,10 +10,18 @@ class VideoPreProcessorService:
 		self.settings = Settings
 
 	def process(self, frame: Frame) -> Frame:
-		# resized = cv2.resize(frame.data, (1920, 1080), interpolation=cv2.INTER_LINEAR)
-		# colored = cv2.cvtColor(frame.data, cv2.COLOR_RGB2BGR)
-		data = frame.data
 		timestamp = frame.timestamp
-		reduced_noise = cv2.bilateralFilter(data, d=5, sigmaColor=75, sigmaSpace=75)
-		processed_frame = reduced_noise
+		data = frame.data
+		resized = cv2.resize(
+			data,
+			(self.settings.stream.resolution[0], self.settings.stream.resolution[1]),
+			interpolation=cv2.INTER_AREA,
+		)
+		size = (5, 5)
+		reduced_blur = cv2.GaussianBlur(
+			resized, ksize=size, sigmaX=0, borderType=cv2.BORDER_DEFAULT
+		)
+		amount = 0.18
+		sharpen = cv2.addWeighted(resized, 1 + amount, reduced_blur, -amount, 0)
+		processed_frame = sharpen
 		return Frame(data=processed_frame, timestamp=timestamp)

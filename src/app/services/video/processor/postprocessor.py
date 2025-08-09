@@ -29,13 +29,5 @@ class VideoPostProcessorService:
 		frame_1_data = frame_1.data
 
 		frame_data = cv2.hconcat((frame_0_data, frame_1_data))
-		frame_data = cv2.resize(
-			frame_data,
-			(
-				self.settings.stream.resolution[0],
-				ceil(self.settings.stream.resolution[1]),
-			),
-			interpolation=cv2.INTER_LINEAR,
-		)
 
 		return Frame(data=frame_data, timestamp=self._last_frame_time)

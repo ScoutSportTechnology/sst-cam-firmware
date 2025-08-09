@@ -28,5 +28,5 @@ class IStream(ABC):
 	def feed(
 		self,
 		stream_provider: StreamProvider,
-		url: str | None = None,
-	) -> Generator[bytes, Any, None]: ...
+		url: str,
+	) -> None: ...

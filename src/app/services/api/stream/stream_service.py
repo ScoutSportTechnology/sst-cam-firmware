@@ -6,9 +6,9 @@ import cv2
 from app.interfaces.stream import IStream
 from app.models import Frame
 from app.models.stream import EncodeType, StreamProvider
+from app.services.api.stream import StreamProviderService
 from app.services.logger import Logger
 from app.services.video import VideoService
-from app.services.video.stream import StreamProviderService
 from config.settings import Settings
 
 
@@ -27,6 +27,7 @@ class StreamService(IStream):
 	def stop(self) -> None:
 		if self.active:
 			self.video_service.stop()
+			self.stream_provider_service.stop()
 			self.active = False
 
 	def get_status(self) -> str:
@@ -41,38 +42,11 @@ class StreamService(IStream):
 	def feed(
 		self,
 		stream_provider: StreamProvider,
-		url: str | None = None,
-	) -> Generator[bytes, Any, None]:
+		url: str,
+	) -> None:
 		self.provider = stream_provider
-
+		self.logger.debug(f'Starting feed for provider: {self.provider.value}')
 		if self.active and self.video_service.status() == 'active':
 			feed: Generator[Frame, None, None] = self.video_service.frames()
-			stream_provider_service = StreamProviderService(self.provider, self.active)
-			if self.provider == StreamProvider.HTTP:
-				for frame in feed:
-					success, buffer = cv2.imencode(
-						f'.{EncodeType.JPEG.value}',
-						frame.data,
-						(int(cv2.IMWRITE_JPEG_QUALITY), 100),
-					)
-					if not success:
-						self.logger.error('Failed to encode frame, skipping...')
-						continue
-					bytes = buffer.tobytes()
-					yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + bytes + b'\r\n'
-				return
-
-			elif self.provider == StreamProvider.RTMP:
-				self.logger.debug(f'RTMP stream started with URL: {url}')
-				yield from stream_provider_service.provide(feed, url)
-				return
-
-			else:
-				for frame in feed:
-					self.logger.debug('Processing frame to bytes')
-					yield frame.data.tobytes()
-				return
-		else:
-			self.logger.warning('Stream is not active, cannot provide feed')
-			yield b'Stream is inactive, cannot provide feed'
-			return
+			self.stream_provider_service = StreamProviderService(self.provider, self.active)
+			self.stream_provider_service.start(feed, url)

@@ -10,7 +10,6 @@ from app.interfaces.api.controller import IApiController
 from app.models import frame
 from app.models.stream import EncodeType, StreamProvider
 from app.services.logger import Logger
-from app.services.video.stream import StreamProviderService
 from config.settings import Settings
 
 
@@ -21,6 +20,7 @@ class StreamController(IApiController):
 		self.settings = Settings
 		self.logger = Logger(name='stream_controller')
 		self.active = False
+		self._worker: threading.Thread | None = None
 
 	@property
 	def provider(self) -> StreamProvider:
@@ -29,8 +29,8 @@ class StreamController(IApiController):
 	def start(self) -> dict:
 		if not self.active:
 			self.stream_service.start()
-			self.logger.debug(f'Stream started with provider: {self.stream_provider.value}')
 			self.active = True
+
 		return {'status': 'Stream started'}
 
 	def stop(self) -> dict:
@@ -52,14 +52,13 @@ class StreamController(IApiController):
 			self.logger.warning('Cannot adjust focus, stream is not active')
 			return {'status': 'Stream is inactive, cannot adjust focus'}
 
-	def feed(self) -> Generator[bytes, Any, None]:
+	def feed(self) -> dict:
 		if self.active:
-			feed = self.stream_service.feed(
-				stream_provider=self.stream_provider, url='rtmp://192.168.101.191/live/livestream'
+			self.stream_service.feed(
+				stream_provider=self.stream_provider,
+				url='rtmp://192.168.101.191/live/livestream',
 			)
-			yield from feed
-			return
+			return {'status': 'Feed started'}
 		else:
-			self.logger.warning('Stream is not active, cannot provide feed')
-			yield b'Stream is inactive, cannot provide feed'
-			return
+			self.logger.warning('Cannot provide feed, stream is not active')
+			return {'status': 'Stream is inactive, cannot provide feed'}

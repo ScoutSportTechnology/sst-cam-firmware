@@ -67,7 +67,7 @@ class StreamSettings:
 	Access via Settings.stream
 	"""
 
-	resolution: tuple[int, int] = (3840, 1080)  # 2x(1920, 1080)
+	resolution: tuple[int, int] = (1920, 1080)  # (3840, 1080)
 	buffer_seconds: int = 2
 
 	@property

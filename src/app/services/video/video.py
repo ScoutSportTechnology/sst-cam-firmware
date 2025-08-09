@@ -90,8 +90,7 @@ class VideoService:
 	def frames(self) -> Generator[Frame, None, None]:
 		while self.active:
 			self.get_frames()
-			# self.calibrate()
-			# self.preprocess()
+			self.preprocess()
 			# self.track()
 			# self.transform()
 			# self.overlay()
