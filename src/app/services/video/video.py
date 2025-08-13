@@ -40,14 +40,13 @@ class VideoService(IVideoService):
 	def status(self) -> bool:
 		return self.active
 
-	def _focus(self) -> None:
+	def focus(self) -> None:
 		self.cam0.focus()
 		self.cam1.focus()
 
 	def _get_frames(self) -> None:
 		self.frame0 = self.cam0.get_frame()
 		self.frame1 = self.cam1.get_frame()
-
 
 	def _preprocess(self) -> list[Frame]:
 		self.frame0 = VideoPreProcessorService().process(self.frame0)

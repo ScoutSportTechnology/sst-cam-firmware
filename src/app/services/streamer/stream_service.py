@@ -3,6 +3,7 @@ from typing import Any
 
 import cv2
 
+from app.interfaces.capturer import IVideoService
 from app.interfaces.streamer import IStreamProvider, IStreamService
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
@@ -13,7 +14,7 @@ from config.settings import Settings
 
 
 class StreamService(IStreamService):
-	def __init__(self, video_service: VideoService) -> None:
+	def __init__(self, video_service: IVideoService) -> None:
 		self.active = False
 		self.video_service = video_service
 		self.settings = Settings

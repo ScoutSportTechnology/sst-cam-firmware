@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Generator
 from typing import Any, Optional
 
-from app.models import Frame
+from app.models.capturer import Frame
 from app.services.logger import Logger
 from config.settings import Settings
 

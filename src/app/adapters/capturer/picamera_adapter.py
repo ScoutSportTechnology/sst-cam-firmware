@@ -6,7 +6,6 @@ import time
 from numpy import uint8
 from numpy.typing import NDArray
 from picamera2 import Picamera2
-from picamera2.devices.imx708 import IMX708
 
 from app.interfaces.capturer import ICamera
 from app.models.capturer import Frame
@@ -24,11 +23,6 @@ class Picamera2Adapter(ICamera):
 		self.timeout = 0.5  # seconds
 
 	def init_camera(self) -> None:
-		if settings.camera.hdr:
-			cam = IMX708(self.camera_index)
-			cam.set_sensor_hdr_mode(False)
-			cam.close()
-
 		self.picam = Picamera2(camera_num=self.camera_index)
 		self.picam.set_logging(logging.ERROR)
 		self.video_config = self.picam.create_video_configuration(
@@ -52,7 +46,7 @@ class Picamera2Adapter(ICamera):
 				self.init_camera()
 				self.picam.start()
 				self.active = True
-				self._thread = threading.Thread(target=self.__capture_loop, daemon=True)
+				self._thread = threading.Thread(target=self._capture_loop, daemon=True)
 				self._thread.start()
 			except Exception as e:
 				self.logger.error(f'Failed to start camera {self.camera_index}: {e}')
@@ -84,7 +78,7 @@ class Picamera2Adapter(ICamera):
 		self.stop()
 		self.start()
 
-	def __capture_loop(self) -> None:
+	def _capture_loop(self) -> None:
 		while self.active:
 			t0 = time.time()
 			request = self.picam.capture_request()
