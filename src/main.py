@@ -1,5 +1,3 @@
-import uvicorn
-
 from app.adapters.capturer import Picamera2Adapter
 from app.models.streamer import StreamProtocol
 from app.services.streamer import StreamService
