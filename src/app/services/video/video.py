@@ -19,13 +19,10 @@ class VideoService(IVideoService):
 	def __init__(self, cam0: ICamera, cam1: ICamera) -> None:
 		self.cam0 = cam0
 		self.cam1 = cam1
-
 		self.active = False
-
 		self.motion_service = MotionService()
 		self.zoom_service = ZoomService()
 		self.side_decider = SideDecisionService()
-
 		self.logger = Logger(name='video_service')
 
 	def start(self) -> None:
