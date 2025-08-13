@@ -58,7 +58,7 @@ class StreamProviderService:
 
 	def _rtmp(
 		self,
-		feed: Generator[Frame, Any | None, None],
+		feed: Generator[Frame, None, None],
 		url: str,
 	) -> None:
 		try:
