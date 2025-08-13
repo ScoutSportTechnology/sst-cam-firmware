@@ -9,10 +9,10 @@ import numpy as np
 from av.container import Flags as ContainerFlags
 from sympy import EX
 
+from app.infra.logger import Logger
 from app.interfaces.streamer import IStreamProvider
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
-from app.services.logger import Logger
 from config.settings import Settings
 
 

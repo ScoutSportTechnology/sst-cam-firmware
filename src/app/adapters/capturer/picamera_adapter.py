@@ -7,9 +7,9 @@ from numpy import uint8
 from numpy.typing import NDArray
 from picamera2 import Picamera2
 
+from app.infra.logger import Logger
 from app.interfaces.capturer import ICamera
 from app.models.capturer import Frame
-from app.services.logger import Logger
 from config.settings import settings
 
 

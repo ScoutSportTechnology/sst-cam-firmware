@@ -4,8 +4,8 @@ from collections import deque
 from collections.abc import Generator
 from typing import Any, Optional
 
+from app.infra.logger import Logger
 from app.models.capturer import Frame
-from app.services.logger import Logger
 from config.settings import Settings
 
 ALPHA = 0.2  # EMA para fps de entrada

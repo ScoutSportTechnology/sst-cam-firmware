@@ -3,11 +3,11 @@ from typing import Any
 
 import cv2
 
+from app.infra.logger import Logger
 from app.interfaces.capturer import IVideoService
 from app.interfaces.streamer import IStreamProvider, IStreamService
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
-from app.services.logger import Logger
 from app.services.streamer.stream_provider import StreamProviderService
 from app.services.video import VideoService
 from config.settings import Settings
