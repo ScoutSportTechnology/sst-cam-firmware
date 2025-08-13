@@ -1,21 +1,13 @@
-from .bounding_box import BoundingBox
-from .detection import (
-	BallDetection,
-	CourtDetection,
-	DetectionData,
-	PlayerDetection,
+from .detection_data import (
+    DetectionData,
 )
-from .frame_side_decision import FrameSideDecision
-from .motion import MotionData
-from .zoom import ZoomData
+from .motion_data import MotionData
+from .side_decision_data import SideDecisionData
+from .zoom_data import ZoomData
 
 __all__ = [
-	'BoundingBox',
-	'BallDetection',
-	'CourtDetection',
-	'DetectionData',
-	'PlayerDetection',
-	'FrameSideDecision',
-	'MotionData',
-	'ZoomData',
+    "DetectionData",
+    "SideDecisionData",
+    "MotionData",
+    "ZoomData",
 ]

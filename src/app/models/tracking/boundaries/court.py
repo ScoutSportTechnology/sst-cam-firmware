@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.models.general.point import Point
+from .point import Point
 
 
 @dataclass

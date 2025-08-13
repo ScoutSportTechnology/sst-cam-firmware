@@ -1,7 +1,5 @@
-from .court import Court
-from .point import Point
+from .sides import Sides
 
 __all__ = [
-	'Court',
-	'Point',
+    "Sides",
 ]
