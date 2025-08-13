@@ -1,24 +1,30 @@
 import time
 from collections.abc import Generator
 
-from app.interfaces.camera import ICamera
-from app.models.frame import Frame
-from app.models.tracking import DetectionData, FrameSideDecision, MotionData, ZoomData
+from app.interfaces.capturer import ICamera
+from app.interfaces.capturer.video import IVideoService
+from app.models.capturer import Frame
+from app.models.tracker import DetectionData, MotionData, SideDecisionData, ZoomData
+from app.services.bufferer import BufferService
 from app.services.logger import Logger
-from app.services.video import overlay, processor, tracker
-from app.services.video.buffer import BufferService
+from app.services.processor import (
+	VideoPostProcessorService,
+	VideoPreProcessorService,
+	VideoTransformationService,
+)
+from app.services.tracker import MotionService, SideDecisionService, ZoomService
 
 
-class VideoService:
+class VideoService(IVideoService):
 	def __init__(self, cam0: ICamera, cam1: ICamera) -> None:
 		self.cam0 = cam0
 		self.cam1 = cam1
 
 		self.active = False
 
-		self.motion_service = tracker.MotionService()
-		self.zoom_service = tracker.ZoomService()
-		self.side_decider = tracker.FrameSideDecisionService()
+		self.motion_service = MotionService()
+		self.zoom_service = ZoomService()
+		self.side_decider = SideDecisionService()
 
 		self.logger = Logger(name='video_service')
 
@@ -34,35 +40,28 @@ class VideoService:
 			self.cam1.stop()
 			self.active = False
 
-	def status(self) -> str:
-		return 'active' if self.active else 'inactive'
+	def status(self) -> bool:
+		return self.active
 
-	def focus(self) -> None:
+	def _focus(self) -> None:
 		self.cam0.focus()
 		self.cam1.focus()
 
-	def get_frames(self) -> None:
+	def _get_frames(self) -> None:
 		self.frame0 = self.cam0.get_frame()
 		self.frame1 = self.cam1.get_frame()
 
-	def calibrate(self) -> None:
-		# Placeholder for calibration logic
-		pass
 
-	# def overlay(self) -> None:
-	# Placeholder for overlay logic
-	# pass
-
-	def preprocess(self) -> list[Frame]:
-		self.frame0 = processor.VideoPreProcessorService().process(self.frame0)
-		self.frame1 = processor.VideoPreProcessorService().process(self.frame1)
+	def _preprocess(self) -> list[Frame]:
+		self.frame0 = VideoPreProcessorService().process(self.frame0)
+		self.frame1 = VideoPreProcessorService().process(self.frame1)
 		return [self.frame0, self.frame1]
 
-	def postprocess(self) -> Frame:
-		self.frame = processor.VideoPostProcessorService().process(self.frame0, self.frame1)
+	def _postprocess(self) -> Frame:
+		self.frame = VideoPostProcessorService().process(self.frame0, self.frame1)
 		return self.frame
 
-	def track(self) -> None:
+	def _track(self) -> None:
 		detection_data_0: DetectionData | None = None  # i havent done this yet
 		detection_data_1: DetectionData | None = None
 
@@ -70,8 +69,8 @@ class VideoService:
 			motion_data_0: MotionData = self.motion_service.calculate_motion(detection_data_0)
 			motion_data_1: MotionData = self.motion_service.calculate_motion(detection_data_1)
 
-			side: FrameSideDecision = self.side_decider.decide_side(motion_data_0, motion_data_1)
-			if side == FrameSideDecision.side.LEFT:
+			side: SideDecisionData = self.side_decider.decide_side(motion_data_0, motion_data_1)
+			if side == SideDecisionData.side.LEFT:
 				self.motion_data: MotionData = motion_data_0
 				self.detection_data: DetectionData = detection_data_0
 				self.frame = self.frame0
@@ -84,17 +83,17 @@ class VideoService:
 				self.detection_data, self.motion_data
 			)
 
-	def transform(self) -> None:
-		self.frame = processor.VideoTransformationService().process(self.frame, self.zoom_data)
+	def _transform(self) -> None:
+		self.frame = VideoTransformationService().process(self.frame, self.zoom_data)
 
 	def frames(self) -> Generator[Frame, None, None]:
 		while self.active:
-			self.get_frames()
-			self.preprocess()
-			# self.track()
-			# self.transform()
-			# self.overlay()
-			self.postprocess()
+			self._get_frames()
+			self._preprocess()
+			# self._track()
+			# self._transform()
+			# self._overlay()
+			self._postprocess()
 			yield self.frame
 
 	def feed(self) -> Generator[Frame, None, None]:

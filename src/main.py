@@ -1,12 +1,9 @@
 import uvicorn
 
-from app.adapters.hardware.camera import Picamera2Adapter
-from app.adapters.software.api import FastAPIAdapter
-from app.models.stream import StreamProvider
-from app.services.api import ApiService
-from app.services.api.stream import StreamController, StreamService
+from app.adapters.capturer import Picamera2Adapter
+from app.models.streamer import StreamProtocol
+from app.services.streamer import StreamService
 from app.services.video import VideoService
-from app.services.web import WebService
 
 
 def main() -> None:
@@ -17,11 +14,7 @@ def main() -> None:
 
 	stream_service = StreamService(video_service)
 
-	api_adapter = FastAPIAdapter()
-	ApiService(api=api_adapter, stream_service=stream_service)
-	WebService(api=api_adapter)
-	app = api_adapter.expose()
-	uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info', access_log=True)
+	stream_service.start()
 
 
 if __name__ == '__main__':
