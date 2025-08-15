@@ -86,16 +86,26 @@ class StreamProviderService(IStreamProvider):
 				codec_name='h264',
 				rate=fps,
 				options={
-					'preset': 'ultrafast',
+					'preset': 'veryfast',
 					'tune': 'zerolatency',
+					'profile': 'high',
 					'level': '4.2',
+					'b': f'{bitrate}',
 					'x264-params': (
-						f'fps={fps}/1:'
-						f'force-cfr=1:'
-						f'scenecut=0:opencl=0:'
-						f'rc-lookahead=0:sync-lookahead=0:'
-						f'bframes=0:keyint={gop_size}:min-keyint={gop_size}'
-						f'nal-hrd=cbr:repeat-headers=1:aud=1'
+						f'bitrate={bitrate / 1000}:'
+						f'vbv-maxrate={bitrate / 1000}:'
+						f'vbv-bufsize={bitrate / 1000}:'
+						f'nal-hrd=cbr:'
+						f'filler=1:'
+						f'keyint={gop_size}:'
+						f'min-keyint={gop_size}:'
+						f'scenecut=0:'
+						f'bframes=2:'
+						f'ref=1:'
+						f'rc-lookahead=0:'
+						f'colorprim=bt709:'
+						f'transfer=bt709:'
+						f'colormatrix=bt709:'
 					),
 				},
 			)
@@ -117,7 +127,7 @@ class StreamProviderService(IStreamProvider):
 				self.logger.debug('RTMP streaming started')
 				pts = 0
 				for i, frame in enumerate(feed):
-					#t0 = time.perf_counter()
+					# t0 = time.perf_counter()
 					av_frame = av.VideoFrame.from_ndarray(frame.data, format=self.settings.camera.ffmpeg_fmt)
 
 					av_frame.pts = pts
@@ -130,9 +140,9 @@ class StreamProviderService(IStreamProvider):
 
 					for packet in stream.encode(av_frame):
 						container.mux(packet)
-					#t1 = time.perf_counter()
+					# t1 = time.perf_counter()
 					if i < 100 or (i % 30 == 0):
-						pass #	self.logger.debug(f'encode+mux_ms={(t1 - t0) * 1000:.1f}')
+						pass  # self.logger.debug(f'encode+mux_ms={(t1 - t0) * 1000:.1f}')
 				for packet in stream.encode():
 					container.mux(packet)
 
