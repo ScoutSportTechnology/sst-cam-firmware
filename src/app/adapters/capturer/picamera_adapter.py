@@ -26,7 +26,7 @@ class Picamera2Adapter(ICamera):
 		self.picam = Picamera2(camera_num=self.camera_index)
 		self.picam.set_logging(logging.ERROR)
 		self.video_config = self.picam.create_video_configuration(
-			main={'size': settings.camera.resolution, 'format': settings.camera.format},
+			main={'size': settings.camera.resolution, 'format': settings.camera.pc_fmt},
 			controls={'FrameRate': settings.camera.fps},
 		)
 		self.focus()

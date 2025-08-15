@@ -15,6 +15,8 @@ def main() -> None:
 	stream_service.stream(
 		stream_protocol=StreamProtocol.RTMP, url='rtmp://192.168.101.191/live/stream'
 	)
+	while True:
+		stream_service.status()
 
 
 if __name__ == '__main__':

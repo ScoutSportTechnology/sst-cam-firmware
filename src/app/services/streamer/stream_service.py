@@ -1,15 +1,11 @@
 from collections.abc import Generator
-from typing import Any
-
-import cv2
 
 from app.infra.logger import Logger
 from app.interfaces.capturer import IVideoService
-from app.interfaces.streamer import IStreamProvider, IStreamService
+from app.interfaces.streamer import IStreamService
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
 from app.services.streamer.stream_provider import StreamProviderService
-from app.services.video import VideoService
 from config.settings import Settings
 
 
@@ -45,10 +41,8 @@ class StreamService(IStreamService):
 		stream_protocol: StreamProtocol,
 		url: str,
 	) -> None:
-		self.logger.debug(f'Starting feed for provider: {stream_protocol.value}')
-		if self.active and self.video_service.status() == 'active':
+		if self.active and self.video_service.status:
+			self.logger.debug(f'Starting feed for provider: {stream_protocol.value}')
 			feed: Generator[Frame, None, None] = self.video_service.frames()
-			self.stream_provider_service: IStreamProvider = StreamProviderService(
-				stream_protocol, self.active
-			)
+			self.stream_provider_service = StreamProviderService(stream_protocol, self.active)
 			self.stream_provider_service.start(feed, url)

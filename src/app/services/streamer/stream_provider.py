@@ -1,18 +1,16 @@
 import threading
-import time
 from collections.abc import Generator
 from fractions import Fraction
-from typing import Any
 
 import av
-import numpy as np
 from av.container import Flags as ContainerFlags
-from sympy import EX
+from sympy import fps
 
 from app.infra.logger import Logger
 from app.interfaces.streamer import IStreamProvider
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
+from app.services.bufferer import BufferService
 from config.settings import Settings
 
 
@@ -32,6 +30,7 @@ class StreamProviderService(IStreamProvider):
 	) -> None:
 		if self.active:
 			self.logger.debug(f'Starting feed for provider: {self.protocol.value}')
+			buffered_feed = BufferService().buffer(feed)
 			if self._worker and self._worker.is_alive():
 				self.logger.warning('Stream provider worker is already running')
 				return
@@ -41,7 +40,7 @@ class StreamProviderService(IStreamProvider):
 					pass
 				case StreamProtocol.RTMP:
 					self._worker = threading.Thread(
-						target=self._rtmp, args=(feed, url), daemon=True
+						target=self._rtmp, args=(buffered_feed, url), daemon=True
 					)
 					self._worker.start()
 				case _:
@@ -63,60 +62,85 @@ class StreamProviderService(IStreamProvider):
 	) -> None:
 		try:
 			self.logger.debug(f'Starting RTMP stream to {url}')
-			width, height = (
-				2 * self.settings.stream.resolution[0],
-				self.settings.stream.resolution[1],
-			)
-			fps = self.settings.stream.fps
-			time_base = Fraction(1, fps)
+
+			width = 2 * self.settings.stream.resolution[0]
+			height = self.settings.stream.resolution[1]
+
+			ticks_per_frame = 2
+			fps = int(self.settings.stream.fps)
+			time_base = Fraction(1, fps * ticks_per_frame)
+			frame_rate = Fraction(fps, 1)
+
 			bitrate = 25_000_000  # 25 Mbps
-			gop_size = fps * self.settings.stream.buffer_seconds
+			gop_size = int(fps * self.settings.stream.buffer_seconds)
+
 			container = av.open(
 				url,
 				'w',
 				format='flv',
+				options={'rtmp_live': 'live', 'flvflags': 'no_duration_filesize'},
 			)
 			container.flags |= ContainerFlags.no_buffer.value
+
 			stream = container.add_stream(
-				codec_name='h264',
+				codec_name='libx264',
 				rate=fps,
 				options={
 					'preset': 'ultrafast',
 					'tune': 'zerolatency',
 					'level': '4.2',
+					'x264-params': (
+						f'fps={fps}/1:'
+						f'force-cfr=1:'
+						f'scenecut=0:opencl=0:'
+						f'rc-lookahead=0:sync-lookahead=0:'
+						f'bframes=0:keyint={gop_size}:min-keyint={gop_size}'
+						f'nal-hrd=cbr:repeat-headers=1:aud=1'
+					),
 				},
 			)
 
-			stream.pix_fmt = 'yuv420p'
 			stream.width = width
 			stream.height = height
-			stream.profile = 'high422'
+
+			stream.pix_fmt = 'yuv420p'
+			stream.profile = 'high'
+
 			stream.gop_size = gop_size
 			stream.bit_rate = bitrate
-			stream.color_primaries = 1  # BT.709
-			stream.color_trc = 1  # BT.709
-			stream.colorspace = 1  # BT.709
-			stream.color_range = 0  # Full range
-			stream.max_b_frames = 2
+
+			stream.codec_context.time_base = time_base
+			stream.codec_context.framerate = frame_rate
+			stream.time_base = time_base
 
 			try:
 				self.logger.debug('RTMP streaming started')
-				for frame_idx, frame in enumerate(feed):
+				pts = 0
+				for frame in feed:
 					av_frame = av.VideoFrame.from_ndarray(
-						frame.data, format=self.settings.camera.pix_fmt
+						frame.data, format=self.settings.camera.ffmpeg_fmt
 					)
-					av_frame.pts = frame_idx
+
+					av_frame.pts = pts
 					av_frame.time_base = time_base
+
+					if pts <= 40:
+						self.logger.debug(f'PTS={pts} t={float(pts * time_base):.6f}s')
+
+					pts += ticks_per_frame
+
 					for packet in stream.encode(av_frame):
 						container.mux(packet)
+
 				for packet in stream.encode():
 					container.mux(packet)
+
 			except av.EOFError:
 				self.logger.error('RTMP streaming ended unexpectedly (EOFError)')
 				pass
 			finally:
 				container.close()
 				self.logger.debug('RTMP streaming ended')
+
 		except Exception as e:
 			self.logger.error(f'RTMP streaming error: {e}')
-			pass

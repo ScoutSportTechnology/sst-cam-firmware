@@ -25,6 +25,20 @@ class CaptureMode(Enum):
 		return self.value[2]
 
 
+class CaptureFormat(Enum):
+	RGB = ('RGB888', 'bgr24')
+	BGR = ('BGR888', 'rgb24')
+	YUV = ('YUV420', 'yuv420p')
+
+	@property
+	def picamera_format(self) -> str:
+		return self.value[0]
+
+	@property
+	def ffmpeg_format(self) -> str:
+		return self.value[1]
+
+
 @dataclass(frozen=True)
 class CameraSettings:
 	"""
@@ -35,12 +49,19 @@ class CameraSettings:
 
 	fov: int = 120
 	mode: CaptureMode = CaptureMode.NATIVE_2304x1296_56
-	format: str = 'RGB888'
-	pix_fmt: str = 'bgr24'
+	format: CaptureFormat = CaptureFormat.BGR
 	sensor_resolution: tuple[int, int] = (4608, 2592)
 	pixel_size: tuple[float, float] = (1.4, 1.4)
 	shutter_type: str = 'Rolling'
 	color_filter: str = 'Quad-Bayer Coded'
+
+	@property
+	def pc_fmt(self) -> str:
+		return self.format.picamera_format
+
+	@property
+	def ffmpeg_fmt(self) -> str:
+		return self.format.ffmpeg_format
 
 	@property
 	def resolution(self) -> tuple[int, int]:
@@ -54,7 +75,6 @@ class CameraSettings:
 	def hdr(self) -> bool:
 		return self.mode.hdr
 
-	# All supported modes for UI or validation
 	@property
 	def supported_modes(self) -> dict[str, tuple[tuple[int, int], int, bool]]:
 		return {mode.name: (mode.resolution, mode.fps, mode.hdr) for mode in CaptureMode}
