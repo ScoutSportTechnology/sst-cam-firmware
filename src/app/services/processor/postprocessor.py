@@ -14,5 +14,5 @@ class VideoPostProcessorService:
 	def process(self, frame_0: Frame, frame_1: Frame) -> Frame:
 		frame_0_data = frame_0.data
 		frame_1_data = frame_1.data
-		frame_data = cv2.hconcat((frame_0_data, frame_1_data))
+		frame_data = frame_1_data  # cv2.hconcat((frame_0_data, frame_1_data))
 		return Frame(data=frame_data, timestamp=frame_0.timestamp)

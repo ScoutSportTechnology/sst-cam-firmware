@@ -2,7 +2,6 @@ import threading
 import time
 from collections import deque
 from collections.abc import Generator, Iterable
-from typing import Optional
 
 from app.infra.logger import Logger
 from app.interfaces.bufferer import IBufferService
@@ -28,8 +27,11 @@ class BufferService(IBufferService):
 		self._lock = threading.Lock()
 		self._new_frame = threading.Condition(self._lock)
 
-		# Nuevo: mantener el último frame para repetirlo si no llega uno nuevo
+		# Mantener el último frame para repetirlo si no llega uno nuevo
 		self._last_frame: Frame | None = None
+
+		# Métricas
+		self._dropped_total = 0
 
 	def start(self) -> None:
 		self._active = True
@@ -49,6 +51,9 @@ class BufferService(IBufferService):
 				if not self._active:
 					break
 				with self._new_frame:
+					# Si está llena, el append descarta el más viejo -> contamos drop
+					if len(self.buffer_deque) == self.buffer_deque.maxlen:
+						self._dropped_total += 1
 					self.buffer_deque.append(frame)  # maxlen descarta los más viejos
 					self._new_frame.notify()
 		except BaseException as exc:
@@ -62,8 +67,9 @@ class BufferService(IBufferService):
 
 	def buffer(self, feed: Generator[Frame, None, None]) -> Generator[Frame, None, None]:
 		"""
-		Yields at target FPS. Si no hay frame nuevo a tiempo,
+		Emite a FPS objetivo. Si no hay frame nuevo a tiempo,
 		repite el último frame emitido para mantener continuidad visual.
+		Loguea NEW/REPEAT/SKIP y resumen por segundo.
 		"""
 		self._feed = feed
 		self.start()
@@ -74,8 +80,14 @@ class BufferService(IBufferService):
 
 		next_deadline = time.perf_counter()
 
+		# Acumuladores de métricas por segundo
+		new_count = 0
+		repeat_count = 0
+		skip_count = 0
+		last_report = time.perf_counter()
+
 		try:
-			while self._active:
+			while True:
 				now = time.perf_counter()
 				if self._interval > 0:
 					sleep_for = next_deadline - now
@@ -92,17 +104,55 @@ class BufferService(IBufferService):
 						self._new_frame.wait(timeout=self._interval if self._interval > 0 else 0.01)
 
 					if self.buffer_deque:
+						qlen = len(self.buffer_deque)
 						latest = self.buffer_deque[-1]
 						self.buffer_deque.clear()
 						self._last_frame = latest
+
+						self.logger.debug(
+							f'bufferer: EMIT=NEW ts={latest.timestamp:.6f} '
+							f'queue_before_clear={qlen} drops_total={self._dropped_total}'
+						)
+						new_count += 1
 						yield latest
 						emitted = True
+
 					else:
-						if self._last_frame is not None and (self._active or not self._active):
+						# Repite solo si seguimos activos y ya hubo al menos un frame
+						if self._active and self._last_frame is not None:
+							self.logger.debug(
+								f'bufferer: EMIT=REPEAT ts={self._last_frame.timestamp:.6f} '
+								f'queue=0 drops_total={self._dropped_total}'
+							)
+							repeat_count += 1
 							yield self._last_frame
 							emitted = True
+						elif self._active:
+							# Activo pero aún no hay frame -> saltamos este tick
+							self.logger.debug(
+								f'bufferer: EMIT=SKIP (no frame yet) queue=0 drops_total={self._dropped_total}'
+							)
+							skip_count += 1
+							emitted = False
+						else:
+							# No activo y sin frames -> terminar
+							emitted = False
 
-				if not emitted and not self._active:
+				# Reporte agregado por segundo
+				now = time.perf_counter()
+				if now - last_report >= 1.0:
+					total = new_count + repeat_count + skip_count
+					self.logger.debug(
+						f'bufferer: 1s summary -> total_ticks={total}, new={new_count}, '
+						f'repeat={repeat_count}, skip={skip_count}, '
+						f'drops_total={self._dropped_total}, deque_len={len(self.buffer_deque)}'
+					)
+					new_count = repeat_count = skip_count = 0
+					last_report = now
+
+				# Condición de salida
+				if not emitted and not self._active and not self.buffer_deque:
 					break
+
 		finally:
 			self.stop()

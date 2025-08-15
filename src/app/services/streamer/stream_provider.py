@@ -1,10 +1,10 @@
 import threading
+import time
 from collections.abc import Generator
 from fractions import Fraction
 
 import av
 from av.container import Flags as ContainerFlags
-from sympy import fps
 
 from app.infra.logger import Logger
 from app.interfaces.streamer import IStreamProvider
@@ -39,9 +39,7 @@ class StreamProviderService(IStreamProvider):
 				case StreamProtocol.HTTP:
 					pass
 				case StreamProtocol.RTMP:
-					self._worker = threading.Thread(
-						target=self._rtmp, args=(buffered_feed, url), daemon=True
-					)
+					self._worker = threading.Thread(target=self._rtmp, args=(buffered_feed, url), daemon=True)
 					self._worker.start()
 				case _:
 					pass
@@ -63,16 +61,18 @@ class StreamProviderService(IStreamProvider):
 		try:
 			self.logger.debug(f'Starting RTMP stream to {url}')
 
-			width = 2 * self.settings.stream.resolution[0]
+			width = self.settings.stream.resolution[0]
 			height = self.settings.stream.resolution[1]
 
-			ticks_per_frame = 2
+			self.logger.debug(f'RTMP stream resolution: {width}x{height}')
+
+			ticks_per_frame = 1
 			fps = int(self.settings.stream.fps)
 			time_base = Fraction(1, fps * ticks_per_frame)
 			frame_rate = Fraction(fps, 1)
 
-			bitrate = 25_000_000  # 25 Mbps
-			gop_size = int(fps * self.settings.stream.buffer_seconds)
+			bitrate = 15_000_000  # 25 Mbps
+			gop_size = int(fps)
 
 			container = av.open(
 				url,
@@ -82,8 +82,8 @@ class StreamProviderService(IStreamProvider):
 			)
 			container.flags |= ContainerFlags.no_buffer.value
 
-			stream = container.add_stream(
-				codec_name='libx264',
+			stream: av.VideoStream = container.add_stream(
+				codec_name='h264',
 				rate=fps,
 				options={
 					'preset': 'ultrafast',
@@ -116,22 +116,23 @@ class StreamProviderService(IStreamProvider):
 			try:
 				self.logger.debug('RTMP streaming started')
 				pts = 0
-				for frame in feed:
-					av_frame = av.VideoFrame.from_ndarray(
-						frame.data, format=self.settings.camera.ffmpeg_fmt
-					)
+				for i, frame in enumerate(feed):
+					#t0 = time.perf_counter()
+					av_frame = av.VideoFrame.from_ndarray(frame.data, format=self.settings.camera.ffmpeg_fmt)
 
 					av_frame.pts = pts
 					av_frame.time_base = time_base
 
-					if pts <= 40:
-						self.logger.debug(f'PTS={pts} t={float(pts * time_base):.6f}s')
+					# if pts <= 40:
+					# self.logger.debug(f'PTS={pts} t={float(pts * time_base):.6f}s')
 
 					pts += ticks_per_frame
 
 					for packet in stream.encode(av_frame):
 						container.mux(packet)
-
+					#t1 = time.perf_counter()
+					if i < 100 or (i % 30 == 0):
+						pass #	self.logger.debug(f'encode+mux_ms={(t1 - t0) * 1000:.1f}')
 				for packet in stream.encode():
 					container.mux(packet)
 
