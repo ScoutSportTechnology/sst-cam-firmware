@@ -5,7 +5,7 @@ from app.interfaces.capturer import IVideoService
 from app.interfaces.streamer import IStreamService
 from app.models.capturer import Frame
 from app.models.streamer import StreamProtocol
-from app.services.streamer.stream_provider import StreamProviderService
+from app.services.streamer.provider import StreamProviderService
 from config.settings import Settings
 
 

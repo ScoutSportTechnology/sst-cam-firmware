@@ -1,5 +1,5 @@
-from .stream_provider import StreamProviderService
-from .stream_service import StreamService
+from .provider import StreamProviderService
+from .service import StreamService
 
 __all__ = [
 	'StreamProviderService',

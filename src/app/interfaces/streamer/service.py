@@ -3,8 +3,6 @@ from abc import ABC, abstractmethod
 from app.interfaces.capturer import IVideoService
 from app.models.streamer import StreamProtocol
 
-from .provider import IStreamProvider
-
 
 class IStreamService(ABC):
 	@abstractmethod
