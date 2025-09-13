@@ -128,7 +128,7 @@ class StreamProviderService(IStreamProvider):
 				pts = 0
 				for i, frame in enumerate(feed):
 					# t0 = time.perf_counter()
-					av_frame = av.VideoFrame.from_ndarray(frame.data, format=self.settings.camera.ffmpeg_fmt)
+					av_frame = av.VideoFrame.from_ndarray(frame.data, format=self.settings.camera.ffmpeg_format)
 
 					av_frame.pts = pts
 					av_frame.time_base = time_base

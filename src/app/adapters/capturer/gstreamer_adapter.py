@@ -5,7 +5,6 @@ import time
 
 from numpy import uint8
 from numpy.typing import NDArray
-from picamera2 import Picamera2
 
 from app.infra.logger import Logger
 from app.interfaces.capturer import ICamera
@@ -13,26 +12,18 @@ from app.models.capturer import Frame
 from config.settings import settings
 
 
-class Picamera2Adapter(ICamera):
+class GStreamerAdapter(ICamera):
 	def __init__(self, camera_index: int) -> None:
 		self.active = False
 		self.camera_index = camera_index
-		self.logger = Logger(name='picamera2_adapter')
+		self.logger = Logger(name='gstreamer_adapter')
 		self._frame_q = queue.Queue(maxsize=1)
 		self._thread: threading.Thread | None = None
-		self._timeout = 0.5  # seconds
+		self.timeout = 0.5  # seconds
 
 	def init_camera(self) -> None:
-		self.picam = Picamera2(camera_num=self.camera_index)
-		self.picam.set_logging(logging.ERROR)
-		self.video_config = self.picam.create_video_configuration(
-			main={'size': settings.camera.resolution, 'format': settings.camera.sensor_format},
-			controls={'FrameRate': settings.camera.fps},
-		)
-		self.focus()
-		self.picam.configure(self.video_config)
-		self.active = False
-
+		
+	
 	def start(self) -> None:
 		if not self.active:
 			try:
@@ -59,11 +50,10 @@ class Picamera2Adapter(ICamera):
 		return self.active
 
 	def focus(self) -> None:
-		self.picam.set_controls({'AfMode': 2})
-		self.picam.set_controls({'AfTrigger': 0})
+		pass
 
 	def get_frame(self) -> Frame:
-		frame = self._frame_q.get(timeout=self._timeout)
+		frame = self._frame_q.get(timeout=self.timeout)
 		return frame
 
 	def restart(self) -> None:
@@ -79,7 +69,35 @@ class Picamera2Adapter(ICamera):
 			frame = Frame(data=data, timestamp=t0)
 
 			try:
-				self._frame_q.put(frame, timeout=self._timeout)
+				self._frame_q.put(frame, timeout=self.timeout)
 			except queue.Full:
 				_ = self._frame_q.get_nowait()
-				self._frame_q.put(frame, timeout=self._timeout)
+				self._frame_q.put(frame, timeout=self.timeout)
+	
+	def _gstreamer_pipeline(
+			sensor_id=0,
+			capture_width=1920,
+			capture_height=1080,
+			display_width=960,
+			display_height=540,
+			framerate=30,
+			flip_method=0,
+	):
+			
+			return (
+					"nvarguscamerasrc sensor-id=%d ! "
+					"video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+					"nvvidconv flip-method=%d ! "
+					"video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+					"videoconvert ! "
+					"video/x-raw, format=(string)BGR ! appsink"
+					% (
+							sensor_id,
+							capture_width,
+							capture_height,
+							framerate,
+							flip_method,
+							display_width,
+							display_height,
+					)
+			)
