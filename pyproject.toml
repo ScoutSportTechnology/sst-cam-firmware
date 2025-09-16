@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
+
 dependencies = [
   "av>=14.4.0",
   "ffmpeg-python>=0.2.0",
@@ -12,9 +13,7 @@ dependencies = [
   "ultralytics>=8.3.158",
   "opencv-python-headless",
 ]
-[project.optional-dependencies]
-rpi = ["picamera2"]
-jetson = []
+
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",
@@ -26,3 +25,11 @@ dev = [
 lint = ["ruff>=0.11.12"]
 test = ["pytest>=8.4.1"]
 stubs = ["opencv-stubs>=0.0.11"]
+rpi = ["picamera2"]
+jetson = []
+
+
+[tool.uv]
+conflicts = [[{ group = "rpi" }, { group = "jetson" }]]
+default-groups = ["dev"] 
+environments = [ "sys_platform == 'linux'" ]
