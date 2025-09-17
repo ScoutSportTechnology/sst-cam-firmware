@@ -1,18 +1,34 @@
+import os
+import platform
 from dataclasses import dataclass, field
 from math import radians, tan
 
-from config.camera import CaptureFormat, Sensors
+from app.interfaces.capturer import ISensor, ISensorMode
+from config.camera import CaptureFormat, Sensor
+from config.device import DeviceSettings
 
 
 @dataclass(frozen=True)
 class CameraSettings:
 	fov: int = 120
-	mode = Sensors.IMX477.value.HDR_1536x864_120
-	format: CaptureFormat = CaptureFormat.BGR
 	sensor_resolution: tuple[int, int] = (4608, 2592)
 	pixel_size: tuple[float, float] = (1.4, 1.4)
 	shutter_type: str = 'Rolling'
 	color_filter: str = 'Quad-Bayer Coded'
+
+	@property
+	def sensor(self) -> ISensor:
+		return Sensor().sensor
+
+	@property
+	def sensor_mode(self) -> ISensorMode:
+		match self.sensor:
+			case 'IMX477':
+				return self.sensor.value.MODE_3840x2160_30
+			case 'IMX708':
+				return self.sensor.value.MODE_2304x1296_56
+			case _:
+				raise ValueError(f'Unsupported sensor: {self.sensor.name}')
 
 	@property
 	def sensor_format(self) -> str:
@@ -24,16 +40,12 @@ class CameraSettings:
 
 	@property
 	def resolution(self) -> tuple[int, int]:
-		return self.mode.resolution
+		return self.sensor_mode.resolution
 
 	@property
 	def fps(self) -> int:
-		return self.mode.fps
+		return self.sensor_mode.fps
 
 	@property
 	def hdr(self) -> bool:
-		return self.mode.hdr
-
-	@property
-	def supported_modes(self) -> dict[str, tuple[tuple[int, int], int, bool]]:
-		return {mode.name: (mode.resolution, mode.fps, mode.hdr) for mode in CaptureMode}
+		return self.sensor_mode.hdr

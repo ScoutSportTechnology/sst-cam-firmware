@@ -2,14 +2,7 @@ from enum import Enum
 
 
 class CaptureFormat(Enum):
-	RGB = ('RGB888', 'bgr24')
-	BGR = ('BGR888', 'rgb24')
-	YUV = ('YUV420', 'yuv420p')
-
-	@property
-	def sensor_format(self) -> str:
-		return self.value[0]
-
-	@property
-	def ffmpeg_format(self) -> str:
-		return self.value[1]
+	RGB888 = ('RGB888', 'bgr24')
+	BGR888 = ('BGR888', 'rgb24')
+	YUV420 = ('YUV420', 'yuv420p')
+	RG10 = ('RG10', 'gbrp10le')

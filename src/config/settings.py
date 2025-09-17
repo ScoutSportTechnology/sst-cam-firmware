@@ -8,7 +8,7 @@ from config.camera import CaptureFormat, Sensors
 class CameraSettings:
 	fov: int = 120
 	mode: CaptureMode = Sensors.IMX477.NATIVE_2304x1296_56
-	format: CaptureFormat = CaptureFormat.BGR
+	format: CaptureFormat = CaptureFormat.BGR888
 	sensor_resolution: tuple[int, int] = (4608, 2592)
 	pixel_size: tuple[float, float] = (1.4, 1.4)
 	shutter_type: str = 'Rolling'

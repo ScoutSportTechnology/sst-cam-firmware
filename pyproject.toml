@@ -14,6 +14,10 @@ dependencies = [
   "opencv-python-headless",
 ]
 
+[project.optional-dependencies]
+#rpi = ["picamera2", "python-prctl"]
+jetson = []
+
 [dependency-groups]
 dev = [
   "jupyter>=1.1.1",
@@ -25,11 +29,7 @@ dev = [
 lint = ["ruff>=0.11.12"]
 test = ["pytest>=8.4.1"]
 stubs = ["opencv-stubs>=0.0.11"]
-rpi = ["picamera2"]
-jetson = []
-
 
 [tool.uv]
-conflicts = [[{ group = "rpi" }, { group = "jetson" }]]
-default-groups = ["dev"] 
-environments = [ "sys_platform == 'linux'" ]
+conflicts = [[{ extra = "jetson" }, { extra = "rpi" }]]
+default-groups = ["dev"]
