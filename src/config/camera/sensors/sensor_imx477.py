@@ -1,5 +1,5 @@
-from app.interfaces.capturer import ISensor, ISensorFormat, ISensorMode
-from config.camera import CaptureFormat
+from app.interfaces.config.camera.sensor import ISensor, ISensorFormat, ISensorMode
+from app.models.config.camera import CaptureFormat
 
 
 class _IMX477Modes(ISensorMode):

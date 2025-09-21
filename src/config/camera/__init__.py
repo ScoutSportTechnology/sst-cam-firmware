@@ -1,4 +1,4 @@
-from .capture_format import CaptureFormat
-from .sensor import Sensor, SensorEnum
+from .lense import Lense
+from .sensor import Sensor
 
-__all__ = ['CaptureFormat', 'Sensor', 'SensorEnum']
+__all__ = ['Sensor', 'Lense']
