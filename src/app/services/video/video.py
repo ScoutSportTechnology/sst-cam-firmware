@@ -3,7 +3,7 @@ from collections.abc import Generator
 
 from app.infra.logger import Logger
 from app.interfaces.capturer import ICamera
-from app.interfaces.capturer.video import IVideoService
+from app.interfaces.capturer.ivideo import IVideoService
 from app.models.capturer import Frame
 from app.models.tracker import DetectionData, MotionData, SideDecisionData, ZoomData
 from app.services.bufferer import BufferService

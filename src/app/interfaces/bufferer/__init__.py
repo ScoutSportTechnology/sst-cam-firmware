@@ -1,1 +1,1 @@
-from .buffer import IBufferService
+from .buffer_service_interface import IBufferService

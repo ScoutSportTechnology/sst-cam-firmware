@@ -1,3 +1,3 @@
-from .controller import IController
+from .controller_interface import IController
 
 __all__ = ['IController']

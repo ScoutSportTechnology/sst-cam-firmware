@@ -1,15 +1,15 @@
-import logging
 import queue
 import threading
 import time
 
+import cv2
 from numpy import uint8
 from numpy.typing import NDArray
 
 from app.infra.logger import Logger
 from app.interfaces.capturer import ICamera
 from app.models.capturer import Frame
-from config.settings import settings
+from config.settings import Settings
 
 
 class GStreamerAdapter(ICamera):
@@ -20,15 +20,18 @@ class GStreamerAdapter(ICamera):
 		self._frame_q = queue.Queue(maxsize=1)
 		self._thread: threading.Thread | None = None
 		self.timeout = 0.5  # seconds
+		self.settings = Settings()
 
 	def init_camera(self) -> None:
-		
-	
+		self._gstreamer_pipeline_str = self._gstreamer_pipeline()
+		self.cap = cv2.VideoCapture(self._gstreamer_pipeline_str, cv2.CAP_GSTREAMER)
+		if not self.cap.isOpened():
+			raise RuntimeError(f'Failed to open GStreamer pipeline for camera {self.camera_index}')
+
 	def start(self) -> None:
 		if not self.active:
 			try:
 				self.init_camera()
-				self.picam.start()
 				self.active = True
 				self._thread = threading.Thread(target=self._capture_loop, daemon=True)
 				self._thread.start()
@@ -39,8 +42,8 @@ class GStreamerAdapter(ICamera):
 		if self.active:
 			self.active = False
 			try:
-				self.picam.stop()
-				self.picam.close()
+				if hasattr(self, 'cap') and self.cap:
+					self.cap.release()
 				if self._thread:
 					self._thread.join()
 			except Exception as e:
@@ -61,11 +64,18 @@ class GStreamerAdapter(ICamera):
 		self.start()
 
 	def _capture_loop(self) -> None:
+		if not hasattr(self, 'cap') or not self.cap:
+			self.logger.error('Camera not initialized')
+			return
+
 		while self.active:
 			t0 = time.time()
-			request = self.picam.capture_request()
-			data: NDArray[uint8] = request.make_array('main')
-			request.release()
+			retval, data = self.cap.read()
+
+			if not retval:
+				self.logger.error('Failed to capture frame')
+				continue
+
 			frame = Frame(data=data, timestamp=t0)
 
 			try:
@@ -73,31 +83,20 @@ class GStreamerAdapter(ICamera):
 			except queue.Full:
 				_ = self._frame_q.get_nowait()
 				self._frame_q.put(frame, timeout=self.timeout)
-	
+
 	def _gstreamer_pipeline(
-			sensor_id=0,
-			capture_width=1920,
-			capture_height=1080,
-			display_width=960,
-			display_height=540,
-			framerate=30,
-			flip_method=0,
+		self,
 	):
-			
-			return (
-					"nvarguscamerasrc sensor-id=%d ! "
-					"video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
-					"nvvidconv flip-method=%d ! "
-					"video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
-					"videoconvert ! "
-					"video/x-raw, format=(string)BGR ! appsink"
-					% (
-							sensor_id,
-							capture_width,
-							capture_height,
-							framerate,
-							flip_method,
-							display_width,
-							display_height,
-					)
-			)
+		_flip_method = 0
+		_framerate = self.settings.camera.fps
+		_capture_width = self.settings.camera.resolution[0]
+		_capture_height = self.settings.camera.resolution[1]
+		_format = self.settings.camera.format.sensor
+
+		return (
+			f'nvarguscamerasrc sensor-id={self.camera_index} ! '
+			f'video/x-raw(memory:NVMM), width=(int){_capture_width}, height=(int){_capture_height}, framerate=(fraction){_framerate}/1 ! '
+			f'nvvidconv flip-method={_flip_method} ! '
+			f'video/x-raw, format=(string){_format} ! '
+			'appsink drop=true max-buffers=1'
+		)

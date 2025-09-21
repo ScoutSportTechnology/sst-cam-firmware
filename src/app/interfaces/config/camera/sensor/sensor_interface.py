@@ -1,5 +1,5 @@
-from .sensor_format import ISensorFormat
-from .sensor_mode import ISensorMode
+from .sensor_format_interface import ISensorFormat
+from .sensor_mode_interface import ISensorMode
 
 
 class ISensor:

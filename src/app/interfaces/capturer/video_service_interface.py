@@ -3,7 +3,7 @@ from collections.abc import Generator
 
 from app.models.capturer.frame import Frame
 
-from .camera import ICamera
+from .camera_interface import ICamera
 
 
 class IVideoService(ABC):
