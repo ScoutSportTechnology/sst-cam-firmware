@@ -1,4 +1,3 @@
-from .format import CaptureFormat
-from .frame import Frame
+from .frame_model import Frame
 
-__all__: list[str] = ['Frame', 'CaptureFormat']
+__all__: list[str] = ['Frame']

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.models.general.sides import Sides
+from app.models.general.sides_model import Sides
 
 
 @dataclass

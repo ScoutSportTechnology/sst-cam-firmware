@@ -1,4 +1,4 @@
-from .sides import Sides
+from .sides_model import Sides
 
 __all__ = [
 	'Sides',

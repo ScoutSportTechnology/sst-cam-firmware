@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from app.models.tracker.boundaries import Point
 
-from .ball import BallDetection
+from .ball_model import BallDetection
 
 
 @dataclass

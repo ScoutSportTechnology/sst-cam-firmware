@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Generator
 
-from app.models.capturer.frame import Frame
+from app.models.capturer.frame_model import Frame
 
 from .camera_interface import ICamera
 

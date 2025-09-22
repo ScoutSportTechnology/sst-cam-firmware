@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from app.infra.logger.loger import Logger
+from app.infra.logger.loger_adapter import Logger
 from app.models.capturer import Frame
 from config.settings import Settings
 

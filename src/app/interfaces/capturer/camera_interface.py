@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
-from app.models.capturer.format import CaptureFormat
-from app.models.capturer.frame import Frame
+from app.models.capturer.format_model import CaptureFormat
+from app.models.capturer.frame_model import Frame
 
 
 class ICamera(ABC):

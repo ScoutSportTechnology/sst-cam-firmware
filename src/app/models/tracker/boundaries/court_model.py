@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .point import Point
+from .point_model import Point
 
 
 @dataclass

@@ -1,5 +1,5 @@
-from .ball import BallDetection
-from .court import CourtDetection
-from .player import PlayerDetection
+from .ball_model import BallDetection
+from .court_model import CourtDetection
+from .player_model import PlayerDetection
 
 __all__ = ['BallDetection', 'CourtDetection', 'PlayerDetection']
