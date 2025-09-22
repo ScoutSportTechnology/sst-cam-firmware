@@ -17,23 +17,34 @@ class GStreamerAdapter(ICamera):
 		self.active = False
 		self.camera_index = camera_index
 		self.logger = Logger(name='gstreamer_adapter')
-		self._frame_q = queue.Queue(maxsize=1)
+		self._frame_queue = queue.Queue(maxsize=1)
 		self._thread: threading.Thread | None = None
 		self.timeout = 0.5  # seconds
 		self.settings = Settings()
 
-	def init_camera(self) -> None:
-		self._gstreamer_pipeline_str = self._gstreamer_pipeline()
-		self.cap = cv2.VideoCapture(self._gstreamer_pipeline_str, cv2.CAP_GSTREAMER)
+	def init(self) -> None:
+		_flip_method = 0
+		_framerate = self.settings.camera.fps
+		_capture_width = self.settings.camera.resolution[0]
+		_capture_height = self.settings.camera.resolution[1]
+		_format = self.settings.camera.format.sensor
+		_pipeline = (
+			f'nvarguscamerasrc sensor-id={self.camera_index} ! '
+			f'video/x-raw(memory:NVMM), width=(int){_capture_width}, height=(int){_capture_height}, framerate=(fraction){_framerate}/1 ! '
+			f'nvvidconv flip-method={_flip_method} ! '
+			f'video/x-raw, format=(string){_format} ! '
+			'appsink drop=true max-buffers=1'
+		)
+		self.cap = cv2.VideoCapture(_pipeline, cv2.CAP_GSTREAMER)
 		if not self.cap.isOpened():
 			raise RuntimeError(f'Failed to open GStreamer pipeline for camera {self.camera_index}')
 
 	def start(self) -> None:
 		if not self.active:
 			try:
-				self.init_camera()
+				self.init()
 				self.active = True
-				self._thread = threading.Thread(target=self._capture_loop, daemon=True)
+				self._thread = threading.Thread(target=self._capture, daemon=True)
 				self._thread.start()
 			except Exception as e:
 				self.logger.error(f'Failed to start camera {self.camera_index}: {e}')
@@ -53,17 +64,17 @@ class GStreamerAdapter(ICamera):
 		return self.active
 
 	def focus(self) -> None:
-		pass
+		self.logger.info('Focus method not implemented for GStreamerAdapter')
 
-	def get_frame(self) -> Frame:
-		frame = self._frame_q.get(timeout=self.timeout)
+	def frame(self) -> Frame:
+		frame = self._frame_queue.get(timeout=self.timeout)
 		return frame
 
 	def restart(self) -> None:
 		self.stop()
 		self.start()
 
-	def _capture_loop(self) -> None:
+	def _capture(self) -> None:
 		if not hasattr(self, 'cap') or not self.cap:
 			self.logger.error('Camera not initialized')
 			return
@@ -79,24 +90,7 @@ class GStreamerAdapter(ICamera):
 			frame = Frame(data=data, timestamp=t0)
 
 			try:
-				self._frame_q.put(frame, timeout=self.timeout)
+				self._frame_queue.put(frame, timeout=self.timeout)
 			except queue.Full:
-				_ = self._frame_q.get_nowait()
-				self._frame_q.put(frame, timeout=self.timeout)
-
-	def _gstreamer_pipeline(
-		self,
-	):
-		_flip_method = 0
-		_framerate = self.settings.camera.fps
-		_capture_width = self.settings.camera.resolution[0]
-		_capture_height = self.settings.camera.resolution[1]
-		_format = self.settings.camera.format.sensor
-
-		return (
-			f'nvarguscamerasrc sensor-id={self.camera_index} ! '
-			f'video/x-raw(memory:NVMM), width=(int){_capture_width}, height=(int){_capture_height}, framerate=(fraction){_framerate}/1 ! '
-			f'nvvidconv flip-method={_flip_method} ! '
-			f'video/x-raw, format=(string){_format} ! '
-			'appsink drop=true max-buffers=1'
-		)
+				_ = self._frame_queue.get_nowait()
+				self._frame_queue.put(frame, timeout=self.timeout)

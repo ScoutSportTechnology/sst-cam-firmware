@@ -1,9 +1,10 @@
 import time
 from collections.abc import Generator
 
+from app.interfaces.capturer.ivideo import IVideoService
+
 from app.infra.logger import Logger
 from app.interfaces.capturer import ICamera
-from app.interfaces.capturer.ivideo import IVideoService
 from app.models.capturer import Frame
 from app.models.tracker import DetectionData, MotionData, SideDecisionData, ZoomData
 from app.services.bufferer import BufferService
@@ -45,8 +46,8 @@ class VideoService(IVideoService):
 		self.cam1.focus()
 
 	def _get_frames(self) -> None:
-		self.frame0 = self.cam0.get_frame()
-		self.frame1 = self.cam1.get_frame()
+		self.frame0 = self.cam0.frame()
+		self.frame1 = self.cam1.frame()
 
 	def _preprocess(self) -> list[Frame]:
 		self.frame0 = VideoPreProcessorService().process(self.frame0)
@@ -75,9 +76,7 @@ class VideoService(IVideoService):
 				self.detection_data: DetectionData = detection_data_1
 				self.frame = self.frame1
 
-			self.zoom_data: ZoomData = self.zoom_service.calculate_zoom(
-				self.detection_data, self.motion_data
-			)
+			self.zoom_data: ZoomData = self.zoom_service.calculate_zoom(self.detection_data, self.motion_data)
 
 	def _transform(self) -> None:
 		self.frame = VideoTransformationService().process(self.frame, self.zoom_data)

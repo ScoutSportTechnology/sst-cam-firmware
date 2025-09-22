@@ -22,7 +22,7 @@ class Picamera2Adapter(ICamera):
 		self._thread: threading.Thread | None = None
 		self._timeout = 0.5  # seconds
 
-	def init_camera(self) -> None:
+	def init(self) -> None:
 		self.picam = Picamera2(camera_num=self.camera_index)
 		self.picam.set_logging(logging.ERROR)
 		self.video_config = self.picam.create_video_configuration(
@@ -36,10 +36,10 @@ class Picamera2Adapter(ICamera):
 	def start(self) -> None:
 		if not self.active:
 			try:
-				self.init_camera()
+				self.init()
 				self.picam.start()
 				self.active = True
-				self._thread = threading.Thread(target=self._capture_loop, daemon=True)
+				self._thread = threading.Thread(target=self._capture, daemon=True)
 				self._thread.start()
 			except Exception as e:
 				self.logger.error(f'Failed to start camera {self.camera_index}: {e}')
@@ -62,7 +62,7 @@ class Picamera2Adapter(ICamera):
 		self.picam.set_controls({'AfMode': 2})
 		self.picam.set_controls({'AfTrigger': 0})
 
-	def get_frame(self) -> Frame:
+	def frame(self) -> Frame:
 		frame = self._frame_q.get(timeout=self._timeout)
 		return frame
 
@@ -70,7 +70,7 @@ class Picamera2Adapter(ICamera):
 		self.stop()
 		self.start()
 
-	def _capture_loop(self) -> None:
+	def _capture(self) -> None:
 		while self.active:
 			t0 = time.time()
 			request = self.picam.capture_request()

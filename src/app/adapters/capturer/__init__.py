@@ -1,4 +1,3 @@
-from .gstreamer_adapter import GStreamerAdapter
-from .picamera_adapter import Picamera2Adapter
+from .capturer_adapter import CapturerAdapter
 
-__all__ = ['Picamera2Adapter', 'GStreamerAdapter']
+__all__ = ['CapturerAdapter']

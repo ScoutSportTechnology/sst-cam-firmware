@@ -1,3 +1,5 @@
+from typing import Literal
+
 from app.interfaces.config.camera.sensor import ISensor, ISensorFormat, ISensorMode
 from app.models.config.camera import CaptureFormat
 
