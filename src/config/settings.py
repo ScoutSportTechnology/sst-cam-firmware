@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from math import radians, tan
 
-from config.camera import CameraSettings
+from config.capturer import CameraConfig
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class StreamSettings:
 class FOVSettings:
 	focal_distance_c: float = 75
 	focal_angle_acb: float = 60
-	camera_settings: CameraSettings = field(default_factory=CameraSettings)
+	camera_settings: CameraConfig = field(default_factory=CameraConfig)
 
 	@property
 	def focal_distance_ab(self) -> float:
@@ -33,6 +33,6 @@ class FOVSettings:
 
 
 class Settings:
-	camera: CameraSettings = CameraSettings()
+	camera: CameraConfig = CameraConfig()
 	stream: StreamSettings = StreamSettings()
 	fov: FOVSettings = FOVSettings(camera_settings=camera)

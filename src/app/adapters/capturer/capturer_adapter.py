@@ -1,9 +1,9 @@
 from app.interfaces.capturer import ICamera
-from config.device import DeviceSettings
+from config.device import get_device
 
 
 def CapturerAdapter(camera_index: int) -> ICamera:
-	_device = DeviceSettings().device
+	_device = get_device()
 	match _device:
 		case 'jetson':
 			from app.adapters.capturer.gstreamer_adapter import GStreamerAdapter

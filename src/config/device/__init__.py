@@ -1,3 +1,3 @@
-from .device import DeviceSettings
+from .device import get_device
 
-__all__ = ['DeviceSettings']
+__all__ = ['get_device']

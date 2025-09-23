@@ -2,5 +2,5 @@ from dataclasses import dataclass
 
 
 @dataclass()
-class Lense:
+class LenseConfig:
 	fov: int = 120

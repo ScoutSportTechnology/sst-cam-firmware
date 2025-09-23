@@ -1,16 +1,28 @@
-from .sensor_format_interface import ISensorFormat
-from .sensor_mode_interface import ISensorMode
+from abc import ABC, abstractmethod
+from enum import Enum
 
 
-class ISensor:
-	def __init__(self, format: ISensorFormat, mode: ISensorMode) -> None:
-		self._format = format
-		self._mode = mode
-
-	@property
-	def mode(self) -> ISensorMode:
-		return self._mode
+class ISensor(ABC):
+	def __init__(self, format: tuple[str,str], mode: tuple[tuple[int,int],int,bool]) -> None:
+		self.__format = format
+		self.__mode = mode
 
 	@property
-	def format(self) -> ISensorFormat:
-		return self._format
+	@abstractmethod
+	def resolution(self) -> tuple[int, int]: ...
+
+	@property
+	@abstractmethod
+	def fps(self) -> int: ...
+
+	@property
+	@abstractmethod
+	def hdr(self) -> bool: ...
+
+	@property
+	@abstractmethod
+	def capture_format(self) -> str: ...
+
+	@property
+	@abstractmethod
+	def stream_format(self) -> str: ...
