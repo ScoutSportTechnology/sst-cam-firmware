@@ -1,0 +1,1 @@
+Resolution = tuple[int, int]

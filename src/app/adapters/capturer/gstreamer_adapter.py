@@ -44,7 +44,7 @@ class GStreamerAdapter(ICamera):
 			try:
 				self.init()
 				self.active = True
-				self._thread = threading.Thread(target=self._capture, daemon=True)
+				self._thread = threading.Thread(target=self.__capture, daemon=True)
 				self._thread.start()
 			except Exception as e:
 				self.logger.error(f'Failed to start camera {self.camera_index}: {e}')
@@ -74,7 +74,7 @@ class GStreamerAdapter(ICamera):
 		self.stop()
 		self.start()
 
-	def _capture(self) -> None:
+	def __capture(self) -> None:
 		if not hasattr(self, 'cap') or not self.cap:
 			self.logger.error('Camera not initialized')
 			return

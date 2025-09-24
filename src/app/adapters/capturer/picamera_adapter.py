@@ -39,7 +39,7 @@ class Picamera2Adapter(ICamera):
 				self.init()
 				self.picam.start()
 				self.active = True
-				self._thread = threading.Thread(target=self._capture, daemon=True)
+				self._thread = threading.Thread(target=self.__capture, daemon=True)
 				self._thread.start()
 			except Exception as e:
 				self.logger.error(f'Failed to start camera {self.camera_index}: {e}')
@@ -70,7 +70,7 @@ class Picamera2Adapter(ICamera):
 		self.stop()
 		self.start()
 
-	def _capture(self) -> None:
+	def __capture(self) -> None:
 		while self.active:
 			t0 = time.time()
 			request = self.picam.capture_request()

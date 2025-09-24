@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from enum import Enum
 
 
 class ISensor(ABC):
-	def __init__(self, format: tuple[str,str], mode: tuple[tuple[int,int],int,bool]) -> None:
+	def __init__(self, format: tuple[str, str], mode: tuple[tuple[int, int], int, bool]) -> None:
 		self.__format = format
 		self.__mode = mode
 
