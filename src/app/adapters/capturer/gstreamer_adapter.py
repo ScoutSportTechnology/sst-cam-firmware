@@ -16,10 +16,10 @@ class GStreamerAdapter(ICamera):
 	def __init__(self, camera_index: int) -> None:
 		self.active = False
 		self.camera_index = camera_index
-		self.logger = Logger(name='gstreamer_adapter')
 		self._frame_queue = queue.Queue(maxsize=1)
 		self._thread: threading.Thread | None = None
-		self.timeout = 0.5  # seconds
+		self.timeout = 0.5
+		self.logger = Logger(name='gstreamer_adapter')
 		self.settings = Settings()
 
 	def init(self) -> None:
