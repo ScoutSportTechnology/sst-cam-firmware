@@ -9,16 +9,16 @@ from .lense_interface import ILense
 from .sensor_interface import ISensor
 
 
-class ICamera(ILense, ISensor, ABC):
-	@abstractmethod
+class ICamera(ABC):
 	def __init__(self, camera_index: int) -> None:
-		self.__active = False
-		self.__camera_index = camera_index
-		self.__frame_queue = queue.Queue(maxsize=1)
-		self.__thread: threading.Thread | None = None
-		self.__timeout = 0.5
-		self.__logger: Logger
-		...
+		self._active: bool = False
+		self._camera_index: int = camera_index
+		self._frame_queue: queue.Queue[Frame] = queue.Queue(maxsize=1)
+		self._thread: threading.Thread | None = None
+		self._timeout: float = 0.5
+		self._logger: Logger
+		self._sensor: ISensor
+		self._lense: ILense
 
 	@abstractmethod
 	def init(self) -> None: ...
@@ -29,17 +29,20 @@ class ICamera(ILense, ISensor, ABC):
 	@abstractmethod
 	def stop(self) -> None: ...
 
-	@abstractmethod
-	def restart(self) -> None: ...
+	def restart(self) -> None:
+		self.stop()
+		self.start()
+		self._logger.info(f'Camera {self._camera_index} restarted')
 
-	@abstractmethod
-	def status(self) -> bool: ...
+	def status(self) -> bool:
+		return self._active
 
 	@abstractmethod
 	def focus(self) -> None: ...
 
-	@abstractmethod
-	def capture(self) -> Frame: ...
+	def capture(self) -> Frame:
+		frame = self._frame_queue.get(timeout=self._timeout)
+		return frame
 
 	@abstractmethod
-	def __capture(self) -> None: ...
+	def _capture(self) -> None: ...

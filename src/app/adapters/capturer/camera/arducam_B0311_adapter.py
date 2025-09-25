@@ -3,7 +3,7 @@ from app.interfaces.capturer.camera import ICamera
 from app.models.capturer import Frame
 
 
-class ArducamIX708RPICamera(ICamera):
+class ArducamB0311Camera(ICamera):
 	def __init__(self) -> None:
 		self.__logger = Logger(name='arducam_imx708_rpi_adapter')
 
@@ -26,7 +26,6 @@ class ArducamIX708RPICamera(ICamera):
 	def capture(self) -> Frame:
 		self.__logger.info('Capturing frame from Arducam IMX708 RPI Camera')
 
-
 	def __capture(self) -> None:
 		self.__logger.info('Internal capture method for Arducam IMX708 RPI Camera')
 
@@ -35,4 +34,3 @@ class ArducamIX708RPICamera(ICamera):
 		self.stop()
 		self.start()
 		
-ArducamIX708RPICamera(camera_index=1,format='BGR')
