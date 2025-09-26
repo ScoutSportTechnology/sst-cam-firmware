@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from app.infra.logger import Logger
 from app.models.capturer.frame_model import Frame
+from config.settings import Settings
 
 from .lense_interface import ILense
 from .sensor_interface import ISensor
@@ -19,6 +20,7 @@ class ICamera(ABC):
 		self._logger: Logger
 		self._sensor: ISensor
 		self._lense: ILense
+		self._settings: Settings = Settings()
 
 	@abstractmethod
 	def init(self) -> None: ...
