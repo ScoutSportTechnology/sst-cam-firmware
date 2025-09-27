@@ -1,36 +1,34 @@
+from app.adapters.capturer.camera.lense import LENSE_80
 from app.infra.logger import Logger
 from app.interfaces.capturer.camera import ICamera
-from app.models.capturer import Frame
+
+from .sensor import IMX708
 
 
 class ArducamB0311Camera(ICamera):
-	def __init__(self) -> None:
-		self.__logger = Logger(name='arducam_imx708_rpi_adapter')
+	def __init__(self, camera_index: int, flip_method: int) -> None:
+		sensor = IMX708
+		logger = Logger(name='arducam_B0273_adapter')
+		lense = LENSE_80
+		super().__init__(
+			camera_index=camera_index,
+			flip_method=flip_method,
+			logger=logger,
+			sensor=sensor,
+			lense=lense,
+		)
 
-	def init(self) -> None:
-		self.__logger.info('Initializing Arducam IMX708 RPI Camera')
-
-	def start(self) -> None:
-		self.__logger.info('Starting Arducam IMX708 RPI Camera')
-
-	def stop(self) -> None:
-		self.__logger.info('Stopping Arducam IMX708 RPI Camera')
-
-	def status(self) -> bool:
-		self.__logger.info('Checking status of Arducam IMX708 RPI Camera')
-		return self.__active
+	def _pipeline(self) -> str:
+		return (
+			f'nvarguscamerasrc ! '
+			f'video/x-raw(memory:NVMM), '
+			f'width={self._capture_width}, height={self._capture_height}, '
+			f'format={self._format}, framerate={self._framerate}/1 ! '
+			f'nvvidconv flip-method={self._flip_method} ! '
+			f'video/x-raw, width={self._capture_width}, height={self._capture_height}, format=BGRx ! '
+			f'videoconvert ! '
+			f'video/x-raw, format={self._format} ! appsink'
+		)
 
 	def focus(self) -> None:
-		self.__logger.info('Focusing Arducam IMX708 RPI Camera')
-
-	def capture(self) -> Frame:
-		self.__logger.info('Capturing frame from Arducam IMX708 RPI Camera')
-
-	def __capture(self) -> None:
-		self.__logger.info('Internal capture method for Arducam IMX708 RPI Camera')
-
-	def restart(self) -> None:
-		self.__logger.info('Restarting Arducam IMX708 RPI Camera')
-		self.stop()
-		self.start()
-		
+		self._logger.info('Focus method not implemented for Arducam B0273 camera')
