@@ -1,4 +1,4 @@
-import logging
+"""import logging
 import queue
 import threading
 import time
@@ -83,3 +83,4 @@ class Picamera2Adapter(ICamera):
 			except queue.Full:
 				_ = self._frame_q.get_nowait()
 				self._frame_q.put(frame, timeout=self._timeout)
+"""

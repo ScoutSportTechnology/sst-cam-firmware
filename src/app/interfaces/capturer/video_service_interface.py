@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
 from collections.abc import Generator
 
+from app.interfaces.capturer.camera import ICamera
 from app.models.capturer.frame_model import Frame
-
-from .camera_interface import ICamera
 
 
 class IVideoService(ABC):

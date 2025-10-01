@@ -43,6 +43,8 @@ class ICamera(ABC):
 		self._thread: threading.Thread | None = None
 		self._capturer = cv.VideoCapture(self._pipeline(), cv.CAP_GSTREAMER)
 		self._logger.info(f'Camera {self._camera_index} initialized')
+		self._logger.debug(f'Camera {self._camera_index} pipeline: {self._pipeline()}')
+		self._logger.debug(f'Camera {self._camera_index} capturer: {self._capturer}')
 
 	def start(self) -> None:
 		if not self._active:
@@ -76,6 +78,7 @@ class ICamera(ABC):
 	def _capture(self) -> None:
 		while self._active:
 			retval, data = self._capturer.read()
+			self._logger.debug(f'Camera {self._camera_index} capture retval: {retval} data: {type(data)}')
 			if not retval:
 				self._logger.error(f'Failed to capture frame from camera {self._camera_index}')
 				time.sleep(1 / self._framerate)

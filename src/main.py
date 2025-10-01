@@ -1,20 +1,23 @@
+import cv2 as cv
+
 from app.adapters.capturer import CapturerAdapter
-from app.models.streamer import StreamProtocol
-from app.services.streamer import StreamService
-from app.services.video import VideoService
 
 
 def main() -> None:
-	camera_0 = CapturerAdapter(0)
-	camera_1 = CapturerAdapter(1)
+	camera_0 = CapturerAdapter(0, 0)
+	camera_1 = CapturerAdapter(1, 0)
 
-	video_service = VideoService(cam0=camera_0, cam1=camera_1)
+	camera_0.start()
+	camera_1.start()
 
-	stream_service = StreamService(video_service)
-	stream_service.start()
-	stream_service.stream(stream_protocol=StreamProtocol.RTMP, url='rtmp://192.168.101.191/live/stream')
 	while True:
-		stream_service.status()
+		frame_0 = camera_0.capture()
+		frame_1 = camera_1.capture()
+
+		cv.imshow('Camera 0', frame_0.data)
+		cv.imshow('Camera 1', frame_1.data)
+		if cv.waitKey(1) & 0xFF == ord('q'):
+			break
 
 
 if __name__ == '__main__':

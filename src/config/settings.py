@@ -1,7 +1,5 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import radians, tan
-
-from config.capturer import CameraConfig
 
 
 @dataclass(frozen=True)
@@ -22,17 +20,14 @@ class StreamSettings:
 class FOVSettings:
 	focal_distance_c: float = 75
 	focal_angle_acb: float = 60
-	camera_settings: CameraConfig = field(default_factory=CameraConfig)
 
 	@property
 	def focal_distance_ab(self) -> float:
 		return 2 * tan(radians(self.focal_angle_acb / 2)) * self.focal_distance_c
-
+"""
 	def focal_pixel_overlap(self) -> int:
 		return int(self.camera_settings.resolution[0] * tan(radians(self.focal_angle_acb / 2)) / tan(radians(self.camera_settings.fov / 2)))
-
+"""
 
 class Settings:
-	camera: CameraConfig = CameraConfig()
 	stream: StreamSettings = StreamSettings()
-	fov: FOVSettings = FOVSettings(camera_settings=camera)

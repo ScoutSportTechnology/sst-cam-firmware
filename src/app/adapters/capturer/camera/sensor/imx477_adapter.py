@@ -5,9 +5,9 @@ from app.models.capturer.camera import Sensor
 
 
 class __IMX477Modes(Enum):
-	MODE_4032x3040_20 = ((2304, 1296), 56, False)
-	MODE_3840x2160_30 = ((2304, 1296), 30, False)
-	MODE_1920x1080_60 = ((1536, 864), 120, True)
+	MODE_4032x3040_20 = ((4032, 3040), 21, False)
+	MODE_3840x2160_30 = ((3840, 2160), 30, False)
+	MODE_1920x1080_60 = ((1920, 1080), 60, True)
 
 
 class __IMX477Formats(Enum):

@@ -5,8 +5,8 @@ from app.models.capturer import FPS, HDR, CaptureFormat, CaptureMode, Resolution
 
 class ISensor(ABC):
 	def __init__(self, format: CaptureFormat, mode: CaptureMode) -> None:
-		self.__format = format
-		self.__mode = mode
+		self._format = format
+		self._mode = mode
 
 	@property
 	@abstractmethod
