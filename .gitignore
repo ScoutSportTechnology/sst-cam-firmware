@@ -64,3 +64,9 @@ frames/
 .env
 *.key
 *.pem
+
+# Rust build artifacts
+target/
+Cargo.lock
+*.rlib
+*.rmeta
