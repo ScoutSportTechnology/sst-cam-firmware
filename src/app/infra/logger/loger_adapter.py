@@ -29,7 +29,7 @@ class Logger:
 
 	def _log(self, level: LogLevel, msg: object, *args: object) -> None:
 		#self.logger.log(level.log_level, msg, *args)
-		print(self._format_msg(level, msg, args), 
+		print(self._format_msg(level, msg, args),
 		flush=True)
 
 	# Optional convenience methods
