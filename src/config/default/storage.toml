@@ -1,18 +1,18 @@
-[Storage]
+[storage]
 enabled = true
-[Storage.Recording]
+[storage.recording]
 enabled = true
 path = "videos/"
 format = "mp4"
-[Storage.Snapshots]
+[storage.snapshots]
 enabled = true
 path = "snapshots/"
 format = "jpg"
-[Storage.Logs]
+[storage.logs]
 enabled = true
 path = "logs/"
 format = "txt"
-[Storage.Thumbnails]
+[storage.thumbnails]
 enabled = true
 path = "thumbnails/"
 format = "jpg"

@@ -1,4 +1,4 @@
-[Device]
+[device]
 enabled = true
 name = "sst-cam"
 model = "sst-cam-v2"
@@ -7,27 +7,27 @@ serial_number = "00000001"
 manufacturer = "Scout Sport Technology"
 timezone = "UTC"
 timestamp = 'monotonic'
-[Device.Network]
+[device.network]
 enabled = true
-[Device.Network.WiFi.Station]
+[device.network.wiFi.station]
 wifi_ssid = "your_wifi_ssid"
 wifi_password = "your_wifi_password"
-[Device.Network.WiFi.Station.StaticIP]
+[device.network.wiFi.station.static_ip]
 enabled = false
 ip_address = "192.168.1.100"
 subnet_mask = "255.255.255.0"
 gateway = "192.168.1.1"
-[Device.Network.WiFi.AccessPoint]
+[device.network.wiFi.AccessPoint]
 enabled = true
 ssid = "your_ap_ssid"
 password = "your_ap_password"
-[Device.Network.Ethernet]
+[device.network.ethernet]
 ethernet_enabled = true
-[Device.Network.Ethernet.StaticIP]
+[device.network.ethernet.static_ip]
 enabled = false
 ip_address = "192.168.1.100"
 subnet_mask = "255.255.255.0"
 gateway = "192.168.1.1"
-[Device.Bluetooth]
+[device.bluetooth]
 enabled = false
 name = "sst-cam"

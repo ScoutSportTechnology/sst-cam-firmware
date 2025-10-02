@@ -1,5 +1,5 @@
 [user]
-Calibration = false
-Stream = false
-Storage = false
-Device = false
+calibration = false
+stream = false
+storage = false
+device = false
