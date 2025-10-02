@@ -2,7 +2,7 @@
 enabled = true
 last_total_calibration_date = "2024-01-01T00:00:00Z"
 [Calibration.Parameters]
-[Calibration.Parameters.Camera_1]
+[[Calibration.Parameters.Camera]]
 last_calibration_date = "2024-01-01T00:00:00Z"
 exposure = 100
 gain = 1.0
@@ -10,7 +10,7 @@ white_balance = "auto"
 focus = "auto"
 intrinsic_matrix = [1000.0, 0.0, 960.0, 0.0, 1000.0, 540.0, 0.0, 0.0, 1.0]
 distortion_coefficients = [0.1, -0.05, 0.0, 0.0, 0.0]
-[Calibration.Parameters.Camera_2]
+[[Calibration.Parameters.Camera]]
 last_calibration_date = "2024-01-01T00:00:00Z"
 exposure = 100
 gain = 1.0
@@ -18,11 +18,11 @@ white_balance = "auto"
 focus = "auto"
 intrinsic_matrix = [1000.0, 0.0, 960.0, 0.0, 1000.0, 540.0, 0.0, 0.0, 1.0]
 distortion_coefficients = [0.1, -0.05, 0.0, 0.0, 0.0]
-[Calibration.Parameters.Microphone_1]
+[[Calibration.Parameters.Microphone]]
 last_calibration_date = "2024-01-01T00:00:00Z"
 sensitivity = 1.0
 noise_reduction = true
-[Calibration.Parameters.Microphone_2]
+[[Calibration.Parameters.Microphone]]
 last_calibration_date = "2024-01-01T00:00:00Z"
 sensitivity = 1.0
 noise_reduction = true
