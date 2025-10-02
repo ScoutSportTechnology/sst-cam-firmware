@@ -79,3 +79,29 @@ impl Logger {
         self.log(LogLevel::Debug, msg, args);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_logger_none() {
+        let logger = Logger::new(Some("test-logger"));
+
+        logger.info("This is an info message", None);
+        assert!(true);
+        logger.warning("This is a warning message", None);
+        logger.error("This is an error message", None);
+        logger.debug("This is a debug message", None);
+    }
+
+    #[test]
+    fn test_logger_args() {
+        let logger = Logger::new(Some("test-logger"));
+
+        logger.info("Info with args", Some(&[&42, &"extra"]));
+        logger.warning("Warning with args", Some(&[&"arg1", &true]));
+        logger.error("Error with args", Some(&[&3.14]));
+        logger.debug("Debug with args", Some(&[&"debug", &false, &100]));
+    }
+}
