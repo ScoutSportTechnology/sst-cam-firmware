@@ -1,0 +1,7 @@
+[user]
+app = false
+capture = false
+stream = false
+storage = false
+control = false
+calibration = false

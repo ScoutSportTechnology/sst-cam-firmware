@@ -1,3 +1,2 @@
-mod common;
-fn main() {
-}
+mod domains;
+fn main() {}
