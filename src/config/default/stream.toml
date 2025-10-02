@@ -3,7 +3,7 @@ enabled = true
 [Stream.Settings]
 width = 1920
 height = 1080
-fps = 30
+fps = 60
 bitrate_kbps = 4000
 [Stream.Recipients]
 [Stream.Recipients.Youtube]
@@ -11,23 +11,28 @@ enabled = true
 url = "rtmp://a.rtmp.youtube.com/live2"
 key = "your_youtube_stream_key"
 type = "rtmp"
+codec = "h264"
 [Stream.Recipients.Twitch]
 enabled = false
 url = "rtmp://live.twitch.tv/app"
 key = "your_twitch_stream_key"
 type = "rtmp"
+codec = "h264"
 [Stream.Recipients.Facebook]
 enabled = false
 url = "rtmps://live-api-s.facebook.com:443/rtmp/"
 key = "your_facebook_stream_key"
 type = "rtmps"
+codec = "h264"
 [Stream.Recipients.Instagram]
 enabled = false
 url = "rtmp://live.instagram.com:443/rtmp/"
 key = "your_instagram_stream_key"
 type = "rtmp"
+codec = "h264"
 [Stream.Recipients.Custom]
 enabled = false
 url = "rtmp://your_custom_server/live"
 key = "your_custom_stream_key"
 type = "rtmp"
+codec = "h264"

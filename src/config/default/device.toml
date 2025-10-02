@@ -5,6 +5,8 @@ model = "sst-cam-v2"
 version = "1.0.0"
 serial_number = "00000001"
 manufacturer = "Scout Sport Technology"
+timezone = "UTC"
+timestamp = 'monotonic'
 [Device.Network]
 enabled = true
 [Device.Network.WiFi.Station]
