@@ -68,3 +68,5 @@ frames/
 # Rust build artifacts
 target/
 Cargo.lock
+
+# C/C++ build artifacts
