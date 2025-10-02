@@ -70,3 +70,10 @@ target/
 Cargo.lock
 
 # C/C++ build artifacts
+build/
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
