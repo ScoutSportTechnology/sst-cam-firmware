@@ -9,6 +9,9 @@ timezone = "UTC"
 timestamp = 'monotonic'
 [device.network]
 enabled = true
+[device.network.wiFi]
+enabled = true
+wifi_type = "station"
 [device.network.wiFi.station]
 wifi_ssid = "your_wifi_ssid"
 wifi_password = "your_wifi_password"
@@ -17,8 +20,7 @@ enabled = false
 ip_address = "192.168.1.100"
 subnet_mask = "255.255.255.0"
 gateway = "192.168.1.1"
-[device.network.wiFi.AccessPoint]
-enabled = true
+[device.network.wiFi.access_point]
 ssid = "your_ap_ssid"
 password = "your_ap_password"
 [device.network.ethernet]
@@ -31,3 +33,4 @@ gateway = "192.168.1.1"
 [device.bluetooth]
 enabled = false
 name = "sst-cam"
+password = "0000"

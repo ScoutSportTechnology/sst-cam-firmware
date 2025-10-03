@@ -40,7 +40,7 @@ pub struct Logger {
 }
 
 impl Logger {
-    pub fn new(name: Option<&'static str>) -> Self {
+    pub const fn new(name: Option<&'static str>) -> Self {
         Self { name }
     }
 
