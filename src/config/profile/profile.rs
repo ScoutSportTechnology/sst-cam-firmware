@@ -45,24 +45,17 @@ pub struct ProfileConfigFiles {
     pub storage: bool,
 }
 
-impl ProfileConfigFiles {
-    fn path() -> PathBuf {
-        PathBuf::from("src/config/profile/profile.toml")
-    }
-
-    fn load() -> Result<ProfileConfigFiles, String> {
-        let path = Self::path();
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read profile config: {}", e))?;
-        let profile: ProfileConfigFiles = toml::from_str(&content)
-            .map_err(|e| format!("Failed to parse profile config: {}", e))?;
-        Ok(profile)
-    }
-}
-
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ProfileConfig {
     pub user: ProfileConfigFiles,
+}
+
+impl ProfileConfig {
+    fn load() -> Result<Self, String> {
+        let content = fs::read_to_string("src/config/profile/profile.toml")
+            .map_err(|e| format!("Failed to read profile config: {}", e))?;
+        toml::from_str(&content).map_err(|e| format!("Failed to parse profile config: {}", e))
+    }
 }
 
 #[cfg(test)]
@@ -70,11 +63,11 @@ mod tests {
     use super::*;
     #[test]
     fn test_profile_config_loading() {
-        let profile = ProfileConfigFiles::load().unwrap();
-        print!("Loaded profile config: {:?}", profile);
-        assert!(profile.calibration);
-        assert!(profile.device);
-        assert!(profile.stream);
-        assert!(profile.storage);
+        let profile = ProfileConfig::load().unwrap();
+        eprint!("Loaded profile config: {:?}", profile);
+        assert!(profile.user.calibration == true);
+        assert!(profile.user.device == false);
+        assert!(profile.user.stream == false);
+        assert!(profile.user.storage == false);
     }
 }
