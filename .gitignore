@@ -77,3 +77,4 @@ build/
 *.lib
 *.dll
 *.so
+bin/
