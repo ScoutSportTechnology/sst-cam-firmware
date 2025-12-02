@@ -1,0 +1,71 @@
+{
+  "default": {
+    "youtube": {
+      "enabled": true,
+      "url": "rtmp://a.rtmp.youtube.com/live2",
+      "key": "your_youtube_stream_key",
+      "stream_type": "rtmp",
+      "codec": "h264",
+      "settings": {
+        "width": 1920,
+        "height": 1080,
+        "framerate": 60,
+        "bitrate_kbps": 4000
+      }
+    },
+    "twitch": {
+      "enabled": false,
+      "url": "rtmp://live.twitch.tv/app",
+      "key": "your_twitch_stream_key",
+      "stream_type": "rtmp",
+      "codec": "h264",
+      "settings": {
+        "width": 1920,
+        "height": 1080,
+        "framerate": 60,
+        "bitrate_kbps": 4000
+      }
+    },
+    "facebook": {
+      "enabled": false,
+      "url": "rtmps://live-api-s.facebook.com:443/rtmp/",
+      "key": "your_facebook_stream_key",
+      "stream_type": "rtmps",
+      "codec": "h264",
+      "settings": {
+        "width": 1920,
+        "height": 1080,
+        "framerate": 60,
+        "bitrate_kbps": 4000
+      }
+    },
+    "instagram": {
+      "enabled": false,
+      "url": "rtmp://live.instagram.com:443/rtmp/",
+      "key": "your_instagram_stream_key",
+      "stream_type": "rtmp",
+      "codec": "h264",
+      "settings": {
+        "width": 1920,
+        "height": 1080,
+        "framerate": 60,
+        "bitrate_kbps": 4000
+      }
+    },
+    "tik_tok": {
+      "enabled": false,
+      "url": "rtmp://live-api.tiktok.com/live",
+      "key": "your_tik_tok_stream_key",
+      "format": "rtmp",
+      "codec": "h264",
+      "settings": {
+        "width": 1920,
+        "height": 1080,
+        "framerate": 60,
+        "bitrate_kbps": 4000
+      }
+    },
+    "custom": []
+  },
+  "users": []
+}

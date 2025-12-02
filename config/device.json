@@ -1,0 +1,67 @@
+{
+  "default": {
+    "name": "sst-cam",
+    "model": "sst-cam-v2",
+    "version": "1.0.0",
+    "serial_number": "00000001",
+    "manufacturer": "Scout Sport Technology",
+    "timezone": "UTC",
+    "timestamp": "monotonic",
+    "connectivity": {
+      "wifi": {
+        "client": {
+          "enabled": false,
+          "wifi_ssid": "",
+          "wifi_password": "",
+          "static_ip": {
+            "enabled": false,
+            "ip_address": "",
+            "subnet_mask": "",
+            "gateway": ""
+          }
+        },
+        "access_point": {
+          "enabled": false,
+          "ssid": "sst-cam",
+          "password": "123456"
+        }
+      },
+      "ethernet": {
+        "enabled": true,
+        "static_ip": {
+          "enabled": false,
+          "ip_address": "",
+          "subnet_mask": "",
+          "gateway": ""
+        }
+      },
+      "bluetooth": {
+        "enabled": true,
+        "name": "sst-cam",
+        "password": "123456"
+      }
+    }
+  },
+  "users": [
+    {
+      "id": 0,
+      "data": {
+        "connectivity": {
+          "wifi": {
+            "client": {
+              "enabled": true,
+              "wifi_ssid": "your_wifi_ssid",
+              "wifi_password": "your_wifi_password",
+              "static_ip": {
+                "enabled": false,
+                "ip_address": "192.168.1.100",
+                "subnet_mask": "255.255.255.0",
+                "gateway": "192.168.1.1"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

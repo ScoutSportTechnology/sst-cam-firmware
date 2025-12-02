@@ -1,0 +1,25 @@
+{
+  "default": {
+    "recording": {
+      "enabled": true,
+      "path": "videos/",
+      "format": "mp4"
+    },
+    "snapshots": {
+      "enabled": true,
+      "path": "snapshots/",
+      "format": "jpg"
+    },
+    "logs": {
+      "enabled": true,
+      "path": "logs/",
+      "format": "txt"
+    },
+    "thumbnails": {
+      "enabled": true,
+      "path": "thumbnails/",
+      "format": "jpg"
+    }
+  },
+  "users": []
+}

@@ -1,0 +1,16 @@
+{
+  "default": {
+    "calibration": false,
+    "device": false,
+    "stream": false,
+    "storage": false
+  },
+  "users": [
+    {
+      "id": 0,
+      "data": {
+        "device": true
+      }
+    }
+  ]
+}
