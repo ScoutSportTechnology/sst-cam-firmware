@@ -1,5 +1,5 @@
 {
-  "default": {
+  "default_data": {
     "youtube": {
       "enabled": true,
       "url": "rtmp://a.rtmp.youtube.com/live2",
@@ -56,7 +56,7 @@
       "enabled": false,
       "url": "rtmp://live-api.tiktok.com/live",
       "key": "your_tik_tok_stream_key",
-      "format": "rtmp",
+      "stream_type": "rtmp",
       "codec": "h264",
       "settings": {
         "width": 1920,

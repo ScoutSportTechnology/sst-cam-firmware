@@ -1,5 +1,5 @@
 {
-  "default": {
+  "default_data": {
     "name": "sst-cam",
     "model": "sst-cam-v2",
     "version": "1.0.0",
@@ -45,7 +45,7 @@
   "users": [
     {
       "id": 0,
-      "data": {
+      "user_data": {
         "connectivity": {
           "wifi": {
             "client": {

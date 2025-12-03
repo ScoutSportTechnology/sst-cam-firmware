@@ -1,5 +1,5 @@
 {
-  "default": {
+  "default_data": {
     "recording": {
       "enabled": true,
       "path": "videos/",

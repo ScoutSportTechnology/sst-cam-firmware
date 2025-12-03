@@ -1,0 +1,38 @@
+#pragma once
+
+#include <optional>
+#include <string>
+
+#include "domain/config/config_files.hpp"
+
+namespace domain::config {
+
+struct DefaultStorageSectionConfig {
+    bool enabled{false};
+    std::string path;
+    std::string format;
+};
+
+struct DefaultStorageConfig {
+    DefaultStorageSectionConfig recording;
+    DefaultStorageSectionConfig snapshots;
+    DefaultStorageSectionConfig logs;
+    DefaultStorageSectionConfig thumbnails;
+};
+
+struct UserStorageSectionConfig {
+    std::optional<bool> enabled;
+    std::optional<std::string> path;
+    std::optional<std::string> format;
+};
+
+struct UserStorageConfig {
+    std::optional<UserStorageSectionConfig> recording;
+    std::optional<UserStorageSectionConfig> snapshots;
+    std::optional<UserStorageSectionConfig> logs;
+    std::optional<UserStorageSectionConfig> thumbnails;
+};
+
+using StorageConfig = ConfigFiles<DefaultStorageConfig, UserStorageConfig>;
+
+}  // namespace domain::config

@@ -1,5 +1,5 @@
 {
-  "default": {
+  "default_data": {
     "calibration": false,
     "device": false,
     "stream": false,
@@ -8,7 +8,7 @@
   "users": [
     {
       "id": 0,
-      "data": {
+      "user_data": {
         "device": true
       }
     }
