@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "domain/config/config_files.hpp"
+#include "config/domain/config_files.hpp"
 
 namespace domain::config {
 struct DefaultCalibrationDevicesCameraConfig {

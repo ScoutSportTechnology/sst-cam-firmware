@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "domain/config/config_files.hpp"
+#include "config/domain/config_files.hpp"
 
 namespace domain::config {
 
