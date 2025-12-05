@@ -13,7 +13,7 @@ struct DefaultCalibrationDevicesCameraConfig {
     std::string last_calibration_date;
     std::uint32_t id{0};
     std::uint32_t exposure{0};
-    float gain{0.0f};
+    float gain{0.0F};
     std::string white_balance;
     std::string focus;
     std::array<float, 9> intrinsic_matrix{};
@@ -22,7 +22,7 @@ struct DefaultCalibrationDevicesCameraConfig {
 struct DefaultCalibrationDevicesMicrophoneConfig {
     std::string last_calibration_date;
     std::uint32_t id{0};
-    float sensitivity{0.0f};
+    float sensitivity{0.0F};
     bool noise_reduction{false};
 };
 struct DefaultCalibrationDevicesConfig {

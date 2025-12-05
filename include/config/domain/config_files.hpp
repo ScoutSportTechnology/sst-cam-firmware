@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace sst::config::domain  {
+namespace sst::config::domain {
 template <typename UD>
 struct UserArray {
     std::uint32_t id{0};

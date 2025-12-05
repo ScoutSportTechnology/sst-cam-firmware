@@ -13,7 +13,7 @@ using sst::config::ports::ConfigFileRepository;
 template <typename T>
 class JsonConfigFileRepository : public ConfigFileRepository<T> {
    public:
-    explicit JsonConfigFileRepository(std::string fileName)
+    explicit JsonConfigFileRepository(const std::string& fileName)
         : fullPath_(basePath_ + fileName + ".json") {}
 
     bool load_config(T& loadedConfig, std::string& error) override {
@@ -24,9 +24,9 @@ class JsonConfigFileRepository : public ConfigFileRepository<T> {
                 return false;
             }
 
-            json j;
-            inputFileStream >> j;
-            loadedConfig = j.get<T>();
+            json jsonObject;
+            inputFileStream >> jsonObject;
+            loadedConfig = jsonObject.get<T>();
             return true;
 
         } catch (const std::exception& e) {

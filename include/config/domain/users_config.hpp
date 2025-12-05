@@ -5,7 +5,6 @@
 #include <vector>
 
 namespace sst::config::domain {
-
 struct UsersUserConfig {
     std::uint32_t id{0};
     std::string name;
