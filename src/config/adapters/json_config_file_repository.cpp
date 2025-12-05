@@ -30,8 +30,7 @@ class JsonConfigFileRepository : public ConfigFileRepository<T> {
             return true;
 
         } catch (const std::exception& e) {
-            error = std::string("Error reading config file '") +
-                    fullPath_ + "': " + e.what();
+            error = std::string("Error reading config file '") + fullPath_ + "': " + e.what();
             return false;
         }
     }

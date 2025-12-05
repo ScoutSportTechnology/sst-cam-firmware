@@ -8,7 +8,7 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace sst::config::domain  {
+namespace sst::config::domain {
 struct DefaultCalibrationDevicesCameraConfig {
     std::string last_calibration_date;
     std::uint32_t id{0};
@@ -57,7 +57,6 @@ struct UserCalibrationConfig {
     std::optional<UserCalibrationDevicesConfig> devices;
 };
 
-using CalibrationConfig =
-    ConfigFiles<DefaultCalibrationConfig, UserCalibrationConfig>;
+using CalibrationConfig = ConfigFiles<DefaultCalibrationConfig, UserCalibrationConfig>;
 
 }  // namespace sst::config::domain
