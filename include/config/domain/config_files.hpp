@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace domain::config {
+namespace sst::config::domain  {
 template <typename UD>
 struct UserArray {
     std::uint32_t id{0};
@@ -14,4 +14,4 @@ struct ConfigFiles {
     DD default_data;
     std::vector<UserArray<UD>> users;
 };
-}  // namespace domain::config
+}  // namespace sst::config::domain

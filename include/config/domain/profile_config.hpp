@@ -4,7 +4,7 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace domain::config {
+namespace sst::config::domain  {
 
 struct DefaultProfileConfig {
     bool calibration{false};
@@ -22,4 +22,4 @@ struct UserProfileConfig {
 
 using ProfileConfig = ConfigFiles<DefaultProfileConfig, UserProfileConfig>;
 
-}  // namespace domain::config
+}  // namespace sst::config::domain

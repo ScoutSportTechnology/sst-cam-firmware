@@ -5,7 +5,7 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace domain::config {
+namespace sst::config::domain  {
 
 struct DefaultDeviceStaticIpConfig {
     bool enabled{false};
@@ -115,4 +115,4 @@ struct UserDeviceConfig {
 
 using DeviceConfig = ConfigFiles<DefaultDeviceConfig, UserDeviceConfig>;
 
-}  // namespace domain::config
+}  // namespace sst::config::domain

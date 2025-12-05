@@ -5,7 +5,7 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace domain::config {
+namespace sst::config::domain  {
 
 struct DefaultStorageSectionConfig {
     bool enabled{false};
@@ -35,4 +35,4 @@ struct UserStorageConfig {
 
 using StorageConfig = ConfigFiles<DefaultStorageConfig, UserStorageConfig>;
 
-}  // namespace domain::config
+}  // namespace sst::config::domain

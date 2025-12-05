@@ -6,7 +6,7 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace domain::config {
+namespace sst::config::domain  {
 
 struct DefaultStreamPlatformSettingsConfig {
     std::uint32_t width{0};
@@ -60,4 +60,4 @@ struct UserStreamConfig {
 
 using StreamConfig = ConfigFiles<DefaultStreamConfig, UserStreamConfig>;
 
-}  // namespace domain::config
+}  // namespace sst::config::domain

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace domain::config {
+namespace sst::config::domain {
 
 struct UsersUserConfig {
     std::uint32_t id{0};
@@ -16,4 +16,4 @@ struct UsersConfig {
     std::vector<UsersUserConfig> users;
 };
 
-}  // namespace domain::config
+}  // namespace sst::config::domain
