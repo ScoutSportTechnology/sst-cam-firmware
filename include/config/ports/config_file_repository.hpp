@@ -4,11 +4,11 @@
 
 namespace sst::config::ports {
 template <typename T>
-class ConfigFileRepository {
+class IConfigFileRepository {
    public:
-    virtual ~ConfigFileRepository() = default;
+    virtual ~IConfigFileRepository() = default;
 
-    virtual bool load_config(T& loadedConfig, std::string& error) = 0;
-    virtual bool save_config(const T& modifiedConfig, std::string& error) = 0;
+    virtual auto load(T& loadedConfig, std::string& error) -> bool = 0;
+    virtual auto save(const T& modifiedConfig, std::string& error) -> bool = 0;
 };
 }  // namespace sst::config::ports

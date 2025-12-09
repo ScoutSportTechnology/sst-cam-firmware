@@ -1,36 +1,33 @@
 cmake_minimum_required(VERSION 3.20)
 
-if(NOT DEFINED CMAKE_C_COMPILER)
-    set(CMAKE_C_COMPILER clang CACHE STRING "C compiler" FORCE)
-endif()
-
-if(NOT DEFINED CMAKE_CXX_COMPILER)
-    set(CMAKE_CXX_COMPILER clang++ CACHE STRING "C++ compiler" FORCE)
-endif()
-
 project(sst_cam_firmware
     VERSION 0.1.0
     LANGUAGES CXX
 )
 
-set(CMAKE_CXX_STANDARD 20)
+if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR
+        "This project must be built with Clang. "
+        "Current compiler is: ${CMAKE_CXX_COMPILER_ID}"
+    )
+endif()
+
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    add_compile_options(
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Wconversion
-        -Wshadow
-    )
-endif()
+add_compile_options(
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wconversion
+    -Wshadow
+)
 
+# --- Dependencies ---
 include(FetchContent)
 
 FetchContent_Declare(
@@ -41,6 +38,10 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(nlohmann_json)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
+
+# --- Sources ---
 file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
@@ -57,4 +58,5 @@ target_include_directories(sst_cam
 target_link_libraries(sst_cam
     PRIVATE
         nlohmann_json::nlohmann_json
+        PkgConfig::GSTREAMER
 )
