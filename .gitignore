@@ -21,9 +21,9 @@ Icon?
 Thumbs.db
 
 # Editor/IDE configs
-.vscode/
-.idea/
-*.code-workspace
+#.vscode/
+#.idea/
+#*.code-workspace
 
 # Log and runtime files
 *.log
