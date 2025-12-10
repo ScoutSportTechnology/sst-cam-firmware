@@ -1,24 +1,34 @@
 #pragma once
 
+#include <spdlog/spdlog.h>
+
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
+
+#include "config/domain/config_files_json.hpp"
+#include "config/domain/profile_config_json.hpp"
+#include "config/ports/config_file_repository.hpp"
 
 namespace sst::config::adapters {
 
 using nlohmann::json;
 
 template <typename T>
-class JsonAdapter {
+class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
    public:
-    explicit JsonAdapter(std::filesystem::path path) : path_(std::move(path)) {}
+    explicit JsonAdapter(std::string filename)
+        : full_path_{std::filesystem::path("config") / (std::move(filename) + ".json")} {}
 
-    auto load(T& loadedConfig, std::string& error) -> bool {
+    auto load(T& loadedConfig, std::string& error) -> bool override {
         try {
-            std::ifstream inputFileStream(path_);
+            spdlog::info("Loading JSON config from: {}", full_path_.string());
+
+            std::ifstream inputFileStream(full_path_);
             if (!inputFileStream) {
-                error = "Cannot open config file: " + path_.string();
+                error = "Cannot open config file: " + full_path_.string();
                 return false;
             }
 
@@ -26,6 +36,7 @@ class JsonAdapter {
             inputFileStream >> jsonObject;
 
             loadedConfig = jsonObject.get<T>();
+
             return true;
         } catch (const std::exception& ex) {
             error = std::string{"Failed to load JSON config: "} + ex.what();
@@ -33,11 +44,13 @@ class JsonAdapter {
         }
     }
 
-    auto save(const T& modifiedConfig, std::string& error) -> bool {
+    auto save(const T& modifiedConfig, std::string& error) -> bool override {
         try {
-            std::ofstream out(path_);
+            std::cout << "Saving JSON config to: " << full_path_.string() << '\n';
+
+            std::ofstream out(full_path_);
             if (!out) {
-                error = "Cannot open config file for writing: " + path_.string();
+                error = "Cannot open config file for writing: " + full_path_.string();
                 return false;
             }
 
@@ -51,7 +64,7 @@ class JsonAdapter {
     }
 
    private:
-    std::filesystem::path path_;
+    std::filesystem::path full_path_;
 };
 
 }  // namespace sst::config::adapters
