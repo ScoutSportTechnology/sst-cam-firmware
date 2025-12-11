@@ -2,22 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run (CMake Target)",
+      "name": "Debug sst_cam",
       "type": "lldb",
       "request": "launch",
-      "program": "${command:cmake.launchTargetPath}",
-      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/build/debug/bin/sst_cam",
       "args": [],
-      "stopOnEntry": false,
-    },
-    {
-      "name": "Debug (CMake Target)",
-      "type": "lldb",
-      "request": "launch",
-      "program": "${command:cmake.launchTargetPath}",
-      "cwd": "${workspaceFolder}",
-      "args": [],
-      "stopOnEntry": false,
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

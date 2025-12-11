@@ -2,13 +2,54 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "clang-debug",
-      "generator": "Ninja",
-      "binaryDir": "build/clang-debug",
+      "name": "debug",
+      "displayName": "Debug",
+      "description": "Debug build",
+      "binaryDir": "build/debug",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_COMPILER": "clang",
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Release build",
+      "binaryDir": "build/release",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Build Debug",
+      "description": "Build using debug configuration",
+      "configurePreset": "debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Build Release",
+      "description": "Build using release configuration",
+      "configurePreset": "release",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "displayName": "Test Debug",
+      "description": "Run tests in debug mode",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
       }
     }
   ]

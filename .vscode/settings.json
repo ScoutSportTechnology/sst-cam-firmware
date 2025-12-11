@@ -1,24 +1,12 @@
 {
   "C_Cpp.default.compilerPath": "clang++",
   "C_Cpp.default.cppStandard": "c++23",
-  "cmake.generator": "Unix Makefiles",
-  "cmake.preferredGenerators": [
-    "Unix Makefiles"
-  ],
-  "cmake.buildDirectory": "${workspaceFolder}/build",
-  "cmake.exportCompileCommandsFile": true,
-  "cmake.configureOnOpen": true,
-  "cmake.configureSettings": {
-    "CMAKE_CXX_COMPILER": "clang++",
-    "CMAKE_C_COMPILER": "clang"
-  },
-  "cmake.sourceDirectory": "${workspaceFolder}",
-  "cmake.useCMakeServer": false,
-  "lldb.launch.expressions": "native",
-  "files.associations": {
-    "*.hpp": "cpp",
-    "*.h": "cpp"
-  },
+  "cmake.useCMakePresets": "always",
   "editor.formatOnSave": true,
-  "editor.defaultFormatter": "ms-vscode.cpptools"
+  "search.exclude": {
+    "**/build/**": true
+  },
+  "files.exclude": {
+    "**/build/**": true
+  }
 }
