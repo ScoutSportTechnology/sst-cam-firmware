@@ -2,12 +2,42 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug sst_cam",
+      "name": "Debug (Conan Cmake MSYS2 Clang64)",
       "type": "lldb",
       "request": "launch",
       "program": "${workspaceFolder}/build/debug/bin/sst_cam",
+      "cwd": "${workspaceFolder}",
       "args": [],
-      "cwd": "${workspaceFolder}"
+      "env": {
+        "PATH": "C:/msys64/clang64/bin;${env:PATH}"
+      },
+      "preRunCommands": [],
+      "preLaunchTask": "build-debug"
+    },
+    {
+      "name": "Staging (Conan Cmake MSYS2 Clang64)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/staging/bin/sst_cam",
+      "cwd": "${workspaceFolder}",
+      "args": [],
+      "env": {
+        "PATH": "C:/msys64/clang64/bin;${env:PATH}"
+      },
+      "preRunCommands": []
+    },
+    {
+      "name": "Release (Conan Cmake MSYS2 Clang64)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/release/bin/sst_cam",
+      "cwd": "${workspaceFolder}",
+      "args": [],
+      "env": {
+        "PATH": "C:/msys64/clang64/bin;${env:PATH}"
+      },
+      "preRunCommands": [],
+      "preLaunchTask": "build-release"
     }
   ]
 }

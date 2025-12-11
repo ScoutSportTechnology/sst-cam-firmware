@@ -76,39 +76,6 @@ This generates:
 
 All inside the selected build folder.
 
-## 4. Using Conan with CMake
-
-Configure CMake using the generated toolchain file:
-
-**Debug:**
-
-```sh
-cmake -S . -B build-debug \
-  -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=build-debug/conan_toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Debug
-```
-
-**Release:**
-
-```sh
-cmake -S . -B build-release \
-  -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=build-release/conan_toolchain.cmake \
-  -DCMAKE_BUILD_TYPE=Release
-```
-
-**Build:**
-
-```sh
-cmake --build build-debug
-```
-
-or
-
-```sh
-cmake --build build-release
-```
 
 ## 5. Notes
 

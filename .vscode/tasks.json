@@ -1,0 +1,71 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "deps-debug",
+      "type": "shell",
+      "command": "conan install -pr cmake/conan/profiles/msys2/clang64/debug.profile -b missing .",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "configure-debug",
+      "type": "shell",
+      "command": "cmake --preset conan-debug",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "deps-debug"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "build-debug",
+      "type": "shell",
+      "command": "cmake --build --preset conan-debug",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "configure-debug"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "deps-release",
+      "type": "shell",
+      "command": "conan install -pr cmake/conan/profiles/msys2/clang64/release.profile -b missing .",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "configure-release",
+      "type": "shell",
+      "command": "cmake --preset conan-release",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "deps-release"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "build-release",
+      "type": "shell",
+      "command": "cmake --build --preset conan-release",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": [
+        "configure-release"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
