@@ -5,6 +5,14 @@ project(sst_cam_firmware
     LANGUAGES CXX
 )
 
+# Optional: enforce Clang only
+if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR
+        "This project must be built with Clang. "
+        "Current compiler is: ${CMAKE_CXX_COMPILER_ID}"
+    )
+endif()
+
 # C++ standard
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,10 +31,12 @@ add_compile_options(
     -Wshadow
 )
 
-# --- Dependencies (resolved by vcpkg) ---
-find_package(nlohmann_json REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(GStreamer REQUIRED)
+# --- Dependencies (all from Conan via CMakeDeps) ---
+# CMakeDeps generates CONFIG packages, so always use CONFIG REQUIRED
+
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(gstreamer CONFIG REQUIRED)
 
 # --- Sources ---
 file(GLOB_RECURSE SRC_FILES
@@ -42,7 +52,7 @@ target_include_directories(sst_cam
 
 target_link_libraries(sst_cam
     PRIVATE
+        gstreamer::gstreamer
         nlohmann_json::nlohmann_json
         spdlog::spdlog
-        GStreamer::gstreamer-1.0
 )

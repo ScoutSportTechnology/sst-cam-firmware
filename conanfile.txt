@@ -1,0 +1,9 @@
+[requires]
+gstreamer/1.24.7
+nlohmann_json/3.12.0
+spdlog/1.16.0
+[generators]
+CMakeDeps
+CMakeToolchain
+[layout]
+cmake_layout

@@ -6,7 +6,4 @@
   "search.exclude": {
     "**/build/**": true
   },
-  "files.exclude": {
-    "**/build/**": true
-  }
 }
