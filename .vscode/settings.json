@@ -1,9 +1,22 @@
 {
-  "C_Cpp.default.compilerPath": "clang++",
-  "C_Cpp.default.cppStandard": "c++23",
+  // CMake / Conan integration
   "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+  // Let CMake Tools describe the project to tools
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  // clangd language server from MSYS2 Clang64
+  "clangd.path": "C:/msys64/clang64/bin/clangd.exe",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}"
+  ],
+  // Formatting
   "editor.formatOnSave": true,
-  "search.exclude": {
-    "**/build/**": true
+  "[cpp]": {
+    "editor.defaultFormatter": "xaver.clang-format"
   },
+  "[c]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  }
 }

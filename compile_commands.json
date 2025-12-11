@@ -1,0 +1,8 @@
+[
+{
+  "directory": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug",
+  "command": "C:\\msys64\\mingw64\\bin\\clang++.exe -DFFI_STATIC_BUILD -DGST_STATIC_COMPILATION -DPCRE2_STATIC -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -IC:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src -isystem C:/Users/rauls/.conan2/p/b/gstre1d6809ab05c9d/p/include/gstreamer-1.0 -isystem C:/Users/rauls/.conan2/p/b/glib99c1189bbe6f6/p/include -isystem C:/Users/rauls/.conan2/p/b/glib99c1189bbe6f6/p/include/glib-2.0 -isystem C:/Users/rauls/.conan2/p/b/glib99c1189bbe6f6/p/lib/glib-2.0/include -isystem C:/Users/rauls/.conan2/p/b/libge663b587fde780/p/include -isystem C:/Users/rauls/.conan2/p/nlohmd014ef7748f4b/p/include -isystem C:/Users/rauls/.conan2/p/b/spdlo784b4324e4c72/p/include -isystem C:/Users/rauls/.conan2/p/b/fmtd84f42a5b4d28/p/include -m64 -stdlib=libstdc++ -g -std=c++23 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -o CMakeFiles\\sst_cam.dir\\src\\main.cpp.obj -c C:\\Users\\rauls\\Projects\\ScoutSportTechnology\\sst-cam-firmware\\src\\main.cpp",
+  "file": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src/main.cpp",
+  "output": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug/CMakeFiles/sst_cam.dir/src/main.cpp.obj"
+}
+]
