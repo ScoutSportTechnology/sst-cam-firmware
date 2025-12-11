@@ -78,3 +78,5 @@ build/
 *.dll
 *.so
 bin/
+
+vcpkg_installed/

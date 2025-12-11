@@ -1,34 +1,48 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(sst_cam_firmware VERSION 0.1.0 LANGUAGES CXX)
+project(sst_cam_firmware
+    VERSION 0.1.0
+    LANGUAGES CXX
+)
 
+# C++ standard
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Tooling
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Compiler options
-add_compile_options(-Wall -Wextra -Wpedantic)
+# Warnings
+add_compile_options(
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wconversion
+    -Wshadow
+)
 
-# Find dependencies
-find_package(nlohmann_json CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
+# --- Dependencies (resolved by vcpkg) ---
+find_package(nlohmann_json REQUIRED)
+find_package(spdlog REQUIRED)
 find_package(GStreamer REQUIRED)
 
-# Source files
-file(GLOB_RECURSE SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+# --- Sources ---
+file(GLOB_RECURSE SRC_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+)
 
-# Create executable
 add_executable(sst_cam ${SRC_FILES})
 
-# Include directories
-target_include_directories(sst_cam PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(sst_cam
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
-# Link libraries
-target_link_libraries(sst_cam PRIVATE
-    nlohmann_json::nlohmann_json
-    spdlog::spdlog
-    GStreamer::gstreamer-1.0
+target_link_libraries(sst_cam
+    PRIVATE
+        nlohmann_json::nlohmann_json
+        spdlog::spdlog
+        GStreamer::gstreamer-1.0
 )

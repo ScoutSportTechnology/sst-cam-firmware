@@ -5,7 +5,14 @@
   "dependencies": [
     "nlohmann-json",
     "spdlog",
-    "gstreamer"
+    {
+      "name": "gstreamer",
+      "default-features": true,
+      "features": [
+        "plugins-base",
+        "plugins-good"
+      ]
+    }
   ],
   "features": {
     "tests": {

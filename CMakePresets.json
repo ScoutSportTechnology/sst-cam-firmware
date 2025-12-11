@@ -1,53 +1,76 @@
 {
-  "version": 3,
+  "version": 10,
   "configurePresets": [
     {
-      "name": "debug",
-      "displayName": "Debug",
-      "description": "Debug build",
-      "binaryDir": "build/debug",
+      "name": "dev",
+      "displayName": "Development",
+      "generator": "Ninja",
+      "binaryDir": "build/dev",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang",
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
+      }
+    },
+    {
+      "name": "staging",
+      "displayName": "Staging",
+      "generator": "Ninja",
+      "binaryDir": "build/staging",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
       }
     },
     {
       "name": "release",
       "displayName": "Release",
-      "description": "Release build",
+      "generator": "Ninja",
       "binaryDir": "build/release",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang",
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "debug",
-      "displayName": "Build Debug",
-      "description": "Build using debug configuration",
-      "configurePreset": "debug",
-      "configuration": "Debug"
+      "name": "dev",
+      "displayName": "Build Development",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "staging",
+      "displayName": "Build Staging",
+      "configurePreset": "staging"
     },
     {
       "name": "release",
       "displayName": "Build Release",
-      "description": "Build using release configuration",
-      "configurePreset": "release",
-      "configuration": "Release"
+      "configurePreset": "release"
     }
   ],
   "testPresets": [
     {
-      "name": "debug",
-      "displayName": "Test Debug",
-      "description": "Run tests in debug mode",
-      "configurePreset": "debug",
+      "name": "dev",
+      "displayName": "Test Development",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "staging",
+      "displayName": "Test Staging",
+      "configurePreset": "staging",
       "output": {
         "outputOnFailure": true
       }
