@@ -84,9 +84,9 @@ if (BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp
     )
 
-    add_executable(unit_tests ${TEST_SOURCES})
+    add_executable(sst_cam_firmware_tests ${TEST_SOURCES})
 
-    target_link_libraries(unit_tests PRIVATE
+    target_link_libraries(sst_cam_firmware_tests PRIVATE
         sst_cam_firmware_internal_libs
         sst_cam_firmware_external_libs
         GTest::gtest
@@ -94,10 +94,10 @@ if (BUILD_TESTS)
     )
 
     # Pass repo root to tests so they can open test JSON fixtures reliably
-    target_compile_definitions(unit_tests PRIVATE
+    target_compile_definitions(sst_cam_firmware_tests PRIVATE
         SST_REPO_ROOT="${CMAKE_SOURCE_DIR}"
     )
 
     include(GoogleTest)
-    gtest_discover_tests(unit_tests)
+    gtest_discover_tests(sst_cam_firmware_tests)
 endif()

@@ -22,6 +22,8 @@ TEST(JsonAdapter, LoadsProfileConfigFromFixtureFile) {
     std::string error;
     ASSERT_TRUE(adapter.load(cfg, error)) << error;
 
+    std::cout << "Loaded ProfileConfig: " << cfg.users.size() << std::endl;
+
     // Minimal sanity checks (adjust to match your actual JSON/struct)
     EXPECT_GE(cfg.users.size(), 0u);  // always true, but keeps compiler happy
 }
