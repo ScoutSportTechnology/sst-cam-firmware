@@ -42,7 +42,7 @@
         "cwd": "${workspaceFolder}"
       },
       "dependsOn": [
-        "configure-debug"
+        "clean-debug"
       ],
       "problemMatcher": []
     },

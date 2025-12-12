@@ -4,7 +4,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
 
@@ -24,39 +23,61 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
         try {
             spdlog::info("Loading JSON config from: {}", full_path_.string());
 
-            std::ifstream inputFileStream(full_path_);
-            if (!inputFileStream) {
+            std::ifstream in(full_path_, std::ios::in);
+            if (!in.is_open()) {
                 error = "Cannot open config file: " + full_path_.string();
+                spdlog::error("{}", error);
                 return false;
             }
 
-            json jsonObject;
-            inputFileStream >> jsonObject;
+            json j;
+            in >> j;
 
-            loadedConfig = jsonObject.get<T>();
-
+            loadedConfig = j.get<T>();
+            spdlog::debug("Loaded JSON config OK: {}", full_path_.string());
             return true;
+
+        } catch (const json::exception& ex) {
+            error = std::string{"Failed to parse JSON config: "} + ex.what() +
+                    " (file: " + full_path_.string() + ")";
+            spdlog::error("{}", error);
+            return false;
+
         } catch (const std::exception& ex) {
-            error = std::string{"Failed to load JSON config: "} + ex.what();
+            error = std::string{"Failed to load JSON config: "} + ex.what() +
+                    " (file: " + full_path_.string() + ")";
+            spdlog::error("{}", error);
             return false;
         }
     }
 
     auto save(const T& modifiedConfig, std::string& error) -> bool override {
         try {
-            std::cout << "Saving JSON config to: " << full_path_.string() << '\n';
+            spdlog::info("Saving JSON config to: {}", full_path_.string());
 
-            std::ofstream out(full_path_);
-            if (!out) {
+            std::ofstream out(full_path_, std::ios::out | std::ios::trunc);
+            if (!out.is_open()) {
                 error = "Cannot open config file for writing: " + full_path_.string();
+                spdlog::error("{}", error);
                 return false;
             }
 
-            json jsonObject = modifiedConfig;
-            out << jsonObject.dump(4);
+            json j = modifiedConfig;
+            out << j.dump(4) << '\n';
+
+            if (!out.good()) {
+                error = "Failed while writing config file: " + full_path_.string();
+                spdlog::error("{}", error);
+                return false;
+            }
+
+            spdlog::debug("Saved JSON config OK: {}", full_path_.string());
             return true;
+
         } catch (const std::exception& ex) {
-            error = std::string{"Failed to save JSON config: "} + ex.what();
+            error = std::string{"Failed to save JSON config: "} + ex.what() +
+                    " (file: " + full_path_.string() + ")";
+            spdlog::error("{}", error);
             return false;
         }
     }
