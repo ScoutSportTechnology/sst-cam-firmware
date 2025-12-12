@@ -1,8 +1,20 @@
 [
 {
   "directory": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug",
-  "command": "C:\\msys64\\clang64\\bin\\clang++.exe -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -IC:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src -isystem C:/msys64/clang64/bin/../include/gstreamer-1.0 -isystem C:/msys64/clang64/bin/../include/glib-2.0 -isystem C:/msys64/clang64/bin/../lib/glib-2.0/include -isystem C:/msys64/clang64/bin/../include/orc-0.4 -isystem C:/Users/rauls/.conan2/p/nlohmd014ef7748f4b/p/include -isystem C:/Users/rauls/.conan2/p/b/spdlo6d00a321fe62a/p/include -isystem C:/Users/rauls/.conan2/p/b/fmt6b2169fac1129/p/include -isystem C:/Users/rauls/.conan2/p/b/gtest9cc11cbf52e06/p/include -m64 -stdlib=libc++ -g -std=c++23 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -o CMakeFiles\\sst_cam.dir\\src\\main.cpp.obj -c C:\\Users\\rauls\\Projects\\ScoutSportTechnology\\sst-cam-firmware\\src\\main.cpp",
+  "command": "C:\\msys64\\clang64\\bin\\clang++.exe -IC:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src -m64 -stdlib=libc++ -g -std=c++23 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -o CMakeFiles\\sst_cam_firmware_internal_libs.dir\\src\\config\\app\\config.cpp.obj -c C:\\Users\\rauls\\Projects\\ScoutSportTechnology\\sst-cam-firmware\\src\\config\\app\\config.cpp",
+  "file": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src/config/app/config.cpp",
+  "output": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug/CMakeFiles/sst_cam_firmware_internal_libs.dir/src/config/app/config.cpp.obj"
+},
+{
+  "directory": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug",
+  "command": "C:\\msys64\\clang64\\bin\\clang++.exe -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -IC:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src -isystem C:/msys64/clang64/bin/../include/gstreamer-1.0 -isystem C:/msys64/clang64/bin/../include/glib-2.0 -isystem C:/msys64/clang64/bin/../lib/glib-2.0/include -isystem C:/msys64/clang64/bin/../include/orc-0.4 -isystem C:/Users/rauls/.conan2/p/nlohmd014ef7748f4b/p/include -isystem C:/Users/rauls/.conan2/p/b/spdlo6d00a321fe62a/p/include -isystem C:/Users/rauls/.conan2/p/b/fmt6b2169fac1129/p/include -m64 -stdlib=libc++ -g -std=c++23 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -o CMakeFiles\\sst_cam_firmware.dir\\src\\main.cpp.obj -c C:\\Users\\rauls\\Projects\\ScoutSportTechnology\\sst-cam-firmware\\src\\main.cpp",
   "file": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src/main.cpp",
-  "output": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug/CMakeFiles/sst_cam.dir/src/main.cpp.obj"
+  "output": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug/CMakeFiles/sst_cam_firmware.dir/src/main.cpp.obj"
+},
+{
+  "directory": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug",
+  "command": "C:\\msys64\\clang64\\bin\\clang++.exe -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSST_REPO_ROOT=\\\"C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware\\\" -IC:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/src -isystem C:/msys64/clang64/bin/../include/gstreamer-1.0 -isystem C:/msys64/clang64/bin/../include/glib-2.0 -isystem C:/msys64/clang64/bin/../lib/glib-2.0/include -isystem C:/msys64/clang64/bin/../include/orc-0.4 -isystem C:/Users/rauls/.conan2/p/nlohmd014ef7748f4b/p/include -isystem C:/Users/rauls/.conan2/p/b/spdlo6d00a321fe62a/p/include -isystem C:/Users/rauls/.conan2/p/b/fmt6b2169fac1129/p/include -isystem C:/Users/rauls/.conan2/p/b/gtest9cc11cbf52e06/p/include -m64 -stdlib=libc++ -g -std=c++23 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -o CMakeFiles\\unit_tests.dir\\tests\\config\\adapter\\json_adapter.test.cpp.obj -c C:\\Users\\rauls\\Projects\\ScoutSportTechnology\\sst-cam-firmware\\tests\\config\\adapter\\json_adapter.test.cpp",
+  "file": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/tests/config/adapter/json_adapter.test.cpp",
+  "output": "C:/Users/rauls/Projects/ScoutSportTechnology/sst-cam-firmware/build/Debug/CMakeFiles/unit_tests.dir/tests/config/adapter/json_adapter.test.cpp.obj"
 }
 ]

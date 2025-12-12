@@ -5,7 +5,7 @@
       "name": "Debug (Conan Cmake MSYS2 Clang64)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/debug/bin/sst_cam",
+      "program": "${workspaceFolder}/build/debug/bin/sst_cam_firmware",
       "cwd": "${workspaceFolder}",
       "args": [],
       "env": {
@@ -18,7 +18,7 @@
       "name": "Staging (Conan Cmake MSYS2 Clang64)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/staging/bin/sst_cam",
+      "program": "${workspaceFolder}/build/staging/bin/sst_cam_firmware",
       "cwd": "${workspaceFolder}",
       "args": [],
       "env": {
@@ -30,7 +30,7 @@
       "name": "Release (Conan Cmake MSYS2 Clang64)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/release/bin/sst_cam",
+      "program": "${workspaceFolder}/build/release/bin/sst_cam_firmware",
       "cwd": "${workspaceFolder}",
       "args": [],
       "env": {

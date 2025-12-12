@@ -31,12 +31,9 @@ add_compile_options(
     -Wshadow
 )
 
-# --- Dependencies (all from Conan via CMakeDeps) ---
-# CMakeDeps generates CONFIG packages, so always use CONFIG REQUIRED
-
+# --- Dependencies (Conan/CMakeDeps) ---
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(GTest REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET
@@ -46,22 +43,61 @@ pkg_check_modules(GST REQUIRED IMPORTED_TARGET
     gstreamer-video-1.0
 )
 
-# --- Sources ---
-file(GLOB_RECURSE SRC_FILES
+# External deps bundle target (NO sources)
+add_library(sst_cam_firmware_external_libs INTERFACE)
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    PkgConfig::GST
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog
+)
+
+# --- Core library (everything except main.cpp) ---
+file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
 
-add_executable(sst_cam ${SRC_FILES})
+# Remove app entry point from the core library
+list(FILTER CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
-target_include_directories(sst_cam
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+add_library(sst_cam_firmware_internal_libs STATIC ${CORE_SOURCES})
+
+# IMPORTANT: PUBLIC so anything that links this lib (app/tests) inherits include path
+target_include_directories(sst_cam_firmware_internal_libs PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(sst_cam
-    PRIVATE
-        PkgConfig::GST
-        nlohmann_json::nlohmann_json
-        spdlog::spdlog
-        gtest::gtest
+# --- App executable ---
+add_executable(sst_cam_firmware ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
+target_link_libraries(sst_cam_firmware PRIVATE
+    sst_cam_firmware_internal_libs
+    sst_cam_firmware_external_libs
 )
+
+# --- Tests ---
+option(BUILD_TESTS "Build unit tests" OFF)
+if (BUILD_TESTS)
+    enable_testing()
+
+    find_package(GTest CONFIG REQUIRED)
+
+    file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp
+    )
+
+    add_executable(unit_tests ${TEST_SOURCES})
+
+    target_link_libraries(unit_tests PRIVATE
+        sst_cam_firmware_internal_libs
+        sst_cam_firmware_external_libs
+        GTest::gtest
+        GTest::gtest_main
+    )
+
+    # Pass repo root to tests so they can open test JSON fixtures reliably
+    target_compile_definitions(unit_tests PRIVATE
+        SST_REPO_ROOT="${CMAKE_SOURCE_DIR}"
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(unit_tests)
+endif()
