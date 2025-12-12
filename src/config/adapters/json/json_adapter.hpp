@@ -84,9 +84,33 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
         }
     }
 
-    auto reset(const T& modifiedConfig) -> bool override {
-        spdlog::debug("Reset called on JsonAdapter (no-op for file-based storage)");
-        return true;
+    auto reset() -> bool override {
+        try {
+            spdlog::info("Resetting JSON config (clearing users) at: {}", full_path_.string());
+
+            T cfg{};
+
+            if (std::filesystem::exists(full_path_)) {
+                if (!load(cfg)) {
+                    spdlog::error("Reset failed: could not load existing file: {}",
+                                  full_path_.string());
+                    return false;
+                }
+            }
+
+            if constexpr (requires(T jsonData) { jsonData.users.clear(); }) {
+                cfg.users.clear();
+            } else {
+                spdlog::error("Reset not supported: type has no 'users' member to clear");
+                return false;
+            }
+
+            return save(cfg);
+
+        } catch (const std::exception& ex) {
+            spdlog::error("Reset failed: {} (file: {})", ex.what(), full_path_.string());
+            return false;
+        }
     }
 
    private:

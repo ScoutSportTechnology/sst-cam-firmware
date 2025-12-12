@@ -69,6 +69,7 @@ TEST(JsonAdapter_User, Save) {
 
     userConfig.users.push_back({1, {"Alice"}});
     userConfig.users.push_back({2, {"Bob"}});
+    userConfig.users.push_back({3, {"Charlie"}});
 
     auto saved = save_config<sst::config::domain::UsersConfig>(path_user, userConfig);
     log_object(saved.data);

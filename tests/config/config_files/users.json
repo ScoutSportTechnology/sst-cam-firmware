@@ -3,11 +3,15 @@
     "users": [
         {
             "id": 1,
-            "name": "Alice"
+            "user_data": {
+                "name": "Alice"
+            }
         },
         {
             "id": 2,
-            "name": "Bob"
+            "user_data": {
+                "name": "Bob"
+            }
         }
     ]
 }
