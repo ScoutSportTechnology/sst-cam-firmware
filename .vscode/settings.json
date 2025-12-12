@@ -9,7 +9,8 @@
   // clangd language server from MSYS2 Clang64
   "clangd.path": "C:/msys64/clang64/bin/clangd.exe",
   "clangd.arguments": [
-    "--compile-commands-dir=${workspaceFolder}"
+    "--compile-commands-dir=${workspaceFolder}",
+    "--background-index"
   ],
   // Formatting
   "editor.formatOnSave": true,

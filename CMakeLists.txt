@@ -60,6 +60,9 @@ file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
 list(FILTER CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
 add_library(sst_cam_firmware_internal_libs STATIC ${CORE_SOURCES})
+target_link_libraries(sst_cam_firmware_internal_libs PUBLIC
+    sst_cam_firmware_external_libs
+)
 
 # IMPORTANT: PUBLIC so anything that links this lib (app/tests) inherits include path
 target_include_directories(sst_cam_firmware_internal_libs PUBLIC
@@ -70,7 +73,6 @@ target_include_directories(sst_cam_firmware_internal_libs PUBLIC
 add_executable(sst_cam_firmware ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(sst_cam_firmware PRIVATE
     sst_cam_firmware_internal_libs
-    sst_cam_firmware_external_libs
 )
 
 # --- Tests ---
@@ -88,7 +90,6 @@ if (BUILD_TESTS)
 
     target_link_libraries(sst_cam_firmware_tests PRIVATE
         sst_cam_firmware_internal_libs
-        sst_cam_firmware_external_libs
         GTest::gtest
         GTest::gtest_main
     )
@@ -101,3 +102,21 @@ if (BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests)
 endif()
+
+
+if (CMAKE_EXPORT_COMPILE_COMMANDS)
+  add_custom_command(TARGET sst_cam_firmware POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_BINARY_DIR}/compile_commands.json
+      ${CMAKE_SOURCE_DIR}/compile_commands.json
+  )
+
+  if (BUILD_TESTS)
+    add_custom_command(TARGET sst_cam_firmware_tests POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_BINARY_DIR}/compile_commands.json
+        ${CMAKE_SOURCE_DIR}/compile_commands.json
+    )
+  endif()
+endif()
+

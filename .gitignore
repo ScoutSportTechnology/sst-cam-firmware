@@ -80,3 +80,5 @@ build/
 bin/
 
 vcpkg_installed/
+
+compile_commands.json
