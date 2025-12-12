@@ -18,8 +18,7 @@ using nlohmann::json;
 template <typename T>
 class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
    public:
-    explicit JsonAdapter(std::string filename)
-        : full_path_{std::filesystem::path("config") / (std::move(filename) + ".json")} {}
+    explicit JsonAdapter(std::filesystem::path full_path) : full_path_{std::move(full_path)} {}
 
     auto load(T& loadedConfig, std::string& error) -> bool override {
         try {

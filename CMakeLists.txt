@@ -36,6 +36,7 @@ add_compile_options(
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(GTest REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET
@@ -62,4 +63,5 @@ target_link_libraries(sst_cam
         PkgConfig::GST
         nlohmann_json::nlohmann_json
         spdlog::spdlog
+        gtest::gtest
 )
