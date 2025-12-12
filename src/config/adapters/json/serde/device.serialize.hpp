@@ -6,183 +6,130 @@
 namespace sst::config::domain {
 using nlohmann::json;
 
-inline void to_json(json& jsonObject, const DefaultDeviceStaticIpConfig& value) {
+inline void to_json(json& jsonObject, const DeviceStaticIpData& values) {
     jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["ip_address"] = value.ip_address;
-    jsonObject["subnet_mask"] = value.subnet_mask;
-    jsonObject["gateway"] = value.gateway;
-}
 
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityWifiClientConfig& value) {
-    jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["wifi_ssid"] = value.wifi_ssid;
-    jsonObject["wifi_password"] = value.wifi_password;
-    jsonObject["static_ip"] = value.static_ip;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityWifiAccessPointConfig& value) {
-    jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["ssid"] = value.ssid;
-    jsonObject["password"] = value.password;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityWifiConfig& value) {
-    jsonObject = json::object();
-    jsonObject["client"] = value.client;
-    jsonObject["access_point"] = value.access_point;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityEthernetConfig& value) {
-    jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["static_ip"] = value.static_ip;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityBluetoothConfig& value) {
-    jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["name"] = value.name;
-    jsonObject["password"] = value.password;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConnectivityConfig& value) {
-    jsonObject = json::object();
-    jsonObject["wifi"] = value.wifi;
-    jsonObject["ethernet"] = value.ethernet;
-    jsonObject["bluetooth"] = value.bluetooth;
-}
-
-inline void to_json(json& jsonObject, const DefaultDeviceConfig& value) {
-    jsonObject = json::object();
-    jsonObject["name"] = value.name;
-    jsonObject["model"] = value.model;
-    jsonObject["version"] = value.version;
-    jsonObject["serial_number"] = value.serial_number;
-    jsonObject["manufacturer"] = value.manufacturer;
-    jsonObject["timezone"] = value.timezone;
-    jsonObject["timestamp"] = value.timestamp;
-    jsonObject["connectivity"] = value.connectivity;
-}
-
-inline void to_json(json& jsonObject, const UserDeviceStaticIpConfig& value) {
-    jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.ip_address.has_value()) {
-        jsonObject["ip_address"] = value.ip_address.value();
+    if (values.ip_address) {
+        jsonObject["ip_address"] = *values.ip_address;
     }
-    if (value.subnet_mask.has_value()) {
-        jsonObject["subnet_mask"] = value.subnet_mask.value();
+    if (values.subnet_mask) {
+        jsonObject["subnet_mask"] = *values.subnet_mask;
     }
-    if (value.gateway.has_value()) {
-        jsonObject["gateway"] = value.gateway.value();
+    if (values.gateway) {
+        jsonObject["gateway"] = *values.gateway;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityWifiClientConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityWifiClientData& values) {
     jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.wifi_ssid.has_value()) {
-        jsonObject["wifi_ssid"] = value.wifi_ssid.value();
+    if (values.wifi_ssid) {
+        jsonObject["wifi_ssid"] = *values.wifi_ssid;
     }
-    if (value.wifi_password.has_value()) {
-        jsonObject["wifi_password"] = value.wifi_password.value();
+    if (values.wifi_password) {
+        jsonObject["wifi_password"] = *values.wifi_password;
     }
-    if (value.static_ip.has_value()) {
-        jsonObject["static_ip"] = value.static_ip.value();
+    if (values.static_ip) {
+        jsonObject["static_ip"] = *values.static_ip;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityWifiAccessPointConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityWifiAccessPointData& values) {
     jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.ssid.has_value()) {
-        jsonObject["ssid"] = value.ssid.value();
+    if (values.ssid) {
+        jsonObject["ssid"] = *values.ssid;
     }
-    if (value.password.has_value()) {
-        jsonObject["password"] = value.password.value();
+    if (values.password) {
+        jsonObject["password"] = *values.password;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityWifiConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityWifiData& values) {
     jsonObject = json::object();
-    if (value.client.has_value()) {
-        jsonObject["client"] = value.client.value();
+
+    if (values.client) {
+        jsonObject["client"] = *values.client;
     }
-    if (value.access_point.has_value()) {
-        jsonObject["access_point"] = value.access_point.value();
+    if (values.access_point) {
+        jsonObject["access_point"] = *values.access_point;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityEthernetConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityEthernetData& values) {
     jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.static_ip.has_value()) {
-        jsonObject["static_ip"] = value.static_ip.value();
+    if (values.static_ip) {
+        jsonObject["static_ip"] = *values.static_ip;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityBluetoothConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityBluetoothData& values) {
     jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.name.has_value()) {
-        jsonObject["name"] = value.name.value();
+    if (values.name) {
+        jsonObject["name"] = *values.name;
     }
-    if (value.password.has_value()) {
-        jsonObject["password"] = value.password.value();
+    if (values.password) {
+        jsonObject["password"] = *values.password;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConnectivityConfig& value) {
+inline void to_json(json& jsonObject, const DeviceConnectivityData& values) {
     jsonObject = json::object();
-    if (value.wifi.has_value()) {
-        jsonObject["wifi"] = value.wifi.value();
+
+    if (values.wifi) {
+        jsonObject["wifi"] = *values.wifi;
     }
-    if (value.ethernet.has_value()) {
-        jsonObject["ethernet"] = value.ethernet.value();
+    if (values.ethernet) {
+        jsonObject["ethernet"] = *values.ethernet;
     }
-    if (value.bluetooth.has_value()) {
-        jsonObject["bluetooth"] = value.bluetooth.value();
+    if (values.bluetooth) {
+        jsonObject["bluetooth"] = *values.bluetooth;
     }
 }
 
-inline void to_json(json& jsonObject, const UserDeviceConfig& value) {
+inline void to_json(json& jsonObject, const DeviceData& values) {
     jsonObject = json::object();
-    if (value.name.has_value()) {
-        jsonObject["name"] = value.name.value();
+
+    if (values.name) {
+        jsonObject["name"] = *values.name;
     }
-    if (value.model.has_value()) {
-        jsonObject["model"] = value.model.value();
+    if (values.model) {
+        jsonObject["model"] = *values.model;
     }
-    if (value.version.has_value()) {
-        jsonObject["version"] = value.version.value();
+    if (values.version) {
+        jsonObject["version"] = *values.version;
     }
-    if (value.serial_number.has_value()) {
-        jsonObject["serial_number"] = value.serial_number.value();
+    if (values.serial_number) {
+        jsonObject["serial_number"] = *values.serial_number;
     }
-    if (value.manufacturer.has_value()) {
-        jsonObject["manufacturer"] = value.manufacturer.value();
+    if (values.manufacturer) {
+        jsonObject["manufacturer"] = *values.manufacturer;
     }
-    if (value.timezone.has_value()) {
-        jsonObject["timezone"] = value.timezone.value();
+    if (values.timezone) {
+        jsonObject["timezone"] = *values.timezone;
     }
-    if (value.timestamp.has_value()) {
-        jsonObject["timestamp"] = value.timestamp.value();
+    if (values.timestamp) {
+        jsonObject["timestamp"] = *values.timestamp;
     }
-    if (value.connectivity.has_value()) {
-        jsonObject["connectivity"] = value.connectivity.value();
+    if (values.connectivity) {
+        jsonObject["connectivity"] = *values.connectivity;
     }
 }
 

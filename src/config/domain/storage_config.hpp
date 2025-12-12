@@ -5,34 +5,21 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace sst::config::domain  {
+namespace sst::config::domain {
 
-struct DefaultStorageSectionConfig {
-    bool enabled{false};
-    std::string path;
-    std::string format;
+struct StorageSectionData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> path{std::nullopt};
+    std::optional<std::string> format{std::nullopt};
 };
 
-struct DefaultStorageConfig {
-    DefaultStorageSectionConfig recording;
-    DefaultStorageSectionConfig snapshots;
-    DefaultStorageSectionConfig logs;
-    DefaultStorageSectionConfig thumbnails;
+struct StorageData {
+    std::optional<StorageSectionData> recording{std::nullopt};
+    std::optional<StorageSectionData> snapshots{std::nullopt};
+    std::optional<StorageSectionData> logs{std::nullopt};
+    std::optional<StorageSectionData> thumbnails{std::nullopt};
 };
 
-struct UserStorageSectionConfig {
-    std::optional<bool> enabled;
-    std::optional<std::string> path;
-    std::optional<std::string> format;
-};
-
-struct UserStorageConfig {
-    std::optional<UserStorageSectionConfig> recording;
-    std::optional<UserStorageSectionConfig> snapshots;
-    std::optional<UserStorageSectionConfig> logs;
-    std::optional<UserStorageSectionConfig> thumbnails;
-};
-
-using StorageConfig = ConfigFiles<DefaultStorageConfig, UserStorageConfig>;
+using StorageConfig = ConfigFiles<StorageData, StorageData>;
 
 }  // namespace sst::config::domain

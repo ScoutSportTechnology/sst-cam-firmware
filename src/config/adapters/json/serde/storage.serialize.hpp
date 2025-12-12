@@ -4,52 +4,38 @@
 #include "config/domain/storage_config.hpp"
 
 namespace sst::config::domain {
+
 using nlohmann::json;
 
-inline void to_json(json& jsonObject, const DefaultStorageSectionConfig& value) {
+inline void to_json(json& jsonObject, const StorageSectionData& values) {
     jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["path"] = value.path;
-    jsonObject["format"] = value.format;
-}
 
-
-inline void to_json(json& jsonObject, const DefaultStorageConfig& value) {
-    jsonObject = json::object();
-    jsonObject["recording"] = value.recording;
-    jsonObject["snapshots"] = value.snapshots;
-    jsonObject["logs"] = value.logs;
-    jsonObject["thumbnails"] = value.thumbnails;
-}
-
-inline void to_json(json& jsonObject, const UserStorageSectionConfig& value) {
-    jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.path.has_value()) {
-        jsonObject["path"] = value.path.value();
+    if (values.path) {
+        jsonObject["path"] = *values.path;
     }
-    if (value.format.has_value()) {
-        jsonObject["format"] = value.format.value();
+    if (values.format) {
+        jsonObject["format"] = *values.format;
     }
 }
 
-inline void to_json(json& jsonObject, const UserStorageConfig& value) {
+inline void to_json(json& jsonObject, const StorageData& values) {
     jsonObject = json::object();
-    if (value.recording.has_value()) {
-        jsonObject["recording"] = value.recording.value();
+
+    if (values.recording) {
+        jsonObject["recording"] = *values.recording;
     }
-    if (value.snapshots.has_value()) {
-        jsonObject["snapshots"] = value.snapshots.value();
+    if (values.snapshots) {
+        jsonObject["snapshots"] = *values.snapshots;
     }
-    if (value.logs.has_value()) {
-        jsonObject["logs"] = value.logs.value();
+    if (values.logs) {
+        jsonObject["logs"] = *values.logs;
     }
-    if (value.thumbnails.has_value()) {
-        jsonObject["thumbnails"] = value.thumbnails.value();
+    if (values.thumbnails) {
+        jsonObject["thumbnails"] = *values.thumbnails;
     }
 }
-
 
 }  // namespace sst::config::domain

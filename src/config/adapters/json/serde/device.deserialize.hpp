@@ -6,169 +6,115 @@
 namespace sst::config::domain {
 using nlohmann::json;
 
-inline void from_json(const json& jsonObject, DefaultDeviceStaticIpConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("ip_address").get_to(value.ip_address);
-    jsonObject.at("subnet_mask").get_to(value.subnet_mask);
-    jsonObject.at("gateway").get_to(value.gateway);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConnectivityWifiClientConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("wifi_ssid").get_to(value.wifi_ssid);
-    jsonObject.at("wifi_password").get_to(value.wifi_password);
-    jsonObject.at("static_ip").get_to(value.static_ip);
-}
-
-inline void from_json(const json& jsonObject,
-                      DefaultDeviceConnectivityWifiAccessPointConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("ssid").get_to(value.ssid);
-    jsonObject.at("password").get_to(value.password);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConnectivityWifiConfig& value) {
-    jsonObject.at("client").get_to(value.client);
-    jsonObject.at("access_point").get_to(value.access_point);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConnectivityEthernetConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("static_ip").get_to(value.static_ip);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConnectivityBluetoothConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("name").get_to(value.name);
-    jsonObject.at("password").get_to(value.password);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConnectivityConfig& value) {
-    jsonObject.at("wifi").get_to(value.wifi);
-    jsonObject.at("ethernet").get_to(value.ethernet);
-    jsonObject.at("bluetooth").get_to(value.bluetooth);
-}
-
-inline void from_json(const json& jsonObject, DefaultDeviceConfig& value) {
-    jsonObject.at("name").get_to(value.name);
-    jsonObject.at("model").get_to(value.model);
-    jsonObject.at("version").get_to(value.version);
-    jsonObject.at("serial_number").get_to(value.serial_number);
-    jsonObject.at("manufacturer").get_to(value.manufacturer);
-    jsonObject.at("timezone").get_to(value.timezone);
-    jsonObject.at("timestamp").get_to(value.timestamp);
-    jsonObject.at("connectivity").get_to(value.connectivity);
-}
-
-inline void from_json(const json& jsonObject, UserDeviceStaticIpConfig& value) {
+inline void from_json(const json& jsonObject, DeviceStaticIpData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("ip_address")) {
-        value.ip_address = jsonObject.at("ip_address").get<std::string>();
+        values.ip_address = jsonObject.at("ip_address").get<std::string>();
     }
     if (jsonObject.contains("subnet_mask")) {
-        value.subnet_mask = jsonObject.at("subnet_mask").get<std::string>();
+        values.subnet_mask = jsonObject.at("subnet_mask").get<std::string>();
     }
     if (jsonObject.contains("gateway")) {
-        value.gateway = jsonObject.at("gateway").get<std::string>();
+        values.gateway = jsonObject.at("gateway").get<std::string>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityWifiClientConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityWifiClientData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("wifi_ssid")) {
-        value.wifi_ssid = jsonObject.at("wifi_ssid").get<std::string>();
+        values.wifi_ssid = jsonObject.at("wifi_ssid").get<std::string>();
     }
     if (jsonObject.contains("wifi_password")) {
-        value.wifi_password = jsonObject.at("wifi_password").get<std::string>();
+        values.wifi_password = jsonObject.at("wifi_password").get<std::string>();
     }
     if (jsonObject.contains("static_ip")) {
-        value.static_ip = jsonObject.at("static_ip").get<UserDeviceStaticIpConfig>();
+        values.static_ip = jsonObject.at("static_ip").get<DeviceStaticIpData>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityWifiAccessPointConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityWifiAccessPointData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("ssid")) {
-        value.ssid = jsonObject.at("ssid").get<std::string>();
+        values.ssid = jsonObject.at("ssid").get<std::string>();
     }
     if (jsonObject.contains("password")) {
-        value.password = jsonObject.at("password").get<std::string>();
+        values.password = jsonObject.at("password").get<std::string>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityWifiConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityWifiData& values) {
     if (jsonObject.contains("client")) {
-        value.client = jsonObject.at("client").get<UserDeviceConnectivityWifiClientConfig>();
+        values.client = jsonObject.at("client").get<DeviceConnectivityWifiClientData>();
     }
     if (jsonObject.contains("access_point")) {
-        value.access_point =
-            jsonObject.at("access_point").get<UserDeviceConnectivityWifiAccessPointConfig>();
+        values.access_point =
+            jsonObject.at("access_point").get<DeviceConnectivityWifiAccessPointData>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityEthernetConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityEthernetData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("static_ip")) {
-        value.static_ip = jsonObject.at("static_ip").get<UserDeviceStaticIpConfig>();
+        values.static_ip = jsonObject.at("static_ip").get<DeviceStaticIpData>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityBluetoothConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityBluetoothData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("name")) {
-        value.name = jsonObject.at("name").get<std::string>();
+        values.name = jsonObject.at("name").get<std::string>();
     }
     if (jsonObject.contains("password")) {
-        value.password = jsonObject.at("password").get<std::string>();
+        values.password = jsonObject.at("password").get<std::string>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConnectivityConfig& value) {
+inline void from_json(const json& jsonObject, DeviceConnectivityData& values) {
     if (jsonObject.contains("wifi")) {
-        value.wifi = jsonObject.at("wifi").get<UserDeviceConnectivityWifiConfig>();
+        values.wifi = jsonObject.at("wifi").get<DeviceConnectivityWifiData>();
     }
     if (jsonObject.contains("ethernet")) {
-        value.ethernet = jsonObject.at("ethernet").get<UserDeviceConnectivityEthernetConfig>();
+        values.ethernet = jsonObject.at("ethernet").get<DeviceConnectivityEthernetData>();
     }
     if (jsonObject.contains("bluetooth")) {
-        value.bluetooth = jsonObject.at("bluetooth").get<UserDeviceConnectivityBluetoothConfig>();
+        values.bluetooth = jsonObject.at("bluetooth").get<DeviceConnectivityBluetoothData>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserDeviceConfig& value) {
+inline void from_json(const json& jsonObject, DeviceData& values) {
     if (jsonObject.contains("name")) {
-        value.name = jsonObject.at("name").get<std::string>();
+        values.name = jsonObject.at("name").get<std::string>();
     }
     if (jsonObject.contains("model")) {
-        value.model = jsonObject.at("model").get<std::string>();
+        values.model = jsonObject.at("model").get<std::string>();
     }
     if (jsonObject.contains("version")) {
-        value.version = jsonObject.at("version").get<std::string>();
+        values.version = jsonObject.at("version").get<std::string>();
     }
     if (jsonObject.contains("serial_number")) {
-        value.serial_number = jsonObject.at("serial_number").get<std::string>();
+        values.serial_number = jsonObject.at("serial_number").get<std::string>();
     }
     if (jsonObject.contains("manufacturer")) {
-        value.manufacturer = jsonObject.at("manufacturer").get<std::string>();
+        values.manufacturer = jsonObject.at("manufacturer").get<std::string>();
     }
     if (jsonObject.contains("timezone")) {
-        value.timezone = jsonObject.at("timezone").get<std::string>();
+        values.timezone = jsonObject.at("timezone").get<std::string>();
     }
     if (jsonObject.contains("timestamp")) {
-        value.timestamp = jsonObject.at("timestamp").get<std::string>();
+        values.timestamp = jsonObject.at("timestamp").get<std::string>();
     }
     if (jsonObject.contains("connectivity")) {
-        value.connectivity = jsonObject.at("connectivity").get<UserDeviceConnectivityConfig>();
+        values.connectivity = jsonObject.at("connectivity").get<DeviceConnectivityData>();
     }
 }
 

@@ -4,87 +4,63 @@
 #include "config/domain/stream_config.hpp"
 
 namespace sst::config::domain {
+
 using nlohmann::json;
 
-inline void from_json(const json& jsonObject, DefaultStreamPlatformSettingsConfig& value) {
-    jsonObject.at("width").get_to(value.width);
-    jsonObject.at("height").get_to(value.height);
-    jsonObject.at("framerate").get_to(value.framerate);
-    jsonObject.at("bitrate_kbps").get_to(value.bitrate_kbps);
-}
-
-inline void from_json(const json& jsonObject, DefaultStreamPlatformConfig& value) {
-    jsonObject.at("enabled").get_to(value.enabled);
-    jsonObject.at("url").get_to(value.url);
-    jsonObject.at("key").get_to(value.key);
-    jsonObject.at("stream_type").get_to(value.stream_type);
-    jsonObject.at("codec").get_to(value.codec);
-    jsonObject.at("settings").get_to(value.settings);
-}
-
-inline void from_json(const json& jsonObject, DefaultStreamConfig& value) {
-    jsonObject.at("youtube").get_to(value.youtube);
-    jsonObject.at("twitch").get_to(value.twitch);
-    jsonObject.at("facebook").get_to(value.facebook);
-    jsonObject.at("instagram").get_to(value.instagram);
-    jsonObject.at("tik_tok").get_to(value.tik_tok);
-    jsonObject.at("custom").get_to(value.custom);
-}
-
-inline void from_json(const json& jsonObject, UserStreamPlatformSettingsConfig& value) {
+inline void from_json(const json& jsonObject, StreamPlatformSettingsData& values) {
     if (jsonObject.contains("width")) {
-        value.width = jsonObject.at("width").get<std::uint32_t>();
+        values.width = jsonObject.at("width").get<std::uint32_t>();
     }
     if (jsonObject.contains("height")) {
-        value.height = jsonObject.at("height").get<std::uint32_t>();
+        values.height = jsonObject.at("height").get<std::uint32_t>();
     }
     if (jsonObject.contains("framerate")) {
-        value.framerate = jsonObject.at("framerate").get<std::uint32_t>();
+        values.framerate = jsonObject.at("framerate").get<std::uint32_t>();
     }
     if (jsonObject.contains("bitrate_kbps")) {
-        value.bitrate_kbps = jsonObject.at("bitrate_kbps").get<std::uint32_t>();
+        values.bitrate_kbps = jsonObject.at("bitrate_kbps").get<std::uint32_t>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserStreamPlatformConfig& value) {
+inline void from_json(const json& jsonObject, StreamPlatformData& values) {
     if (jsonObject.contains("enabled")) {
-        value.enabled = jsonObject.at("enabled").get<bool>();
+        values.enabled = jsonObject.at("enabled").get<bool>();
     }
     if (jsonObject.contains("url")) {
-        value.url = jsonObject.at("url").get<std::string>();
+        values.url = jsonObject.at("url").get<std::string>();
     }
     if (jsonObject.contains("key")) {
-        value.key = jsonObject.at("key").get<std::string>();
+        values.key = jsonObject.at("key").get<std::string>();
     }
     if (jsonObject.contains("stream_type")) {
-        value.stream_type = jsonObject.at("stream_type").get<std::string>();
+        values.stream_type = jsonObject.at("stream_type").get<std::string>();
     }
     if (jsonObject.contains("codec")) {
-        value.codec = jsonObject.at("codec").get<std::string>();
+        values.codec = jsonObject.at("codec").get<std::string>();
     }
     if (jsonObject.contains("settings")) {
-        value.settings = jsonObject.at("settings").get<UserStreamPlatformSettingsConfig>();
+        values.settings = jsonObject.at("settings").get<StreamPlatformSettingsData>();
     }
 }
 
-inline void from_json(const json& jsonObject, UserStreamConfig& value) {
+inline void from_json(const json& jsonObject, StreamData& values) {
     if (jsonObject.contains("youtube")) {
-        value.youtube = jsonObject.at("youtube").get<UserStreamPlatformConfig>();
+        values.youtube = jsonObject.at("youtube").get<StreamPlatformData>();
     }
     if (jsonObject.contains("twitch")) {
-        value.twitch = jsonObject.at("twitch").get<UserStreamPlatformConfig>();
+        values.twitch = jsonObject.at("twitch").get<StreamPlatformData>();
     }
     if (jsonObject.contains("facebook")) {
-        value.facebook = jsonObject.at("facebook").get<UserStreamPlatformConfig>();
+        values.facebook = jsonObject.at("facebook").get<StreamPlatformData>();
     }
     if (jsonObject.contains("instagram")) {
-        value.instagram = jsonObject.at("instagram").get<UserStreamPlatformConfig>();
+        values.instagram = jsonObject.at("instagram").get<StreamPlatformData>();
     }
     if (jsonObject.contains("tik_tok")) {
-        value.tik_tok = jsonObject.at("tik_tok").get<UserStreamPlatformConfig>();
+        values.tik_tok = jsonObject.at("tik_tok").get<StreamPlatformData>();
     }
     if (jsonObject.contains("custom")) {
-        value.custom = jsonObject.at("custom").get<std::vector<UserStreamPlatformConfig>>();
+        values.custom = jsonObject.at("custom").get<std::vector<StreamPlatformData>>();
     }
 }
 

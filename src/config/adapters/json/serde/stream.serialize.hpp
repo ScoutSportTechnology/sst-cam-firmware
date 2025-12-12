@@ -4,93 +4,69 @@
 #include "config/domain/stream_config.hpp"
 
 namespace sst::config::domain {
+
 using nlohmann::json;
 
-inline void to_json(json& jsonObject, const DefaultStreamPlatformSettingsConfig& value) {
+inline void to_json(json& jsonObject, const StreamPlatformSettingsData& values) {
     jsonObject = json::object();
-    jsonObject["width"] = value.width;
-    jsonObject["height"] = value.height;
-    jsonObject["framerate"] = value.framerate;
-    jsonObject["bitrate_kbps"] = value.bitrate_kbps;
-}
 
-inline void to_json(json& jsonObject, const DefaultStreamPlatformConfig& value) {
-    jsonObject = json::object();
-    jsonObject["enabled"] = value.enabled;
-    jsonObject["url"] = value.url;
-    jsonObject["key"] = value.key;
-    jsonObject["stream_type"] = value.stream_type;
-    jsonObject["codec"] = value.codec;
-    jsonObject["settings"] = value.settings;
-}
-
-inline void to_json(json& jsonObject, const DefaultStreamConfig& value) {
-    jsonObject = json::object();
-    jsonObject["youtube"] = value.youtube;
-    jsonObject["twitch"] = value.twitch;
-    jsonObject["facebook"] = value.facebook;
-    jsonObject["instagram"] = value.instagram;
-    jsonObject["tik_tok"] = value.tik_tok;
-    jsonObject["custom"] = value.custom;
-}
-
-inline void to_json(json& jsonObject, const UserStreamPlatformSettingsConfig& value) {
-    jsonObject = json::object();
-    if (value.width.has_value()) {
-        jsonObject["width"] = value.width.value();
+    if (values.width) {
+        jsonObject["width"] = *values.width;
     }
-    if (value.height.has_value()) {
-        jsonObject["height"] = value.height.value();
+    if (values.height) {
+        jsonObject["height"] = *values.height;
     }
-    if (value.framerate.has_value()) {
-        jsonObject["framerate"] = value.framerate.value();
+    if (values.framerate) {
+        jsonObject["framerate"] = *values.framerate;
     }
-    if (value.bitrate_kbps.has_value()) {
-        jsonObject["bitrate_kbps"] = value.bitrate_kbps.value();
+    if (values.bitrate_kbps) {
+        jsonObject["bitrate_kbps"] = *values.bitrate_kbps;
     }
 }
 
-inline void to_json(json& jsonObject, const UserStreamPlatformConfig& value) {
+inline void to_json(json& jsonObject, const StreamPlatformData& values) {
     jsonObject = json::object();
-    if (value.enabled.has_value()) {
-        jsonObject["enabled"] = value.enabled.value();
+
+    if (values.enabled) {
+        jsonObject["enabled"] = *values.enabled;
     }
-    if (value.url.has_value()) {
-        jsonObject["url"] = value.url.value();
+    if (values.url) {
+        jsonObject["url"] = *values.url;
     }
-    if (value.key.has_value()) {
-        jsonObject["key"] = value.key.value();
+    if (values.key) {
+        jsonObject["key"] = *values.key;
     }
-    if (value.stream_type.has_value()) {
-        jsonObject["stream_type"] = value.stream_type.value();
+    if (values.stream_type) {
+        jsonObject["stream_type"] = *values.stream_type;
     }
-    if (value.codec.has_value()) {
-        jsonObject["codec"] = value.codec.value();
+    if (values.codec) {
+        jsonObject["codec"] = *values.codec;
     }
-    if (value.settings.has_value()) {
-        jsonObject["settings"] = value.settings.value();
+    if (values.settings) {
+        jsonObject["settings"] = *values.settings;
     }
 }
 
-inline void to_json(json& jsonObject, const UserStreamConfig& value) {
+inline void to_json(json& jsonObject, const StreamData& values) {
     jsonObject = json::object();
-    if (value.youtube.has_value()) {
-        jsonObject["youtube"] = value.youtube.value();
+
+    if (values.youtube) {
+        jsonObject["youtube"] = *values.youtube;
     }
-    if (value.twitch.has_value()) {
-        jsonObject["twitch"] = value.twitch.value();
+    if (values.twitch) {
+        jsonObject["twitch"] = *values.twitch;
     }
-    if (value.facebook.has_value()) {
-        jsonObject["facebook"] = value.facebook.value();
+    if (values.facebook) {
+        jsonObject["facebook"] = *values.facebook;
     }
-    if (value.instagram.has_value()) {
-        jsonObject["instagram"] = value.instagram.value();
+    if (values.instagram) {
+        jsonObject["instagram"] = *values.instagram;
     }
-    if (value.tik_tok.has_value()) {
-        jsonObject["tik_tok"] = value.tik_tok.value();
+    if (values.tik_tok) {
+        jsonObject["tik_tok"] = *values.tik_tok;
     }
-    if (value.custom.has_value()) {
-        jsonObject["custom"] = value.custom.value();
+    if (values.custom) {
+        jsonObject["custom"] = *values.custom;
     }
 }
 

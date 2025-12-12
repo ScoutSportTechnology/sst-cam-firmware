@@ -5,114 +5,61 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace sst::config::domain  {
+namespace sst::config::domain {
 
-struct DefaultDeviceStaticIpConfig {
-    bool enabled{false};
-    std::string ip_address;
-    std::string subnet_mask;
-    std::string gateway;
+struct DeviceStaticIpData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> ip_address{std::nullopt};
+    std::optional<std::string> subnet_mask{std::nullopt};
+    std::optional<std::string> gateway{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityWifiClientConfig {
-    bool enabled{false};
-    std::string wifi_ssid;
-    std::string wifi_password;
-    DefaultDeviceStaticIpConfig static_ip;
+struct DeviceConnectivityWifiClientData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> wifi_ssid{std::nullopt};
+    std::optional<std::string> wifi_password{std::nullopt};
+    std::optional<DeviceStaticIpData> static_ip{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityWifiAccessPointConfig {
-    bool enabled{false};
-    std::string ssid;
-    std::string password;
+struct DeviceConnectivityWifiAccessPointData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> ssid{std::nullopt};
+    std::optional<std::string> password{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityWifiConfig {
-    DefaultDeviceConnectivityWifiClientConfig client;
-    DefaultDeviceConnectivityWifiAccessPointConfig access_point;
+struct DeviceConnectivityWifiData {
+    std::optional<DeviceConnectivityWifiClientData> client{std::nullopt};
+    std::optional<DeviceConnectivityWifiAccessPointData> access_point{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityEthernetConfig {
-    bool enabled{false};
-    DefaultDeviceStaticIpConfig static_ip;
+struct DeviceConnectivityEthernetData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<DeviceStaticIpData> static_ip{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityBluetoothConfig {
-    bool enabled{false};
-    std::string name;
-    std::string password;
+struct DeviceConnectivityBluetoothData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> name{std::nullopt};
+    std::optional<std::string> password{std::nullopt};
 };
 
-struct DefaultDeviceConnectivityConfig {
-    DefaultDeviceConnectivityWifiConfig wifi;
-    DefaultDeviceConnectivityEthernetConfig ethernet;
-    DefaultDeviceConnectivityBluetoothConfig bluetooth;
+struct DeviceConnectivityData {
+    std::optional<DeviceConnectivityWifiData> wifi{std::nullopt};
+    std::optional<DeviceConnectivityEthernetData> ethernet{std::nullopt};
+    std::optional<DeviceConnectivityBluetoothData> bluetooth{std::nullopt};
 };
 
-struct DefaultDeviceConfig {
-    std::string name;
-    std::string model;
-    std::string version;
-    std::string serial_number;
-    std::string manufacturer;
-    std::string timezone;
-    std::string timestamp;
-    DefaultDeviceConnectivityConfig connectivity;
+struct DeviceData {
+    std::optional<std::string> name{std::nullopt};
+    std::optional<std::string> model{std::nullopt};
+    std::optional<std::string> version{std::nullopt};
+    std::optional<std::string> serial_number{std::nullopt};
+    std::optional<std::string> manufacturer{std::nullopt};
+    std::optional<std::string> timezone{std::nullopt};
+    std::optional<std::string> timestamp{std::nullopt};
+    std::optional<DeviceConnectivityData> connectivity{std::nullopt};
 };
 
-struct UserDeviceStaticIpConfig {
-    std::optional<bool> enabled;
-    std::optional<std::string> ip_address;
-    std::optional<std::string> subnet_mask;
-    std::optional<std::string> gateway;
-};
-
-struct UserDeviceConnectivityWifiClientConfig {
-    std::optional<bool> enabled;
-    std::optional<std::string> wifi_ssid;
-    std::optional<std::string> wifi_password;
-    std::optional<UserDeviceStaticIpConfig> static_ip;
-};
-
-struct UserDeviceConnectivityWifiAccessPointConfig {
-    std::optional<bool> enabled;
-    std::optional<std::string> ssid;
-    std::optional<std::string> password;
-};
-
-struct UserDeviceConnectivityWifiConfig {
-    std::optional<UserDeviceConnectivityWifiClientConfig> client;
-    std::optional<UserDeviceConnectivityWifiAccessPointConfig> access_point;
-};
-
-struct UserDeviceConnectivityEthernetConfig {
-    std::optional<bool> enabled;
-    std::optional<UserDeviceStaticIpConfig> static_ip;
-};
-
-struct UserDeviceConnectivityBluetoothConfig {
-    std::optional<bool> enabled;
-    std::optional<std::string> name;
-    std::optional<std::string> password;
-};
-
-struct UserDeviceConnectivityConfig {
-    std::optional<UserDeviceConnectivityWifiConfig> wifi;
-    std::optional<UserDeviceConnectivityEthernetConfig> ethernet;
-    std::optional<UserDeviceConnectivityBluetoothConfig> bluetooth;
-};
-
-struct UserDeviceConfig {
-    std::optional<std::string> name;
-    std::optional<std::string> model;
-    std::optional<std::string> version;
-    std::optional<std::string> serial_number;
-    std::optional<std::string> manufacturer;
-    std::optional<std::string> timezone;
-    std::optional<std::string> timestamp;
-    std::optional<UserDeviceConnectivityConfig> connectivity;
-};
-
-using DeviceConfig = ConfigFiles<DefaultDeviceConfig, UserDeviceConfig>;
+using DeviceConfig = ConfigFiles<DeviceData, DeviceData>;
 
 }  // namespace sst::config::domain

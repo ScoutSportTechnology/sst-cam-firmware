@@ -84,6 +84,11 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
         }
     }
 
+    auto reset(const T& modifiedConfig) -> bool override {
+        spdlog::debug("Reset called on JsonAdapter (no-op for file-based storage)");
+        return true;
+    }
+
    private:
     std::filesystem::path full_path_;
 };

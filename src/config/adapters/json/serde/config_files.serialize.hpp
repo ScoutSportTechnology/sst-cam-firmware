@@ -7,18 +7,19 @@ namespace sst::config::domain {
 using nlohmann::json;
 
 template <typename UD>
-inline void to_json(json& jsonObject, const UserArray<UD>& value) {
+inline void to_json(json& jsonObject, const UserArray<UD>& values) {
     jsonObject = json{
-        {"id", value.id},
-        {"user_data", value.user_data},
+        {"id", values.id},
+        {"user_data", values.user_data},
     };
 }
 
 template <typename DD, typename UD>
-inline void to_json(json& jsonObject, const ConfigFiles<DD, UD>& value) {
+inline void to_json(json& jsonObject, const ConfigFiles<DD, UD>& values) {
     jsonObject = json{
-        {"default_data", value.default_data},
-        {"users", value.users},
+        {"default_data", values.default_data},
+        {"users", values.users},
     };
 }
+
 }  // namespace sst::config::domain

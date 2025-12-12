@@ -6,26 +6,18 @@
 namespace sst::config::domain {
 using nlohmann::json;
 
-inline void from_json(const json& jsonObject, DefaultProfileConfig& value) {
-    jsonObject.at("calibration").get_to(value.calibration);
-    jsonObject.at("device").get_to(value.device);
-    jsonObject.at("stream").get_to(value.stream);
-    jsonObject.at("storage").get_to(value.storage);
+inline void from_json(const json& jsonObject, ProfileData& values) {
+    if (jsonObject.contains("calibration")) { values.calibration = jsonObject.at("calibration").get<bool>();
 }
 
-inline void from_json(const json& jsonObject, UserProfileConfig& value) {
-    if (jsonObject.contains("calibration")) {
-        value.calibration = jsonObject.at("calibration").get<bool>();
-    }
-    if (jsonObject.contains("device")) {
-        value.device = jsonObject.at("device").get<bool>();
-    }
-    if (jsonObject.contains("stream")) {
-        value.stream = jsonObject.at("stream").get<bool>();
-    }
-    if (jsonObject.contains("storage")) {
-        value.storage = jsonObject.at("storage").get<bool>();
-    }
+    if (jsonObject.contains("device")) { values.device = jsonObject.at("device").get<bool>();
+}
+
+    if (jsonObject.contains("stream")) { values.stream = jsonObject.at("stream").get<bool>();
+}
+
+    if (jsonObject.contains("storage")) { values.storage = jsonObject.at("storage").get<bool>();
+}
 }
 
 }  // namespace sst::config::domain

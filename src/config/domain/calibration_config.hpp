@@ -9,54 +9,34 @@
 #include "config/domain/config_files.hpp"
 
 namespace sst::config::domain {
-struct DefaultCalibrationDevicesCameraConfig {
-    std::string last_calibration_date;
-    std::uint32_t id{0};
-    std::uint32_t exposure{0};
-    float gain{0.0F};
-    std::string white_balance;
-    std::string focus;
-    std::array<float, 9> intrinsic_matrix{};
-    std::array<float, 5> distortion_coefficients{};
-};
-struct DefaultCalibrationDevicesMicrophoneConfig {
-    std::string last_calibration_date;
-    std::uint32_t id{0};
-    float sensitivity{0.0F};
-    bool noise_reduction{false};
-};
-struct DefaultCalibrationDevicesConfig {
-    std::vector<DefaultCalibrationDevicesCameraConfig> camera;
-    std::vector<DefaultCalibrationDevicesMicrophoneConfig> microphone;
-};
-struct DefaultCalibrationConfig {
-    DefaultCalibrationDevicesConfig devices;
+
+struct CalibrationCameraData {
+    std::optional<std::string> last_calibration_date{std::nullopt};
+    std::optional<std::uint32_t> id{std::nullopt};
+    std::optional<std::uint32_t> exposure{std::nullopt};
+    std::optional<float> gain{std::nullopt};
+    std::optional<std::string> white_balance{std::nullopt};
+    std::optional<std::string> focus{std::nullopt};
+    std::optional<std::array<float, 9>> intrinsic_matrix{std::nullopt};
+    std::optional<std::array<float, 5>> distortion_coefficients{std::nullopt};
 };
 
-struct UserCalibrationDevicesCameraConfig {
-    std::optional<std::string> last_calibration_date;
-    std::optional<std::uint32_t> id;
-    std::optional<std::uint32_t> exposure;
-    std::optional<float> gain;
-    std::optional<std::string> white_balance;
-    std::optional<std::string> focus;
-    std::optional<std::array<float, 9>> intrinsic_matrix;
-    std::optional<std::array<float, 5>> distortion_coefficients;
-};
-struct UserCalibrationDevicesMicrophoneConfig {
-    std::optional<std::string> last_calibration_date;
-    std::optional<std::uint32_t> id;
-    std::optional<float> sensitivity;
-    std::optional<bool> noise_reduction;
-};
-struct UserCalibrationDevicesConfig {
-    std::vector<UserCalibrationDevicesCameraConfig> camera;
-    std::vector<UserCalibrationDevicesMicrophoneConfig> microphone;
-};
-struct UserCalibrationConfig {
-    std::optional<UserCalibrationDevicesConfig> devices;
+struct CalibrationMicrophoneData {
+    std::optional<std::string> last_calibration_date{std::nullopt};
+    std::optional<std::uint32_t> id{std::nullopt};
+    std::optional<float> sensitivity{std::nullopt};
+    std::optional<bool> noise_reduction{std::nullopt};
 };
 
-using CalibrationConfig = ConfigFiles<DefaultCalibrationConfig, UserCalibrationConfig>;
+struct CalibrationDevicesData {
+    std::vector<CalibrationCameraData> camera;
+    std::vector<CalibrationMicrophoneData> microphone;
+};
+
+struct CalibrationData {
+    std::optional<CalibrationDevicesData> devices{std::nullopt};
+};
+
+using CalibrationConfig = ConfigFiles<CalibrationData, CalibrationData>;
 
 }  // namespace sst::config::domain

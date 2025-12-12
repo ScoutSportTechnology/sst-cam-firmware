@@ -1,18 +1,14 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "config/domain/config_files.hpp"
+
 namespace sst::config::domain {
-struct UsersUserConfig {
-    std::uint32_t id{0};
+struct UsersData {
     std::string name;
 };
 
-struct UsersConfig {
-    std::vector<UsersUserConfig> default_data;
-    std::vector<UsersUserConfig> users;
-};
-
+using UsersConfig = ConfigFiles<std::vector<UsersData>, UsersData>;
 }  // namespace sst::config::domain

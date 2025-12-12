@@ -8,5 +8,6 @@ class IConfigFileRepository {
 
     virtual auto load(T& loadedConfig) -> bool = 0;
     virtual auto save(const T& modifiedConfig) -> bool = 0;
+    virtual auto reset(const T& modifiedConfig) -> bool = 0;
 };
 }  // namespace sst::config::ports

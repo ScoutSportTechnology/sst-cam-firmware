@@ -4,22 +4,15 @@
 
 #include "config/domain/config_files.hpp"
 
-namespace sst::config::domain  {
+namespace sst::config::domain {
 
-struct DefaultProfileConfig {
-    bool calibration{false};
-    bool device{false};
-    bool stream{false};
-    bool storage{false};
+struct ProfileData {
+    std::optional<bool> calibration{std::nullopt};
+    std::optional<bool> device{std::nullopt};
+    std::optional<bool> stream{std::nullopt};
+    std::optional<bool> storage{std::nullopt};
 };
 
-struct UserProfileConfig {
-    std::optional<bool> calibration;
-    std::optional<bool> device;
-    std::optional<bool> stream;
-    std::optional<bool> storage;
-};
-
-using ProfileConfig = ConfigFiles<DefaultProfileConfig, UserProfileConfig>;
+using ProfileConfig = ConfigFiles<ProfileData, ProfileData>;
 
 }  // namespace sst::config::domain
