@@ -5,7 +5,7 @@ compiler=clang
 build_type=Release
 compiler.version=17
 compiler.cppstd=23
-compiler.libcxx=libstdc++11
+compiler.libcxx=llibc++
 
 [buildenv]
 PATH+=(path)C:/msys64/clang64/bin
