@@ -5,6 +5,9 @@ project(sst_cam_firmware
     LANGUAGES CXX
 )
 
+# Absolute repo root (compile-time) for resolving config + test fixture paths
+set(SST_REPO_ROOT_DIR "${CMAKE_SOURCE_DIR}")
+
 # Optional: enforce Clang only
 if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     message(FATAL_ERROR
@@ -69,6 +72,11 @@ target_include_directories(sst_cam_firmware_internal_libs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Provide repo root to anything linking the core library (app + tests)
+target_compile_definitions(sst_cam_firmware_internal_libs PUBLIC
+    SST_REPO_ROOT_DIR="${SST_REPO_ROOT_DIR}"
+)
+
 # --- App executable ---
 add_executable(sst_cam_firmware ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(sst_cam_firmware PRIVATE
@@ -94,29 +102,23 @@ if (BUILD_TESTS)
         GTest::gtest_main
     )
 
-    # Pass repo root to tests so they can open test JSON fixtures reliably
-    target_compile_definitions(sst_cam_firmware_tests PRIVATE
-        SST_REPO_ROOT="${CMAKE_SOURCE_DIR}"
-    )
-
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests)
 endif()
 
-
+# --- compile_commands.json convenience copy ---
 if (CMAKE_EXPORT_COMPILE_COMMANDS)
-  add_custom_command(TARGET sst_cam_firmware POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      ${CMAKE_BINARY_DIR}/compile_commands.json
-      ${CMAKE_SOURCE_DIR}/compile_commands.json
-  )
-
-  if (BUILD_TESTS)
-    add_custom_command(TARGET sst_cam_firmware_tests POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_BINARY_DIR}/compile_commands.json
-        ${CMAKE_SOURCE_DIR}/compile_commands.json
+    add_custom_command(TARGET sst_cam_firmware POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_BINARY_DIR}/compile_commands.json
+            ${CMAKE_SOURCE_DIR}/compile_commands.json
     )
-  endif()
-endif()
 
+    if (BUILD_TESTS)
+        add_custom_command(TARGET sst_cam_firmware_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_BINARY_DIR}/compile_commands.json
+                ${CMAKE_SOURCE_DIR}/compile_commands.json
+        )
+    endif()
+endif()

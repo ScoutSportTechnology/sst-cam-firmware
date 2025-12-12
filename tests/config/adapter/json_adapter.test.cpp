@@ -15,46 +15,102 @@
 
 namespace fs = std::filesystem;
 
-TEST(JsonAdapter, Users) {
+template <typename T>
+struct Response {
+    bool success{false};
+    T data{};
+};
+
+template <typename T>
+auto load_config(const std::string& path_str) -> Response<T> {
+    fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
+    sst::config::adapters::JsonAdapter<T> adapter(path);
+
+    Response<T> response;
+    response.success = adapter.load(response.data);
+    return response;
+}
+
+template <typename T>
+auto save_config(const std::string& path_str, const T& config) -> Response<T> {
+    fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
+    sst::config::adapters::JsonAdapter<T> adapter(path);
+
+    Response<T> response;
+    response.success = adapter.save(config);
+    response.data = config;
+    return response;
+}
+
+template <typename T>
+auto log_object(const T& obj, std::string_view label = "Object") -> void {
+    spdlog::info("{}:\n{}", label, nlohmann::json(obj).dump(4));
+}
+
+std::string path_user = "tests/config/config_files/users.json";
+std::string path_profile = "tests/config/config_files/profile.json";
+std::string path_device = "tests/config/config_files/device.json";
+std::string path_calibration = "tests/config/config_files/calibration.json";
+std::string path_storage = "tests/config/config_files/storage.json";
+std::string path_stream = "tests/config/config_files/stream.json";
+
+TEST(JsonAdapter_User, Load) {
     using sst::config::domain::UsersConfig;
 
-    std::string path = "tests/config/config_files/user.json";
-
-    sst::config::adapters::JsonAdapter<UsersConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::UsersConfig>(path_user);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }
 
-TEST(JsonAdapter, Profile) {
+TEST(JsonAdapter_User, Save) {
+    using sst::config::domain::UsersConfig;
+
+    UsersConfig userConfig;
+
+    userConfig.users.push_back({1, "Alice"});
+    userConfig.users.push_back({2, "Bob"});
+
+    auto saved = save_config<sst::config::domain::UsersConfig>(path_user, userConfig);
+    log_object(saved.data);
+    EXPECT_TRUE(saved.success);
+}
+
+TEST(JsonAdapter_Profile, Load) {
     using sst::config::domain::ProfileConfig;
 
-    std::string path = "tests/config/config_files/profile.json";
-
-    sst::config::adapters::JsonAdapter<ProfileConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::ProfileConfig>(path_profile);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }
 
-TEST(JsonAdapter, Device) {
+TEST(JsonAdapter_Device, Load) {
     using sst::config::domain::DeviceConfig;
 
-    std::string path = "tests/config/config_files/device.json";
-    sst::config::adapters::JsonAdapter<DeviceConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::DeviceConfig>(path_device);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }
 
-TEST(JsonAdapter, Calibration) {
+TEST(JsonAdapter_Calibration, Load) {
     using sst::config::domain::CalibrationConfig;
 
-    std::string path = "tests/config/config_files/calibration.json";
-    sst::config::adapters::JsonAdapter<CalibrationConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::CalibrationConfig>(path_calibration);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }
 
-TEST(JsonAdapter, Storage) {
+TEST(JsonAdapter_Storage, Load) {
     using sst::config::domain::StorageConfig;
 
-    std::string path = "tests/config/config_files/storage.json";
-    sst::config::adapters::JsonAdapter<StorageConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::StorageConfig>(path_storage);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }
 
-TEST(JsonAdapter, Stream) {
+TEST(JsonAdapter_Stream, Load) {
     using sst::config::domain::StreamConfig;
 
-    std::string path = "tests/config/config_files/stream.json";
-    sst::config::adapters::JsonAdapter<StreamConfig> adapter(fs::path{path});
+    auto loaded = load_config<sst::config::domain::StreamConfig>(path_stream);
+    log_object(loaded.data);
+    EXPECT_TRUE(loaded.success);
 }

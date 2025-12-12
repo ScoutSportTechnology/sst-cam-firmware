@@ -7,7 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-#include "config/adapters/json/serde/_serde.hpp"
+#include "config/adapters/json/serde/_serde.hpp"  // IWYU pragma: keep
 #include "config/ports/config_file_repository.hpp"
 
 namespace sst::config::adapters {
@@ -19,21 +19,22 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
    public:
     explicit JsonAdapter(std::filesystem::path full_path) : full_path_{std::move(full_path)} {}
 
-    auto load(T& loadedConfig, std::string& error) -> bool override {
+    auto load(T& loadedConfig) -> bool override {
+        std::string error{"Error not set"};
         try {
-            spdlog::info("Loading JSON config from: {}", full_path_.string());
+            spdlog::debug("Loading JSON config from: {}", full_path_.string());
 
-            std::ifstream in(full_path_, std::ios::in);
-            if (!in.is_open()) {
+            std::ifstream inputFileStream(full_path_, std::ios::in);
+            if (!inputFileStream.is_open()) {
                 error = "Cannot open config file: " + full_path_.string();
                 spdlog::error("{}", error);
                 return false;
             }
 
-            json j;
-            in >> j;
+            json jsonData;
+            inputFileStream >> jsonData;
 
-            loadedConfig = j.get<T>();
+            loadedConfig = jsonData.get<T>();
             spdlog::debug("Loaded JSON config OK: {}", full_path_.string());
             return true;
 
@@ -51,7 +52,8 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
         }
     }
 
-    auto save(const T& modifiedConfig, std::string& error) -> bool override {
+    auto save(const T& modifiedConfig) -> bool override {
+        std::string error{"Error not set"};
         try {
             spdlog::info("Saving JSON config to: {}", full_path_.string());
 
@@ -62,8 +64,8 @@ class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
                 return false;
             }
 
-            json j = modifiedConfig;
-            out << j.dump(4) << '\n';
+            json jsonData = modifiedConfig;
+            out << jsonData.dump(4) << '\n';
 
             if (!out.good()) {
                 error = "Failed while writing config file: " + full_path_.string();
