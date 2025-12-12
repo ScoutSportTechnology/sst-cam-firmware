@@ -36,7 +36,14 @@ add_compile_options(
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(gstreamer CONFIG REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET
+    gstreamer-1.0
+    gstreamer-base-1.0
+    gstreamer-app-1.0
+    gstreamer-video-1.0
+)
 
 # --- Sources ---
 file(GLOB_RECURSE SRC_FILES
@@ -52,7 +59,7 @@ target_include_directories(sst_cam
 
 target_link_libraries(sst_cam
     PRIVATE
-        gstreamer::gstreamer
+        PkgConfig::GST
         nlohmann_json::nlohmann_json
         spdlog::spdlog
 )

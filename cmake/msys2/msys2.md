@@ -55,7 +55,7 @@ pacman -S \
   mingw-w64-clang-x86_64-gdb \
   mingw-w64-clang-x86_64-python \
   mingw-w64-clang-x86_64-python-pip \
-  git
+  mingw-w64-clang-x86_64-pkgconf
 ```
 
 This installs:
@@ -100,3 +100,27 @@ pip --version
 ```
 
 All tools should be located under the `C:\msys64\clang64\bin` directory.
+
+
+## 7. Install platform-specific dependencies
+
+Some dependencies are not managed by Conan and must be installed via pacman.
+
+### GStreamer
+
+Install GStreamer and plugins:
+
+```sh
+pacman -S --needed \
+  mingw-w64-clang-x86_64-gstreamer \
+  mingw-w64-clang-x86_64-gst-plugins-base \
+  mingw-w64-clang-x86_64-gst-plugins-good \
+  mingw-w64-clang-x86_64-gst-plugins-bad \
+  mingw-w64-clang-x86_64-gst-plugins-ugly \
+  mingw-w64-clang-x86_64-gst-libav \
+  mingw-w64-clang-x86_64-gst-rtsp-server
+```
+
+This installs the GStreamer multimedia framework with essential plugins and RTSP server support.
+
+---
