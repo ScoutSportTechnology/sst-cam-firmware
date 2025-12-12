@@ -8,8 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-#include "config/domain/config_files_json.hpp"
-#include "config/domain/profile_config_json.hpp"
+#include "config/adapters/json/serde/_serde.hpp"
 #include "config/ports/config_file_repository.hpp"
 
 namespace sst::config::adapters {

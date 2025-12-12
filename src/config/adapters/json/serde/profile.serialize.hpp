@@ -14,13 +14,6 @@ inline void to_json(json& jsonObject, const DefaultProfileConfig& value) {
     jsonObject["storage"] = value.storage;
 }
 
-inline void from_json(const json& jsonObject, DefaultProfileConfig& value) {
-    jsonObject.at("calibration").get_to(value.calibration);
-    jsonObject.at("device").get_to(value.device);
-    jsonObject.at("stream").get_to(value.stream);
-    jsonObject.at("storage").get_to(value.storage);
-}
-
 inline void to_json(json& jsonObject, const UserProfileConfig& value) {
     jsonObject = json::object();
     if (value.calibration.has_value()) {
@@ -34,21 +27,6 @@ inline void to_json(json& jsonObject, const UserProfileConfig& value) {
     }
     if (value.storage.has_value()) {
         jsonObject["storage"] = value.storage.value();
-    }
-}
-
-inline void from_json(const json& jsonObject, UserProfileConfig& value) {
-    if (jsonObject.contains("calibration")) {
-        value.calibration = jsonObject.at("calibration").get<bool>();
-    }
-    if (jsonObject.contains("device")) {
-        value.device = jsonObject.at("device").get<bool>();
-    }
-    if (jsonObject.contains("stream")) {
-        value.stream = jsonObject.at("stream").get<bool>();
-    }
-    if (jsonObject.contains("storage")) {
-        value.storage = jsonObject.at("storage").get<bool>();
     }
 }
 
