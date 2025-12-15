@@ -73,6 +73,8 @@ TEST(JsonAdapter, User_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Users_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, User_Reset) {
     using sst::config::domain::UsersConfig;
@@ -108,6 +110,8 @@ TEST(JsonAdapter, Profile_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Profile_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, Profile_Reset) {
     using sst::config::domain::ProfileConfig;
@@ -140,6 +144,8 @@ TEST(JsonAdapter, Device_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Device_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, Device_Reset) {
     using sst::config::domain::DeviceConfig;
@@ -181,6 +187,8 @@ TEST(JsonAdapter, Calibration_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Calibration_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, Calibration_Reset) {
     using sst::config::domain::CalibrationConfig;
@@ -215,6 +223,8 @@ TEST(JsonAdapter, Storage_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Storage_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, Storage_Reset) {
     using sst::config::domain::StorageConfig;
@@ -250,6 +260,8 @@ TEST(JsonAdapter, Stream_Save) {
     log_object(saved.data);
     EXPECT_TRUE(saved.success);
 }
+// ---------------- Data Test ----------------
+TEST(JsonAdapter, Stream_Data) {}
 // ---------------- Reset Test ----------------
 TEST(JsonAdapter, Stream_Reset) {
     using sst::config::domain::StreamConfig;
