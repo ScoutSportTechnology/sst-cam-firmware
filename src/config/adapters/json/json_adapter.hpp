@@ -8,16 +8,16 @@
 #include <utility>
 
 #include "config/adapters/json/serde/_serde.hpp"  // IWYU pragma: keep
-#include "config/ports/config_file_repository.hpp"
+#include "config/ports/config_file_adapter.hpp"
 
 namespace sst::config::adapters {
 
 using nlohmann::json;
 using sst::config::ports::ConfigReturn;
-using sst::config::ports::IConfigFileRepository;
+using sst::config::ports::IConfigFileAdapter;
 
 template <typename T>
-class JsonAdapter : public IConfigFileRepository<T> {
+class JsonAdapter : public IConfigFileAdapter<T> {
    public:
     explicit JsonAdapter(std::filesystem::path full_path) : full_path_{std::move(full_path)} {}
 

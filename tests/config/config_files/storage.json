@@ -21,5 +21,14 @@
       "path": "thumbnails/"
     }
   },
-  "users": []
+  "users": [
+    {
+      "id": 1,
+      "user_data": {
+        "logs": {
+          "enabled": false
+        }
+      }
+    }
+  ]
 }

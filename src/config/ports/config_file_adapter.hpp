@@ -20,9 +20,9 @@ struct ConfigReturn {
 };
 
 template <typename T>
-class IConfigFileRepository {
+class IConfigFileAdapter {
    public:
-    virtual ~IConfigFileRepository() = default;
+    virtual ~IConfigFileAdapter() = default;
 
     virtual auto load() -> ConfigReturn<T> = 0;
     virtual auto save(const T& modifiedConfig) -> ConfigReturn<T> = 0;
