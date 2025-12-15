@@ -2,8 +2,8 @@
   "default_data": {
     "calibration": false,
     "device": false,
-    "stream": false,
-    "storage": false
+    "storage": false,
+    "stream": false
   },
   "users": []
 }

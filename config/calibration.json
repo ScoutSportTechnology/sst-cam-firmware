@@ -3,70 +3,70 @@
     "devices": {
       "camera": [
         {
-          "last_calibration_date": "2024-01-01T00:00:00Z",
-          "id": 0,
-          "exposure": 100,
-          "gain": 1,
-          "white_balance": "auto",
-          "focus": "auto",
-          "intrinsic_matrix": [
-            1000,
-            0,
-            960,
-            0,
-            1000,
-            540,
-            0,
-            0,
-            1
-          ],
           "distortion_coefficients": [
-            0.1,
-            -0.05,
-            0,
-            0,
-            0
-          ]
+            0.10000000149011612,
+            -0.05000000074505806,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "exposure": 100,
+          "focus": "auto",
+          "gain": 1.0,
+          "id": 0,
+          "intrinsic_matrix": [
+            1000.0,
+            0.0,
+            960.0,
+            0.0,
+            1000.0,
+            540.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "last_calibration_date": "2024-01-01T00:00:00Z",
+          "white_balance": "auto"
         },
         {
-          "last_calibration_date": "2024-01-01T00:00:00Z",
-          "id": 1,
-          "exposure": 100,
-          "gain": 1,
-          "white_balance": "auto",
-          "focus": "auto",
-          "intrinsic_matrix": [
-            1000,
-            0,
-            960,
-            0,
-            1000,
-            540,
-            0,
-            0,
-            1
-          ],
           "distortion_coefficients": [
-            0.1,
-            -0.05,
-            0,
-            0,
-            0
-          ]
+            0.10000000149011612,
+            -0.05000000074505806,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "exposure": 100,
+          "focus": "auto",
+          "gain": 1.0,
+          "id": 1,
+          "intrinsic_matrix": [
+            1000.0,
+            0.0,
+            960.0,
+            0.0,
+            1000.0,
+            540.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "last_calibration_date": "2024-01-01T00:00:00Z",
+          "white_balance": "auto"
         }
       ],
       "microphone": [
         {
-          "last_calibration_date": "2024-01-01T00:00:00Z",
           "id": 0,
-          "sensitivity": 1,
-          "noise_reduction": true
+          "last_calibration_date": "2024-01-01T00:00:00Z",
+          "noise_reduction": true,
+          "sensitivity": 1.0
         },
         {
-          "last_calibration_date": "2024-01-01T00:00:00Z",
           "id": 1,
-          "sensitivity": 1,
-          "noise_reduction": true
+          "last_calibration_date": "2024-01-01T00:00:00Z",
+          "noise_reduction": true,
+          "sensitivity": 1.0
         }
       ]
     }
