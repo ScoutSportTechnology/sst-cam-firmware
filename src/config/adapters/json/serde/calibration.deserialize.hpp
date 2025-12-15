@@ -51,11 +51,13 @@ inline void from_json(const json& jsonObject, CalibrationMicrophoneData& values)
 }
 
 inline void from_json(const json& jsonObject, CalibrationDevicesData& values) {
-    if (jsonObject.contains("camera")) {
-        jsonObject.at("camera").get_to(values.camera);
+    if (jsonObject.contains("camera") && !jsonObject.at("camera").is_null()) {
+        values.camera = jsonObject.at("camera").get<std::vector<CalibrationCameraData>>();
     }
-    if (jsonObject.contains("microphone")) {
-        jsonObject.at("microphone").get_to(values.microphone);
+
+    if (jsonObject.contains("microphone") && !jsonObject.at("microphone").is_null()) {
+        values.microphone =
+            jsonObject.at("microphone").get<std::vector<CalibrationMicrophoneData>>();
     }
 }
 

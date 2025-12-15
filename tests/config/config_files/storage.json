@@ -1,24 +1,24 @@
 {
   "default_data": {
+    "logs": {
+      "enabled": true,
+      "format": "txt",
+      "path": "logs/"
+    },
     "recording": {
       "enabled": true,
-      "path": "videos/",
-      "format": "mp4"
+      "format": "mp4",
+      "path": "videos/"
     },
     "snapshots": {
       "enabled": true,
-      "path": "snapshots/",
-      "format": "jpg"
-    },
-    "logs": {
-      "enabled": true,
-      "path": "logs/",
-      "format": "txt"
+      "format": "jpg",
+      "path": "snapshots/"
     },
     "thumbnails": {
       "enabled": true,
-      "path": "thumbnails/",
-      "format": "jpg"
+      "format": "jpg",
+      "path": "thumbnails/"
     }
   },
   "users": []

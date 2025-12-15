@@ -54,10 +54,15 @@ inline void to_json(json& jsonObject, const CalibrationMicrophoneData& values) {
 }
 
 inline void to_json(json& jsonObject, const CalibrationDevicesData& values) {
-    jsonObject = json{
-        {"camera", values.camera},
-        {"microphone", values.microphone},
-    };
+    jsonObject = json::object();
+
+    if (values.camera.has_value()) {
+        jsonObject["camera"] = values.camera.value();
+    }
+
+    if (values.microphone.has_value()) {
+        jsonObject["microphone"] = values.microphone.value();
+    }
 }
 
 inline void to_json(json& jsonObject, const CalibrationData& values) {

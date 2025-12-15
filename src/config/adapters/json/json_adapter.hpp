@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include <string>
+#include <utility>
 
 #include "config/adapters/json/serde/_serde.hpp"  // IWYU pragma: keep
 #include "config/ports/config_file_repository.hpp"
@@ -13,103 +13,99 @@
 namespace sst::config::adapters {
 
 using nlohmann::json;
+using sst::config::ports::ConfigReturn;
+using sst::config::ports::IConfigFileRepository;
 
 template <typename T>
-class JsonAdapter : public sst::config::ports::IConfigFileRepository<T> {
+class JsonAdapter : public IConfigFileRepository<T> {
    public:
     explicit JsonAdapter(std::filesystem::path full_path) : full_path_{std::move(full_path)} {}
 
-    auto load(T& loadedConfig) -> bool override {
-        std::string error{"Error not set"};
+    auto load() -> ConfigReturn<T> override {
         try {
             spdlog::debug("Loading JSON config from: {}", full_path_.string());
 
             std::ifstream inputFileStream(full_path_, std::ios::in);
             if (!inputFileStream.is_open()) {
-                error = "Cannot open config file: " + full_path_.string();
-                spdlog::error("{}", error);
-                return false;
+                spdlog::error("Cannot open config file: {}", full_path_.string());
+                return ConfigReturn<T>::fail();
             }
 
             json jsonData;
             inputFileStream >> jsonData;
 
-            loadedConfig = jsonData.get<T>();
+            T loadedConfig = jsonData.get<T>();
             spdlog::debug("Loaded JSON config OK: {}", full_path_.string());
-            return true;
+
+            return ConfigReturn<T>::ok(std::move(loadedConfig));
 
         } catch (const json::exception& ex) {
-            error = std::string{"Failed to parse JSON config: "} + ex.what() +
-                    " (file: " + full_path_.string() + ")";
-            spdlog::error("{}", error);
-            return false;
-
+            spdlog::error("Failed to parse JSON config: {} (file: {})", ex.what(),
+                          full_path_.string());
+            return ConfigReturn<T>::fail();
         } catch (const std::exception& ex) {
-            error = std::string{"Failed to load JSON config: "} + ex.what() +
-                    " (file: " + full_path_.string() + ")";
-            spdlog::error("{}", error);
-            return false;
+            spdlog::error("Failed to load JSON config: {} (file: {})", ex.what(),
+                          full_path_.string());
+            return ConfigReturn<T>::fail();
         }
     }
 
-    auto save(const T& modifiedConfig) -> bool override {
-        std::string error{"Error not set"};
+    auto save(const T& modifiedConfig) -> ConfigReturn<T> override {
         try {
             spdlog::info("Saving JSON config to: {}", full_path_.string());
 
-            std::ofstream out(full_path_, std::ios::out | std::ios::trunc);
-            if (!out.is_open()) {
-                error = "Cannot open config file for writing: " + full_path_.string();
-                spdlog::error("{}", error);
-                return false;
+            auto loaded = load();
+            if (!loaded.success) {
+                spdlog::error("Could not load existing config file, proceeding to save new one.");
+                return ConfigReturn<T>::fail();
             }
 
-            json jsonData = modifiedConfig;
-            out << jsonData.dump(4) << '\n';
+            json jsonData = loaded.data;
+            jsonData["users"] = modifiedConfig.users;
 
-            if (!out.good()) {
-                error = "Failed while writing config file: " + full_path_.string();
-                spdlog::error("{}", error);
-                return false;
+            std::ofstream outputFileStream(full_path_, std::ios::out | std::ios::trunc);
+            if (!outputFileStream.is_open()) {
+                spdlog::error("Cannot open config file for writing: {}", full_path_.string());
+                return ConfigReturn<T>::fail();
+            }
+
+            outputFileStream << jsonData.dump(2) << '\n';
+
+            if (!outputFileStream.good()) {
+                spdlog::error("Failed while writing config file: {}", full_path_.string());
+                return ConfigReturn<T>::fail();
             }
 
             spdlog::debug("Saved JSON config OK: {}", full_path_.string());
-            return true;
+
+            T updatedConfig = jsonData.get<T>();
+            return ConfigReturn<T>::ok(std::move(updatedConfig));
 
         } catch (const std::exception& ex) {
-            error = std::string{"Failed to save JSON config: "} + ex.what() +
-                    " (file: " + full_path_.string() + ")";
-            spdlog::error("{}", error);
-            return false;
+            spdlog::error("Failed to save JSON config: {} (file: {})", ex.what(),
+                          full_path_.string());
+            return ConfigReturn<T>::fail();
         }
     }
 
-    auto reset() -> bool override {
+    auto reset() -> ConfigReturn<T> override {
         try {
-            spdlog::info("Resetting JSON config (clearing users) at: {}", full_path_.string());
+            spdlog::info("Reset JSON config to: {}", full_path_.string());
 
-            T cfg{};
+            T modifiedConfig{};
 
-            if (std::filesystem::exists(full_path_)) {
-                if (!load(cfg)) {
-                    spdlog::error("Reset failed: could not load existing file: {}",
-                                  full_path_.string());
-                    return false;
-                }
+            auto resetConfig = save(modifiedConfig);
+            if (!resetConfig.success) {
+                spdlog::error("Could not reset config file: {}", full_path_.string());
+                return ConfigReturn<T>::fail();
             }
 
-            if constexpr (requires(T jsonData) { jsonData.users.clear(); }) {
-                cfg.users.clear();
-            } else {
-                spdlog::error("Reset not supported: type has no 'users' member to clear");
-                return false;
-            }
-
-            return save(cfg);
+            spdlog::debug("Reset JSON config OK: {}", full_path_.string());
+            return resetConfig;
 
         } catch (const std::exception& ex) {
             spdlog::error("Reset failed: {} (file: {})", ex.what(), full_path_.string());
-            return false;
+            return ConfigReturn<T>::fail();
         }
     }
 

@@ -29,8 +29,8 @@ struct CalibrationMicrophoneData {
 };
 
 struct CalibrationDevicesData {
-    std::vector<CalibrationCameraData> camera;
-    std::vector<CalibrationMicrophoneData> microphone;
+    std::optional<std::vector<CalibrationCameraData>> camera;
+    std::optional<std::vector<CalibrationMicrophoneData>> microphone;
 };
 
 struct CalibrationData {
