@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
