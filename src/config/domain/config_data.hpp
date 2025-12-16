@@ -5,6 +5,7 @@
 #include "config/domain/storage_config.hpp"
 #include "config/domain/stream_config.hpp"
 
+
 namespace sst::config::domain {
 struct ConfigData {
     sst::config::domain::CalibrationData calibration;

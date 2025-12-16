@@ -51,121 +51,43 @@ static constexpr const char* path_calibration = "tests/config/config_files/calib
 static constexpr const char* path_storage = "tests/config/config_files/storage.json";
 static constexpr const char* path_stream = "tests/config/config_files/stream.json";
 
-// ---------------- User Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, User_Load) {
-    using sst::config::domain::UsersConfig;
+namespace {
 
-    auto loaded = load_config<sst::config::domain::UsersConfig>(path_user);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, User_Save) {
+auto MakeUsersConfig() -> sst::config::domain::UsersConfig {
     using sst::config::domain::UsersConfig;
 
     UsersConfig userConfig;
-
     userConfig.users.push_back({1, {"Alice"}});
-    userConfig.users.push_back({2, {"Bob2"}});
-
-    auto saved = save_config<sst::config::domain::UsersConfig>(path_user, userConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
-}
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Users_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, User_Reset) {
-    using sst::config::domain::UsersConfig;
-
-    auto reset = reset_config<sst::config::domain::UsersConfig>(path_user);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+    userConfig.users.push_back({2, {"Bob"}});
+    return userConfig;
 }
 
-// ---------------- Profile Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, Profile_Load) {
-    using sst::config::domain::ProfileConfig;
-
-    auto loaded = load_config<sst::config::domain::ProfileConfig>(path_profile);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, Profile_Save) {
+auto MakeProfileConfig() -> sst::config::domain::ProfileConfig {
     using sst::config::domain::ProfileConfig;
 
     ProfileConfig profileConfig;
     profileConfig.users.push_back({1,
                                    {
-                                       .calibration = true,
+                                       .calibration = false,
                                        .device = false,
-                                       .stream = true,
-                                       .storage = false,
+                                       .stream = false,
+                                       .storage = true,
                                    }});
-
-    auto saved = save_config<sst::config::domain::ProfileConfig>(path_profile, profileConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
-}
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Profile_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, Profile_Reset) {
-    using sst::config::domain::ProfileConfig;
-
-    auto reset = reset_config<sst::config::domain::ProfileConfig>(path_profile);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+    return profileConfig;
 }
 
-// ---------------- Device Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, Device_Load) {
-    using sst::config::domain::DeviceConfig;
-
-    auto loaded = load_config<sst::config::domain::DeviceConfig>(path_device);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, Device_Save) {
+auto MakeDeviceConfig() -> sst::config::domain::DeviceConfig {
     using sst::config::domain::DeviceConfig;
     using sst::config::domain::DeviceData;
 
     DeviceData userData{.timezone = "UTC"};
 
     DeviceConfig deviceConfig;
-    deviceConfig.users.push_back({.id = 1, .user_data = userData});
-
-    auto saved = save_config<sst::config::domain::DeviceConfig>(path_device, deviceConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
-}
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Device_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, Device_Reset) {
-    using sst::config::domain::DeviceConfig;
-
-    auto reset = reset_config<sst::config::domain::DeviceConfig>(path_device);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+    deviceConfig.users.push_back({.id = 2, .user_data = userData});
+    return deviceConfig;
 }
 
-// ---------------- Calibration Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, Calibration_Load) {
-    using sst::config::domain::CalibrationConfig;
-
-    auto loaded = load_config<sst::config::domain::CalibrationConfig>(path_calibration);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, Calibration_Save) {
+auto MakeCalibrationConfig() -> sst::config::domain::CalibrationConfig {
     using sst::config::domain::CalibrationCameraData;
     using sst::config::domain::CalibrationConfig;
     using sst::config::domain::CalibrationData;
@@ -180,35 +102,11 @@ TEST(JsonAdapter, Calibration_Save) {
 
     CalibrationData userData{.devices = devicesData};
 
-    calibrationConfig.users.push_back({.id = 1, .user_data = userData});
-
-    auto saved =
-        save_config<sst::config::domain::CalibrationConfig>(path_calibration, calibrationConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
-}
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Calibration_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, Calibration_Reset) {
-    using sst::config::domain::CalibrationConfig;
-
-    auto reset = reset_config<sst::config::domain::CalibrationConfig>(path_calibration);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+    calibrationConfig.users.push_back({.id = 2, .user_data = userData});
+    return calibrationConfig;
 }
 
-// ---------------- Storage Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, Storage_Load) {
-    using sst::config::domain::StorageConfig;
-
-    auto loaded = load_config<sst::config::domain::StorageConfig>(path_storage);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, Storage_Save) {
+auto MakeStorageConfig() -> sst::config::domain::StorageConfig {
     using sst::config::domain::StorageConfig;
     using sst::config::domain::StorageData;
     using sst::config::domain::StorageSectionData;
@@ -218,55 +116,124 @@ TEST(JsonAdapter, Storage_Save) {
     StorageData userData{.logs = logsData};
 
     storageConfig.users.push_back({.id = 1, .user_data = userData});
-
-    auto saved = save_config<sst::config::domain::StorageConfig>(path_storage, storageConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
-}
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Storage_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, Storage_Reset) {
-    using sst::config::domain::StorageConfig;
-
-    auto reset = reset_config<sst::config::domain::StorageConfig>(path_storage);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+    return storageConfig;
 }
 
-// ---------------- Stream Config Tests ----------------
-// ---------------- Load Test ----------------
-TEST(JsonAdapter, Stream_Load) {
-    using sst::config::domain::StreamConfig;
-
-    auto loaded = load_config<sst::config::domain::StreamConfig>(path_stream);
-    log_object(loaded.data);
-    EXPECT_TRUE(loaded.success);
-}
-// ---------------- Save Test ----------------
-TEST(JsonAdapter, Stream_Save) {
+auto MakeStreamConfig() -> sst::config::domain::StreamConfig {
     using sst::config::domain::StreamConfig;
     using sst::config::domain::StreamData;
     using sst::config::domain::StreamPlatformData;
-    using sst::config::domain::StreamPlatformSettingsData;
 
     StreamConfig streamConfig;
     StreamPlatformData youtubeData{.enabled = false};
     StreamData userData{.youtube = youtubeData};
 
-    streamConfig.users.push_back({.id = 1, .user_data = userData});
-
-    auto saved = save_config<sst::config::domain::StreamConfig>(path_stream, streamConfig);
-    log_object(saved.data);
-    EXPECT_TRUE(saved.success);
+    streamConfig.users.push_back({.id = 2, .user_data = userData});
+    return streamConfig;
 }
-// ---------------- Data Test ----------------
-TEST(JsonAdapter, Stream_Data) {}
-// ---------------- Reset Test ----------------
-TEST(JsonAdapter, Stream_Reset) {
-    using sst::config::domain::StreamConfig;
 
-    auto reset = reset_config<sst::config::domain::StreamConfig>(path_stream);
-    log_object(reset.data);
-    EXPECT_TRUE(reset.success);
+}  // namespace
+
+TEST(JsonAdapter, Load_AllConfigs) {
+    {
+        auto loaded = load_config<sst::config::domain::UsersConfig>(path_user);
+        log_object(loaded.data, "UsersConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+    {
+        auto loaded = load_config<sst::config::domain::ProfileConfig>(path_profile);
+        log_object(loaded.data, "ProfileConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+    {
+        auto loaded = load_config<sst::config::domain::DeviceConfig>(path_device);
+        log_object(loaded.data, "DeviceConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+    {
+        auto loaded = load_config<sst::config::domain::CalibrationConfig>(path_calibration);
+        log_object(loaded.data, "CalibrationConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+    {
+        auto loaded = load_config<sst::config::domain::StorageConfig>(path_storage);
+        log_object(loaded.data, "StorageConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+    {
+        auto loaded = load_config<sst::config::domain::StreamConfig>(path_stream);
+        log_object(loaded.data, "StreamConfig");
+        EXPECT_TRUE(loaded.success);
+    }
+}
+
+TEST(JsonAdapter, Save_AllConfigs) {
+    {
+        auto saved = save_config<sst::config::domain::UsersConfig>(path_user, MakeUsersConfig());
+        log_object(saved.data, "UsersConfig");
+        EXPECT_TRUE(saved.success);
+    }
+    {
+        auto saved =
+            save_config<sst::config::domain::ProfileConfig>(path_profile, MakeProfileConfig());
+        log_object(saved.data, "ProfileConfig");
+        EXPECT_TRUE(saved.success);
+    }
+    {
+        auto saved =
+            save_config<sst::config::domain::DeviceConfig>(path_device, MakeDeviceConfig());
+        log_object(saved.data, "DeviceConfig");
+        EXPECT_TRUE(saved.success);
+    }
+    {
+        auto saved = save_config<sst::config::domain::CalibrationConfig>(path_calibration,
+                                                                         MakeCalibrationConfig());
+        log_object(saved.data, "CalibrationConfig");
+        EXPECT_TRUE(saved.success);
+    }
+    {
+        auto saved =
+            save_config<sst::config::domain::StorageConfig>(path_storage, MakeStorageConfig());
+        log_object(saved.data, "StorageConfig");
+        EXPECT_TRUE(saved.success);
+    }
+    {
+        auto saved =
+            save_config<sst::config::domain::StreamConfig>(path_stream, MakeStreamConfig());
+        log_object(saved.data, "StreamConfig");
+        EXPECT_TRUE(saved.success);
+    }
+}
+
+TEST(JsonAdapter, Reset_AllConfigs) {
+    {
+        auto reset = reset_config<sst::config::domain::UsersConfig>(path_user);
+        log_object(reset.data, "UsersConfig");
+        EXPECT_TRUE(reset.success);
+    }
+    {
+        auto reset = reset_config<sst::config::domain::ProfileConfig>(path_profile);
+        log_object(reset.data, "ProfileConfig");
+        EXPECT_TRUE(reset.success);
+    }
+    {
+        auto reset = reset_config<sst::config::domain::DeviceConfig>(path_device);
+        log_object(reset.data, "DeviceConfig");
+        EXPECT_TRUE(reset.success);
+    }
+    {
+        auto reset = reset_config<sst::config::domain::CalibrationConfig>(path_calibration);
+        log_object(reset.data, "CalibrationConfig");
+        EXPECT_TRUE(reset.success);
+    }
+    {
+        auto reset = reset_config<sst::config::domain::StorageConfig>(path_storage);
+        log_object(reset.data, "StorageConfig");
+        EXPECT_TRUE(reset.success);
+    }
+    {
+        auto reset = reset_config<sst::config::domain::StreamConfig>(path_stream);
+        log_object(reset.data, "StreamConfig");
+        EXPECT_TRUE(reset.success);
+    }
 }

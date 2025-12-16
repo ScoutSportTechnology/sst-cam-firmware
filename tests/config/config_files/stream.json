@@ -67,5 +67,14 @@
       "url": "rtmp://a.rtmp.youtube.com/live2"
     }
   },
-  "users": []
+  "users": [
+    {
+      "id": 2,
+      "user_data": {
+        "youtube": {
+          "enabled": false
+        }
+      }
+    }
+  ]
 }
