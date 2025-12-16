@@ -71,18 +71,5 @@
       ]
     }
   },
-  "users": [
-    {
-      "id": 1,
-      "user_data": {
-        "devices": {
-          "camera": [
-            {
-              "last_calibration_date": "2024-06-01"
-            }
-          ]
-        }
-      }
-    }
-  ]
+  "users": []
 }
