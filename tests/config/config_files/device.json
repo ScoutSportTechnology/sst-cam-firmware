@@ -44,9 +44,9 @@
   },
   "users": [
     {
-      "id": 2,
+      "id": 1,
       "user_data": {
-        "timezone": "UTC"
+        "timezone": "EST"
       }
     }
   ]
