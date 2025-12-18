@@ -24,6 +24,15 @@ You should see something like:
 ```
 Conan version 2.x.x
 ```
+## 1.1 Create a default Conan profile
+
+Before using custom profiles, initialize Conan with a default profile:
+
+```sh
+conan profile detect --force
+```
+
+This creates a default profile that Conan uses as a baseline.
 
 ## 2. Conan profiles in this project
 
