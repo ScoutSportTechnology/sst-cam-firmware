@@ -10,7 +10,7 @@
 #include "config/adapters/json/json_adapter.hpp"
 #include "config/domain/calibration_config.hpp"
 #include "config/domain/device_config.hpp"
-#include "config/domain/formatter/config_data.fmt.hpp"
+#include "config/domain/formatter/config_data.fmt.hpp"  // IWYU pragma: keep
 #include "config/domain/profile_config.hpp"
 #include "config/domain/storage_config.hpp"
 #include "config/domain/stream_config.hpp"
@@ -154,7 +154,8 @@ class ConfigLoader : public ::testing::Test {
         default_cfg_ = default_loader.get();
 
         sst::config::app::ConfigLoader user_loader(usersAdapter, profileAdapter, deviceAdapter,
-                                              storageAdapter, streamAdapter, calibrationAdapter, 1);
+                                                   storageAdapter, streamAdapter,
+                                                   calibrationAdapter, 1);
         user_cfg_ = user_loader.get();
     }
 
@@ -203,5 +204,6 @@ TEST_F(ConfigLoader, Calibration_UserOverride) {
     ASSERT_TRUE(user_cfg_.calibration.devices.has_value());
     ASSERT_TRUE(user_cfg_.calibration.devices->camera.has_value());
     ASSERT_FALSE(user_cfg_.calibration.devices->camera->empty());
-    EXPECT_EQ(user_cfg_.calibration.devices->camera->front().last_calibration_date, CalibrationChange);
+    EXPECT_EQ(user_cfg_.calibration.devices->camera->front().last_calibration_date,
+              CalibrationChange);
 }
