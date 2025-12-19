@@ -16,6 +16,8 @@
 namespace fs = std::filesystem;
 using sst::config::ports::ConfigReturn;
 
+namespace test::utils {
+
 template <typename T>
 auto load_config(const std::string& path_str) -> ConfigReturn<T> {
     fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
@@ -43,6 +45,7 @@ template <typename T>
 auto log_object(const T& obj, std::string_view label = "Object") -> void {
     spdlog::info("{}:\n{}", label, nlohmann::json(obj).dump(4));
 }
+}  // namespace test::utils
 
 struct UsersCase {
     using Config = sst::config::domain::UsersConfig;
@@ -159,23 +162,24 @@ struct CaseNameGenerator {
 TYPED_TEST_SUITE(JsonAdapter, ConfigCases, CaseNameGenerator);
 
 TYPED_TEST(JsonAdapter, Load) {
-    auto loaded = load_config<typename TypeParam::Config>(TypeParam::path);
-    log_object(loaded.data, TypeParam::label);
+    auto loaded = test::utils::load_config<typename TypeParam::Config>(TypeParam::path);
+    test::utils::log_object(loaded.data, TypeParam::label);
     EXPECT_TRUE(loaded.success);
 }
 
 TYPED_TEST_SUITE(JsonAdapter, ConfigCases, CaseNameGenerator);
 
 TYPED_TEST(JsonAdapter, Save) {
-    auto saved = save_config<typename TypeParam::Config>(TypeParam::path, TypeParam::Make());
-    log_object(saved.data, TypeParam::label);
+    auto saved =
+        test::utils::save_config<typename TypeParam::Config>(TypeParam::path, TypeParam::Make());
+    test::utils::log_object(saved.data, TypeParam::label);
     EXPECT_TRUE(saved.success);
 }
 
 TYPED_TEST_SUITE(JsonAdapter, ConfigCases, CaseNameGenerator);
 
 TYPED_TEST(JsonAdapter, Reset) {
-    auto reset = reset_config<typename TypeParam::Config>(TypeParam::path);
-    log_object(reset.data, TypeParam::label);
+    auto reset = test::utils::reset_config<typename TypeParam::Config>(TypeParam::path);
+    test::utils::log_object(reset.data, TypeParam::label);
     EXPECT_TRUE(reset.success);
 }

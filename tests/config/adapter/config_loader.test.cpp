@@ -10,7 +10,7 @@
 #include "config/adapters/json/json_adapter.hpp"
 #include "config/domain/calibration_config.hpp"
 #include "config/domain/device_config.hpp"
-#include "config/domain/formatter/config_data.fmt.hpp"
+#include "config/domain/formatter/config_data.fmt.hpp"  // IWYU pragma: keep
 #include "config/domain/profile_config.hpp"
 #include "config/domain/storage_config.hpp"
 #include "config/domain/stream_config.hpp"
@@ -154,7 +154,8 @@ class ConfigLoader : public ::testing::Test {
         default_cfg_ = default_loader.get();
 
         sst::config::app::ConfigLoader user_loader(usersAdapter, profileAdapter, deviceAdapter,
-                                              storageAdapter, streamAdapter, calibrationAdapter, 1);
+                                                   storageAdapter, streamAdapter,
+                                                   calibrationAdapter, 1);
         user_cfg_ = user_loader.get();
     }
 
@@ -174,34 +175,27 @@ TEST_F(ConfigLoader, Defaults) {
     EXPECT_TRUE(*default_cfg_.stream.youtube->enabled);
 }
 
-TEST_F(ConfigLoader, Storage_UserOverride) {
-    LogObject(user_cfg_, "ConfigData User 1 Storage");
+TEST_F(ConfigLoader, UserOverride) {
+    LogObject(user_cfg_, "ConfigData User 1");
 
+    // Storage
     ASSERT_TRUE(user_cfg_.storage.logs.has_value());
     ASSERT_TRUE(user_cfg_.storage.logs->enabled.has_value());
     EXPECT_FALSE(*user_cfg_.storage.logs->enabled);
-}
 
-TEST_F(ConfigLoader, Stream_UserOverride) {
-    LogObject(user_cfg_, "ConfigData User 1 Stream");
-
+    // Stream
     ASSERT_TRUE(user_cfg_.stream.youtube.has_value());
     ASSERT_TRUE(user_cfg_.stream.youtube->enabled.has_value());
     EXPECT_FALSE(*user_cfg_.stream.youtube->enabled);
-}
 
-TEST_F(ConfigLoader, Device_UserOverride) {
-    LogObject(user_cfg_, "ConfigData User 1 Device");
-
+    // Device
     ASSERT_TRUE(user_cfg_.device.timezone.has_value());
     EXPECT_EQ(*user_cfg_.device.timezone, DeviceChange);
-}
 
-TEST_F(ConfigLoader, Calibration_UserOverride) {
-    LogObject(user_cfg_, "ConfigData User 1 Calibration");
-
+    // Calibration
     ASSERT_TRUE(user_cfg_.calibration.devices.has_value());
     ASSERT_TRUE(user_cfg_.calibration.devices->camera.has_value());
     ASSERT_FALSE(user_cfg_.calibration.devices->camera->empty());
-    EXPECT_EQ(user_cfg_.calibration.devices->camera->front().last_calibration_date, CalibrationChange);
+    EXPECT_EQ(user_cfg_.calibration.devices->camera->front().last_calibration_date,
+              CalibrationChange);
 }

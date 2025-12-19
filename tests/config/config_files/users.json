@@ -1,4 +1,11 @@
 {
   "default_data": [],
-  "users": []
+  "users": [
+    {
+      "id": 1,
+      "user_data": {
+        "name": "Alice"
+      }
+    }
+  ]
 }
