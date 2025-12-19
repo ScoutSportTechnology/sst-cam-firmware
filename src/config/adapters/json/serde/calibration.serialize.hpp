@@ -10,9 +10,6 @@ using nlohmann::json;
 inline void to_json(json& jsonObject, const CalibrationCameraData& values) {
     jsonObject = json::object();
 
-    if (values.last_calibration_date) {
-        jsonObject["last_calibration_date"] = *values.last_calibration_date;
-    }
     if (values.id) {
         jsonObject["id"] = *values.id;
     }
@@ -28,11 +25,27 @@ inline void to_json(json& jsonObject, const CalibrationCameraData& values) {
     if (values.focus) {
         jsonObject["focus"] = *values.focus;
     }
+    if (values.width) {
+        jsonObject["width"] = *values.width;
+    }
+    if (values.height) {
+        jsonObject["height"] = *values.height;
+    }
+    if (values.format) {
+        jsonObject["format"] = *values.format;
+    }
+    if (values.fps) {
+        jsonObject["fps"] = *values.fps;
+    }
+
     if (values.intrinsic_matrix) {
         jsonObject["intrinsic_matrix"] = *values.intrinsic_matrix;
     }
     if (values.distortion_coefficients) {
         jsonObject["distortion_coefficients"] = *values.distortion_coefficients;
+    }
+    if (values.last_calibration_date) {
+        jsonObject["last_calibration_date"] = *values.last_calibration_date;
     }
 }
 

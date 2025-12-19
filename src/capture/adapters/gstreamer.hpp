@@ -1,25 +1,21 @@
 #pragma once
 
-#include <gst/app/gstappsink.h>
-#include <gst/gst.h>
-#include <gst/video/video.h>
-
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include "capture/ports/capture.hpp"
-#include "common/domain/memory_type.hpp"
-#include "common/domain/pixel_format.hpp"
 #include "config/domain/config_data.hpp"
+
+extern "C" {
+using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)
+using GError = struct _GError;          // NOLINT(bugprone-reserved-identifier)
+}
 
 namespace sst::capture::adapters {
 
 using sst::capture::domain::Frame;
-using sst::capture::domain::FrameGeometry;
-using sst::capture::domain::FramePlane;
 using sst::capture::ports::ICaptureAdapter;
-using sst::common::domain::MemoryType;
-using sst::common::domain::PixelFormat;
 using sst::config::domain::ConfigData;
 
 class GStreamerAdapter final : public ICaptureAdapter {

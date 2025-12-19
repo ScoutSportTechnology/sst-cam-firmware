@@ -12,7 +12,10 @@
           ],
           "exposure": 100,
           "focus": "auto",
+          "format": "YUV422",
+          "fps": 60,
           "gain": 1.0,
+          "height": 1080,
           "id": 0,
           "intrinsic_matrix": [
             1000.0,
@@ -26,7 +29,8 @@
             1.0
           ],
           "last_calibration_date": "2024-01-01T00:00:00Z",
-          "white_balance": "auto"
+          "white_balance": "auto",
+          "width": 1920
         },
         {
           "distortion_coefficients": [
@@ -38,7 +42,10 @@
           ],
           "exposure": 100,
           "focus": "auto",
+          "format": "YUV422",
+          "fps": 60,
           "gain": 1.0,
+          "height": 1080,
           "id": 1,
           "intrinsic_matrix": [
             1000.0,
@@ -52,7 +59,8 @@
             1.0
           ],
           "last_calibration_date": "2024-01-01T00:00:00Z",
-          "white_balance": "auto"
+          "white_balance": "auto",
+          "width": 1920
         }
       ],
       "microphone": [

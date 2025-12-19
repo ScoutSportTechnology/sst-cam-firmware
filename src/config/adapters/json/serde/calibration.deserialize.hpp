@@ -8,9 +8,6 @@ namespace sst::config::domain {
 using nlohmann::json;
 
 inline void from_json(const json& jsonObject, CalibrationCameraData& values) {
-    if (jsonObject.contains("last_calibration_date")) {
-        values.last_calibration_date = jsonObject.at("last_calibration_date").get<std::string>();
-    }
     if (jsonObject.contains("id")) {
         values.id = jsonObject.at("id").get<std::uint32_t>();
     }
@@ -26,6 +23,18 @@ inline void from_json(const json& jsonObject, CalibrationCameraData& values) {
     if (jsonObject.contains("focus")) {
         values.focus = jsonObject.at("focus").get<std::string>();
     }
+    if (jsonObject.contains("width")) {
+        values.width = jsonObject.at("width").get<std::uint32_t>();
+    }
+    if (jsonObject.contains("height")) {
+        values.height = jsonObject.at("height").get<std::uint32_t>();
+    }
+    if (jsonObject.contains("format")) {
+        values.format = jsonObject.at("format").get<std::string>();
+    }
+    if (jsonObject.contains("fps")) {
+        values.fps = jsonObject.at("fps").get<std::uint32_t>();
+    }
     if (jsonObject.contains("intrinsic_matrix")) {
         values.intrinsic_matrix = jsonObject.at("intrinsic_matrix").get<std::array<float, 9>>();
     }
@@ -33,8 +42,10 @@ inline void from_json(const json& jsonObject, CalibrationCameraData& values) {
         values.distortion_coefficients =
             jsonObject.at("distortion_coefficients").get<std::array<float, 5>>();
     }
+    if (jsonObject.contains("last_calibration_date")) {
+        values.last_calibration_date = jsonObject.at("last_calibration_date").get<std::string>();
+    }
 }
-
 inline void from_json(const json& jsonObject, CalibrationMicrophoneData& values) {
     if (jsonObject.contains("last_calibration_date")) {
         values.last_calibration_date = jsonObject.at("last_calibration_date").get<std::string>();

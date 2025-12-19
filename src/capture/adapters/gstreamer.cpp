@@ -1,41 +1,88 @@
-#pragma once
 #include "gstreamer.hpp"
 
+#include <gst/app/gstappsink.h>
+#include <gst/gst.h>
 #include <gst/gstcaps.h>
 #include <gst/gstelement.h>
 #include <gst/gstmemory.h>
+#include <gst/video/video.h>
 
-#include <cstdint>
-#include <cstring>
 #include <memory>
+#include <vector>
 
+#include "common/domain/memory_type.hpp"
+#include "common/domain/pixel_format.hpp"
 #include "common/utils/timestamp.hpp"
+#include "config/domain/calibration_config.hpp"
 #include "config/domain/device_model.hpp"
 
 namespace sst::capture::adapters {
+using sst::capture::domain::FrameGeometry;
+using sst::capture::domain::FramePlane;
+using sst::common::domain::MemoryType;
+using sst::common::domain::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
+using sst::config::domain::CalibrationCameraData;
+using sst::config::domain::CalibrationData;
+using sst::config::domain::CalibrationDevicesData;
 using sst::config::domain::DeviceModel;
+using sst::config::domain::FromStringDeviceModel;
+using sst::config::domain::ToStringDeviceModel;
 
 auto GStreamerAdapter::Start() -> void {
     if (is_running_) {
         return;
     }
-
     gst_init(nullptr, nullptr);
+
+    CalibrationData calibration = config_data_.calibration;
+    if (!calibration.devices) {
+        return;
+    }
+    const CalibrationDevicesData devices = *calibration.devices;
+    if (!devices.camera) {
+        return;
+    }
+    const std::vector<CalibrationCameraData>& cameras = *devices.camera;
+    const CalibrationCameraData* camera = nullptr;
+    for (const auto& cam : cameras) {
+        if (cam.id && *cam.id == camera_index_) {
+            camera = &cam;
+            break;
+        }
+    }
+    if (camera == nullptr) {
+        return;
+    }
 
     // sst_cam_v1 (usb cam), sst_cam_v2 (raspberry pi camera module), sst_cam_v3 (nvidia jetson
     // camera module) specific pipelines
-
-    if (config_data_.device.model->contains("sst_cam_v2")) {
-        pipeline_str_ = "sst_cam_v2";
-    } else if (config_data_.device.model->contains("sst_cam_v3")) {
-        pipeline_str_ = "sst_cam_v3";
-    } else {
-        pipeline_str_ = "sst_cam_v1";
-        // TODO: parametrize format, resolution, and framerate
-        pipeline_str_ = "v4l2src device=/dev/video" + std::to_string(camera_index_) +
-                        " ! video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 "
-                        "! videoconvert ! appsink name=sink sync=false max-buffers=2 drop=true";
+    // TODO: parametrize format, resolution, and framerate
+    DeviceModel model = DeviceModel::UNKNOWN;
+    if (config_data_.device.model) {
+        model = FromStringDeviceModel(*config_data_.device.model);
+    }
+    switch (model) {
+        case DeviceModel::V1:
+            pipeline_str_ = "sst_cam_v1";  // placeholder
+            break;
+        case DeviceModel::V2:
+            pipeline_str_ = "sst_cam_v2";  // placeholder
+            break;
+        case DeviceModel::V3:
+            pipeline_str_ = "sst_cam_v3";  // placeholder
+            break;
+        case DeviceModel::UNKNOWN:
+        default:
+            pipeline_str_ = "v4l2src device=/dev/video" + std::to_string(camera_index_) +
+                            " ! video/x-raw,format=" + camera->format.value() +
+                            ",width=" + std::to_string(camera->width.value()) +
+                            ",height=" + std::to_string(camera->height.value()) +
+                            ",framerate=" + std::to_string(camera->fps.value()) +
+                            "/1 "
+                            " ! videoconvert ! video/x-raw,format=BGR "
+                            " ! appsink name=sink sync=false max-buffers=2 drop=true";
+            break;
     }
 
     gst_pipeline_ = gst_parse_launch(pipeline_str_.c_str(), &gst_err_);
@@ -77,17 +124,16 @@ auto GStreamerAdapter::Stop() -> void {
     if (!is_running_) {
         return;
     }
-    if (gst_pipeline_ != nullptr) {
-        gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
-        gst_object_unref(gst_pipeline_);
-        gst_pipeline_ = nullptr;
-    }
-
     if (gst_sink_ != nullptr) {
         gst_object_unref(gst_sink_);
         gst_sink_ = nullptr;
     }
 
+    if (gst_pipeline_ != nullptr) {
+        gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
+        gst_object_unref(gst_pipeline_);
+        gst_pipeline_ = nullptr;
+    }
     is_running_ = false;
 };
 
@@ -102,7 +148,6 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
     constexpr GstClockTime kTimeout = 50 * GST_MSECOND;
     GstSample* gst_sample = gst_app_sink_try_pull_sample(gst_appsink, kTimeout);
     if (gst_sample == nullptr) {
-        g_printerr("Failed to pull sample from appsink\n");
         return std::nullopt;
     }
     auto sample_owner = std::shared_ptr<GstSample>(
@@ -110,17 +155,14 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
     GstCaps* gst_caps = gst_sample_get_caps(gst_sample);
     GstBuffer* gst_buffer = gst_sample_get_buffer(gst_sample);
     if (gst_caps == nullptr || gst_buffer == nullptr) {
-        g_printerr("Failed to get caps or buffer from sample\n");
         return std::nullopt;
     }
     GstVideoInfo gst_video_info;
     if (gst_video_info_from_caps(&gst_video_info, gst_caps) == 0) {
-        g_printerr("Failed to get video info from caps\n");
         return std::nullopt;
     }
     GstMapInfo gst_map;
     if (gst_buffer_map(gst_buffer, &gst_map, GST_MAP_READ) == 0) {
-        g_printerr("Failed to map buffer\n");
         return std::nullopt;
     }
     auto bytes = std::shared_ptr<std::uint8_t>(new std::uint8_t[gst_map.size],
@@ -145,8 +187,8 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
 
     frame.owner = bytes;
     // TODO: fill format, memory, and other frame fields based on GStreamer
-    frame.format = PixelFormat::UNKNOWN;  // Placeholder
-    frame.memory = MemoryType::CPU;       // Placeholder
+    frame.format = PixelFormat::BGR8;  // Placeholder
+    frame.memory = MemoryType::CPU;    // Placeholder
     // pipeline
     return frame;
 }

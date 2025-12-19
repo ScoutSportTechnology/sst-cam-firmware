@@ -11,21 +11,25 @@
 namespace sst::config::domain {
 
 struct CalibrationCameraData {
-    std::optional<std::string> last_calibration_date{std::nullopt};
     std::optional<std::uint32_t> id{std::nullopt};
     std::optional<std::uint32_t> exposure{std::nullopt};
     std::optional<float> gain{std::nullopt};
     std::optional<std::string> white_balance{std::nullopt};
     std::optional<std::string> focus{std::nullopt};
+    std::optional<std::uint32_t> width{std::nullopt};
+    std::optional<std::uint32_t> height{std::nullopt};
+    std::optional<std::string> format{std::nullopt};
+    std::optional<std::uint32_t> fps{std::nullopt};
     std::optional<std::array<float, 9>> intrinsic_matrix{std::nullopt};
     std::optional<std::array<float, 5>> distortion_coefficients{std::nullopt};
+    std::optional<std::string> last_calibration_date{std::nullopt};
 };
 
 struct CalibrationMicrophoneData {
-    std::optional<std::string> last_calibration_date{std::nullopt};
     std::optional<std::uint32_t> id{std::nullopt};
     std::optional<float> sensitivity{std::nullopt};
     std::optional<bool> noise_reduction{std::nullopt};
+    std::optional<std::string> last_calibration_date{std::nullopt};
 };
 
 struct CalibrationDevicesData {

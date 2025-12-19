@@ -14,22 +14,27 @@ struct fmt::formatter<sst::config::domain::CalibrationCameraData> {
     auto format(const sst::config::domain::CalibrationCameraData& data, FormatContext& ctx) const {
         using namespace sst::config::domain;
 
-        return fmt::format_to(ctx.out(),
-                      "CalibrationCameraData{{\n"
-                              "  last_calibration_date={},\n"
-                              "  id={},\n"
-                              "  exposure={},\n"
-                              "  gain={},\n"
-                              "  white_balance={},\n"
-                              "  focus={},\n"
-                              "  intrinsic_matrix={},\n"
-                              "  distortion_coefficients={}\n"
-                              "}}",
-                              StrOptToStr(data.last_calibration_date), NumOptToStr(data.id),
-                              NumOptToStr(data.exposure), NumOptToStr(data.gain),
-                              StrOptToStr(data.white_balance), StrOptToStr(data.focus),
-                              ArrOptToStr(data.intrinsic_matrix),
-                              ArrOptToStr(data.distortion_coefficients));
+        return fmt::format_to(
+            ctx.out(),
+            "CalibrationCameraData{{\n"
+            "  id={},\n"
+            "  exposure={},\n"
+            "  gain={},\n"
+            "  white_balance={},\n"
+            "  focus={},\n"
+            "  width={},\n"
+            "  height={},\n"
+            "  format={},\n"
+            "  fps={},\n"
+            "  intrinsic_matrix={},\n"
+            "  distortion_coefficients={},\n"
+            "  last_calibration_date={}\n"
+            "}}",
+            NumOptToStr(data.id), NumOptToStr(data.exposure), NumOptToStr(data.gain),
+            StrOptToStr(data.white_balance), StrOptToStr(data.focus), NumOptToStr(data.width),
+            NumOptToStr(data.height), StrOptToStr(data.format), NumOptToStr(data.fps),
+            ArrOptToStr(data.intrinsic_matrix), ArrOptToStr(data.distortion_coefficients),
+            StrOptToStr(data.last_calibration_date));
     }
 };
 
@@ -43,14 +48,14 @@ struct fmt::formatter<sst::config::domain::CalibrationMicrophoneData> {
         using namespace sst::config::domain;
 
         return fmt::format_to(ctx.out(),
-                      "CalibrationMicrophoneData{{\n"
-                      "  last_calibration_date={},\n"
-                      "  id={},\n"
-                      "  sensitivity={},\n"
+                              "CalibrationMicrophoneData{{\n"
+                              "  last_calibration_date={},\n"
+                              "  id={},\n"
+                              "  sensitivity={},\n"
                               "  noise_reduction={}\n"
                               "}}",
-                      StrOptToStr(data.last_calibration_date), NumOptToStr(data.id),
-                      NumOptToStr(data.sensitivity), BoolOptToStr(data.noise_reduction));
+                              StrOptToStr(data.last_calibration_date), NumOptToStr(data.id),
+                              NumOptToStr(data.sensitivity), BoolOptToStr(data.noise_reduction));
     }
 };
 
@@ -63,7 +68,7 @@ struct fmt::formatter<sst::config::domain::CalibrationDevicesData> {
         using namespace sst::config::domain;
 
         return fmt::format_to(ctx.out(),
-                      "CalibrationDevicesData{{\n"
+                              "CalibrationDevicesData{{\n"
                               "  camera={},\n"
                               "  microphone={}\n"
                               "}}",
@@ -81,7 +86,7 @@ struct fmt::formatter<sst::config::domain::CalibrationData> {
 
         const auto devices = data.devices ? fmt::format("{}", *data.devices) : "null";
         return fmt::format_to(ctx.out(),
-                      "CalibrationData{{\n"
+                              "CalibrationData{{\n"
                               "  devices={}\n"
                               "}}",
                               devices);

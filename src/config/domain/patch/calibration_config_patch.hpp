@@ -6,9 +6,7 @@ namespace sst::config::domain {
 
 inline auto apply_patch(CalibrationCameraData& modifiedData,
                         const CalibrationCameraData& defaultData) -> void {
-    if (defaultData.last_calibration_date) {
-        modifiedData.last_calibration_date = defaultData.last_calibration_date;
-    }
+
     if (defaultData.id) {
         modifiedData.id = defaultData.id;
     }
@@ -24,11 +22,26 @@ inline auto apply_patch(CalibrationCameraData& modifiedData,
     if (defaultData.focus) {
         modifiedData.focus = defaultData.focus;
     }
+    if (defaultData.width) {
+        modifiedData.width = defaultData.width;
+    }
+    if (defaultData.height) {
+        modifiedData.height = defaultData.height;
+    }
+    if (defaultData.format) {
+        modifiedData.format = defaultData.format;
+    }
+    if (defaultData.fps) {
+        modifiedData.fps = defaultData.fps;
+    }
     if (defaultData.intrinsic_matrix) {
         modifiedData.intrinsic_matrix = defaultData.intrinsic_matrix;
     }
     if (defaultData.distortion_coefficients) {
         modifiedData.distortion_coefficients = defaultData.distortion_coefficients;
+    }
+    if (defaultData.last_calibration_date) {
+        modifiedData.last_calibration_date = defaultData.last_calibration_date;
     }
 }
 

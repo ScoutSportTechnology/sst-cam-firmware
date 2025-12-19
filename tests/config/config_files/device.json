@@ -7,7 +7,7 @@
         "password": "123456"
       },
       "ethernet": {
-        "enabled": true,
+        "enabled": false,
         "static_ip": {
           "enabled": false,
           "gateway": "",
