@@ -118,7 +118,8 @@ pacman -S --needed \
   mingw-w64-clang-x86_64-gst-plugins-bad \
   mingw-w64-clang-x86_64-gst-plugins-ugly \
   mingw-w64-clang-x86_64-gst-libav \
-  mingw-w64-clang-x86_64-gst-rtsp-server
+  mingw-w64-clang-x86_64-gst-rtsp-server \
+  mingw-w64-clang-x86_64-opencv
 ```
 
 This installs the GStreamer multimedia framework with essential plugins and RTSP server support.

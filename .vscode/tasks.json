@@ -4,7 +4,8 @@
     {
       "label": "deps-debug",
       "type": "shell",
-      "command": "conan install -pr cmake/conan/profiles/msys2/clang64/debug.profile -b missing .",
+      "command":
+        "conan install . -pr:h=cmake/conan/profiles/msys2/clang64/debug.profile -pr:b=cmake/conan/profiles/msys2/clang64/debug.profile -b missing ",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -13,7 +14,8 @@
     {
       "label": "configure-debug",
       "type": "shell",
-      "command": "cmake --preset conan-debug",
+      "command":
+        "cmake --preset conan-debug",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -25,7 +27,8 @@
     {
       "label": "clean-debug",
       "type": "shell",
-      "command": "cmake --build --preset conan-debug --target clean",
+      "command":
+        "cmake --build --preset conan-debug --target clean",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -37,7 +40,8 @@
     {
       "label": "build-debug",
       "type": "shell",
-      "command": "cmake --build --preset conan-debug --target sst_cam_firmware",
+      "command":
+        "cmake --build --preset conan-debug --target sst_cam_firmware",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -49,7 +53,7 @@
     {
       "label": "deps-release",
       "type": "shell",
-      "command": "conan install -pr cmake/conan/profiles/msys2/clang64/release.profile -b missing .",
+      "command": "conan install . -pr:h=cmake/conan/profiles/msys2/clang64/release.profile -pr:b=cmake/conan/profiles/msys2/clang64/release.profile -b missing",
       "options": {
         "cwd": "${workspaceFolder}"
       },

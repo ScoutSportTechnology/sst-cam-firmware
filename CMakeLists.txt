@@ -38,21 +38,30 @@ add_compile_options(
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
+# --- via pkg-config ---
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET
     gstreamer-1.0
     gstreamer-base-1.0
     gstreamer-app-1.0
     gstreamer-video-1.0
+    gstreamer-webrtc-1.0
+    gstreamer-sdp-1.0
+    gstreamer-pbutils-1.0
+    gstreamer-rtsp-server-1.0
 )
+
+pkg_check_modules(OPENCV REQUIRED IMPORTED_TARGET opencv4)
 
 # External deps bundle target (NO sources)
 add_library(sst_cam_firmware_external_libs INTERFACE)
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-    PkgConfig::GST
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    PkgConfig::GST
+    PkgConfig::OPENCV
 )
+
 
 # --- Core library (everything except main.cpp) ---
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
