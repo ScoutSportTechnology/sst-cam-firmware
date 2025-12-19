@@ -5,12 +5,12 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
-#include <stdexcept>
+#include <stdexcept>  // IWYU pragma: keep
 
 #include "config/domain/calibration_config.hpp"
 #include "config/domain/config_data.hpp"
 #include "config/domain/device_config.hpp"
-#include "config/domain/patch/apply_patches.hpp"
+#include "config/domain/patch/apply_patches.hpp"  // IWYU pragma: keep
 #include "config/domain/profile_config.hpp"
 #include "config/domain/storage_config.hpp"
 #include "config/domain/stream_config.hpp"
