@@ -1,0 +1,13 @@
+{
+  "OutputFoldersPerTargetSystem": {
+    "Local Machine": [
+      "build\\Release",
+      "build\\Debug"
+    ]
+  },
+  "ExpandedNodes": [
+    ""
+  ],
+  "SelectedNode": "\\CMakeUserPresets.json",
+  "PreviewInSolutionExplorer": false
+}

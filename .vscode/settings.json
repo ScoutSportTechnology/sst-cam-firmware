@@ -3,11 +3,12 @@
   "cmake.useCMakePresets": "always",
   "cmake.configureOnOpen": true,
   "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
+  "cmake.cmakePath": "C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
   // Let CMake Tools describe the project to tools
   "C_Cpp.intelliSenseEngine": "disabled",
   "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
   // clangd language server from MSYS2 Clang64
-  "clangd.path": "C:/msys64/clang64/bin/clangd.exe",
+  "clangd.path": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/Llvm/x64/bin/clangd.exe",
   "clangd.arguments": [
     "--compile-commands-dir=${workspaceFolder}",
     "--background-index"
@@ -20,17 +21,17 @@
   "[c]": {
     "editor.defaultFormatter": "xaver.clang-format"
   },
-  "testMate.cpp.debug.configTemplate": {
-    "name": "Debug (Conan Cmake MSYS2 Clang64)",
-    "type": "lldb",
-    "request": "launch",
-    "program": "${workspaceFolder}/build/debug/bin/sst_cam_firmware_tests",
-    "args": [],
-    "cwd": "${workspaceFolder}",
-    "env": {
-      "PATH": "C:/msys64/clang64/bin;${env:PATH}"
-    },
-    "preRunCommands": [],
-    "preLaunchTask": "build-test"
-  },
+  //"testMate.cpp.debug.configTemplate": {
+  //  "name": "Debug (Conan Cmake MSYS2 Clang64)",
+  //  "type": "lldb",
+  //  "request": "launch",
+  //  "program": "${workspaceFolder}/build/debug/bin/sst_cam_firmware_tests",
+  //  "args": [],
+  //  "cwd": "${workspaceFolder}",
+  //  "env": {
+  //    "PATH": "C:/msys64/clang64/bin;${env:PATH}"
+  //  },
+  //  "preRunCommands": [],
+  //  "preLaunchTask": "build-test"
+  //},
 }
