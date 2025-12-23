@@ -1,23 +1,21 @@
 [settings]
 os=Windows
 arch=x86_64
-compiler=clang
-compiler.version=21
-compiler.cppstd=23
-compiler.libcxx=libc++
 build_type=Release
-
+compiler=clang
+compiler.version=20
+compiler.cppstd=23
+compiler.runtime=dynamic
+compiler.runtime_type=Release
+compiler.runtime_version=v145
 
 [buildenv]
-PATH+=(path)C:/msys64/clang64/bin
+PATH+=(path)C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin
+
 
 [conf]
-tools.cmake.cmaketoolchain:generator=Ninja
-tools.build:compiler_executables={"c":"C:/msys64/clang64/bin/clang.exe","cpp":"C:/msys64/clang64/bin/clang++.exe"}
+tools.cmake.cmaketoolchain:generator=Visual Studio 18
 tools.compilation:verbosity=verbose
-tools.microsoft.bash:subsystem=msys2
-tools.microsoft.bash:path=C:/msys64/usr/bin/bash.exe
-tools.microsoft.bash:active=False
 
 [tool_requires]
 ninja/[*]

@@ -10,7 +10,7 @@ class SSTCamFirmwareConan(ConanFile):
         self.requires("nlohmann_json/3.12.0")
         self.requires("spdlog/1.16.0")
         self.requires("gtest/1.17.0")
-        #self.requires("opencv/4.12.0")
+        self.requires("opencv/4.12.0")
 
 
     def layout(self):
