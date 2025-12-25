@@ -1,137 +1,102 @@
 {
   "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "preset",
+      "type": "pickString",
+      "description": "CMake preset",
+      "options": [
+        "debug-x64",
+        "test-x64",
+        "release-x64",
+        "debug-x86",
+        "test-x86",
+        "release-x86",
+        "debug-arm64",
+        "test-arm64",
+        "release-arm64",
+        "debug-arm",
+        "test-arm",
+        "release-arm"
+      ]
+    },
+    {
+      "id": "host_arch",
+      "type": "pickString",
+      "description": "Host tools arch",
+      "options": [
+        "amd64",
+        "x86",
+        "arm64",
+        "arm"
+      ]
+    }
+  ],
+  "windows": {
+    "options": {
+      "shell": {
+        "executable": "cmd.exe",
+        "args": [
+          "/C",
+          "${workspaceFolder}\\scripts\\task_parse.cmd ${input:preset}",
+          "&&",
+          "echo target_arch=%target_arch%",
+          "&&",
+          "\"C:/Program Files/Microsoft Visual Studio/18/Community/Common7/Tools/VsDevCmd.bat\"",
+          "-arch=%target_arch%",
+          "-host_arch=${input:host_arch}",
+          "&&"
+        ]
+      }
+    }
+  },
   "tasks": [
     {
-      "label": "msys2-clang64 deps-debug",
+      "label": "configure",
       "type": "shell",
-      "command": "conan install . -pr:h=cmake/conan/profiles/msys2/clang64/debug.profile -pr:b=cmake/conan/profiles/msys2/clang64/debug.profile -b missing ",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "msvc deps-debug",
-      "type": "shell",
-      "command": "conan install . -pr:h=cmake/conan/profiles/msvc/llvm/clang/debug.profile -pr:b=cmake/conan/profiles/msvc/llvm/clang/debug.profile -b missing ",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "configure-debug",
-      "type": "shell",
-      "command": "cmake --preset conan-debug",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "msvc deps-debug"
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "${input:preset}"
       ],
-      "problemMatcher": []
-    },
-    {
-      "label": "clean-debug",
-      "type": "shell",
-      "command": "cmake --build --preset conan-debug --target clean",
       "options": {
         "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "configure-debug"
+      }
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "${input:preset}"
       ],
-      "problemMatcher": []
-    },
-    {
-      "label": "build-debug",
-      "type": "shell",
-      "command": "cmake --build --preset conan-debug --target sst_cam_firmware",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
       "dependsOn": [
-        "clean-debug"
+        "configure"
       ],
-      "problemMatcher": []
-    },
-    {
-      "label": "msys2-clang64 deps-release",
-      "type": "shell",
-      "command": "conan install . -pr:h=cmake/conan/profiles/msys2/clang64/release.profile -pr:b=cmake/conan/profiles/msys2/clang64/release.profile -b missing",
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "problemMatcher": []
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
     },
     {
-      "label": "msvc deps-release",
+      "label": "clean",
       "type": "shell",
-      "command": "conan install . -pr:h=cmake/conan/profiles/msvc/llvm/clang/release.profile -pr:b=cmake/conan/profiles/msvc/llvm/clang/release.profile -b missing",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "configure-release",
-      "type": "shell",
-      "command": "cmake --preset conan-release",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "msvc deps-release"
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "${input:preset}",
+        "--target",
+        "clean"
       ],
-      "problemMatcher": []
-    },
-    {
-      "label": "build-release",
-      "type": "shell",
-      "command": "cmake --build --preset conan-release --target sst_cam_firmware",
       "options": {
         "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "configure-release"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "configure-test",
-      "type": "shell",
-      "command": "cmake --preset conan-debug -DBUILD_TESTS=ON",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "msvc deps-debug"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "clean-test",
-      "type": "shell",
-      "command": "cmake --build --preset conan-debug --target clean",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "configure-test"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "build-test",
-      "type": "shell",
-      "command": "cmake --build --preset conan-debug --target sst_cam_firmware_tests",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "dependsOn": [
-        "clean-test"
-      ],
-      "problemMatcher": []
-    },
+      }
+    }
   ]
 }

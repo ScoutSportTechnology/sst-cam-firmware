@@ -1,0 +1,10 @@
+{
+  "name": "sst-cam-firmware",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "nlohmann-json",
+    "spdlog",
+    "gtest",
+    "opencv"
+  ]
+}

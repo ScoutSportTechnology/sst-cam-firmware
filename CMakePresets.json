@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "debug-x64",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/debug-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "test-x64",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/test-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "release-x64",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/release-x64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-static",
+        "BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug-x64",
+      "configurePreset": "debug-x64"
+    },
+    {
+      "name": "test-x64",
+      "configurePreset": "test-x64"
+    },
+    {
+      "name": "release-x64",
+      "configurePreset": "release-x64"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-x64",
+      "configurePreset": "test-x64"
+    }
+  ]
+}
