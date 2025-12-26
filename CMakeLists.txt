@@ -37,11 +37,6 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     spdlog::spdlog
 )
 
-target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-  nlohmann_json::nlohmann_json
-  spdlog::spdlog
-)
-
 target_include_directories(sst_cam_firmware_external_libs INTERFACE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${OpenCV_LIBS})
 
