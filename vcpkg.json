@@ -4,7 +4,21 @@
   "dependencies": [
     "nlohmann-json",
     "spdlog",
-    "gtest",
-    "opencv"
-  ]
+    "opencv",
+    {
+      "name": "gstreamer",
+      "default-features": false,
+      "features": [
+        "plugins-base",
+        "plugins-good",
+        "plugins-bad"
+      ]
+    }
+  ],
+  "features": {
+    "tests": {
+      "description": "Build tests",
+      "dependencies": [ "gtest" ]
+    }
+  }
 }

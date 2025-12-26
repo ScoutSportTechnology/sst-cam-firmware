@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(sst_cam_firmware
     VERSION 0.1.0
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 # Absolute repo root (compile-time) for resolving config + test fixture paths
@@ -25,9 +25,10 @@ else()
 endif()
 
 # ---- Dependencies (vcpkg via find_package CONFIG) ----
-find_package(nlohmann_json CONFIG REQUIRED)
-find_package(spdlog CONFIG REQUIRED)
-find_package(OpenCV CONFIG REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(GStreamer REQUIRED)
 
 # External deps bundle target (NO sources)
 add_library(sst_cam_firmware_external_libs INTERFACE)
@@ -36,8 +37,16 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     spdlog::spdlog
 )
 
-target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${OpenCV_LIBS})
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+  nlohmann_json::nlohmann_json
+  spdlog::spdlog
+)
+
 target_include_directories(sst_cam_firmware_external_libs INTERFACE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${OpenCV_LIBS})
+
+target_include_directories(sst_cam_firmware_external_libs INTERFACE ${GSTREAMER_INCLUDE_DIRS})
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${GSTREAMER_LIBRARIES})
 
 # --- Core library (everything except main.cpp) ---
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
@@ -66,9 +75,10 @@ target_link_libraries(sst_cam_firmware PRIVATE
 )
 
 # --- Tests ---
-option(BUILD_TESTS "Build unit tests" OFF)
+option(BUILD_TESTS "Build tests" OFF)
 if (BUILD_TESTS)
     enable_testing()
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
     find_package(GTest CONFIG REQUIRED)
 
     file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
