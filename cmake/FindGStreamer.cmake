@@ -88,20 +88,34 @@ if(GStreamer_FOUND)
   if(GSTAPP_1_0_LIB)
     list(APPEND GSTREAMER_LIBRARIES "${GSTAPP_1_0_LIB}")
   endif()
-
   if(GSTVIDEO_1_0_LIB)
     list(APPEND GSTREAMER_LIBRARIES "${GSTVIDEO_1_0_LIB}")
   endif()
-
   if(GSTAUDIO_1_0_LIB)
     list(APPEND GSTREAMER_LIBRARIES "${GSTAUDIO_1_0_LIB}")
   endif()
-
   if(GMODULE_2_0_LIB)
     list(APPEND GSTREAMER_LIBRARIES "${GMODULE_2_0_LIB}")
   endif()
-
   if(GTHREAD_2_0_LIB)
     list(APPEND GSTREAMER_LIBRARIES "${GTHREAD_2_0_LIB}")
+  endif()
+
+  # ---- Imported targets (modern CMake style) ----
+
+  if(NOT TARGET gstreamer::gstreamer)
+    add_library(gstreamer::gstreamer INTERFACE IMPORTED)
+    set_target_properties(gstreamer::gstreamer PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${GSTREAMER_INCLUDE_DIRS}"
+      INTERFACE_LINK_LIBRARIES      "${GSTREAMER_LIBRARIES}"
+    )
+  endif()
+
+  if(NOT TARGET GStreamer::GStreamer)
+    add_library(GStreamer::GStreamer INTERFACE IMPORTED)
+    set_target_properties(GStreamer::GStreamer PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${GSTREAMER_INCLUDE_DIRS}"
+      INTERFACE_LINK_LIBRARIES      "${GSTREAMER_LIBRARIES}"
+    )
   endif()
 endif()

@@ -27,8 +27,8 @@ else()
 endif()
 
 # ---- Dependencies (vcpkg via find_package CONFIG) ----
-find_package(nlohmann_json REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(GStreamer REQUIRED)
 
@@ -37,13 +37,9 @@ add_library(sst_cam_firmware_external_libs INTERFACE)
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    gstreamer::gstreamer
+    opencv::opencv
 )
-
-target_include_directories(sst_cam_firmware_external_libs INTERFACE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${OpenCV_LIBS})
-
-target_include_directories(sst_cam_firmware_external_libs INTERFACE ${GSTREAMER_INCLUDE_DIRS})
-target_link_libraries(sst_cam_firmware_external_libs INTERFACE ${GSTREAMER_LIBRARIES})
 
 # --- Core library (everything except main.cpp) ---
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS

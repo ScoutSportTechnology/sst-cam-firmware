@@ -56,7 +56,7 @@
       "inherits": "base-test-clangcl",
       "binaryDir": "${sourceDir}/build/test/x64-windows",
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
         "VCPKG_MANIFEST_FEATURES": "tests"
       }
     },
@@ -65,7 +65,7 @@
       "inherits": "base-release-clangcl",
       "binaryDir": "${sourceDir}/build/release/x64-windows",
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic"
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     }
   ],
