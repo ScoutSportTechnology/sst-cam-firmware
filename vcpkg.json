@@ -6,7 +6,7 @@
     "spdlog",
     {
       "name": "opencv",
-      "default-features": true,
+      "default-features": false,
       "features": [
         "ffmpeg",
         "gstreamer"
@@ -14,7 +14,7 @@
     },
     {
       "name": "gstreamer",
-      "default-features": true,
+      "default-features": false,
       "features": [
         "plugins-base",
         "plugins-good"

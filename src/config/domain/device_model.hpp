@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string_view>
 
+
 namespace sst::config::domain {
 enum class DeviceModel : std::uint8_t { UNKNOWN, V1, V2, V3 };
 inline auto FromStringDeviceModel(std::string_view model_str) -> DeviceModel {
