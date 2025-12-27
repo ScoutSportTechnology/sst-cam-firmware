@@ -6,18 +6,18 @@
       "type": "pickString",
       "description": "CMake preset",
       "options": [
-        "debug-x64",
-        "test-x64",
-        "release-x64",
-        "debug-x86",
-        "test-x86",
-        "release-x86",
-        "debug-arm64",
-        "test-arm64",
-        "release-arm64",
-        "debug-arm",
-        "test-arm",
-        "release-arm"
+        "debug-x64-windows",
+        "test-x64-windows",
+        "release-x64-windows",
+        "debug-x86-windows",
+        "test-x86-windows",
+        "release-x86-windows",
+        "debug-arm64-windows",
+        "test-arm64-windows",
+        "release-arm64-windows",
+        "debug-arm-windows",
+        "test-arm-windows",
+        "release-arm-windows"
       ]
     },
     {

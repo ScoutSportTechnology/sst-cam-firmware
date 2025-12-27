@@ -2,64 +2,91 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "base",
+      "name": "base-clangcl",
       "hidden": true,
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang-cl",
         "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_VISUAL_STUDIO_PATH": "$env{VCPKG_VISUAL_STUDIO_PATH}"
       }
     },
     {
-      "name": "debug-x64",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build/debug-x64",
+      "name": "base-debug-clangcl",
+      "hidden": true,
+      "inherits": "base-clangcl",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "VCPKG_BUILD_TYPE": "debug",
         "BUILD_TESTS": "OFF"
       }
     },
     {
-      "name": "test-x64",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build/test-x64",
+      "name": "base-test-clangcl",
+      "hidden": true,
+      "inherits": "base-clangcl",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "VCPKG_BUILD_TYPE": "debug",
         "BUILD_TESTS": "ON"
       }
     },
     {
-      "name": "release-x64",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build/release-x64",
+      "name": "base-release-clangcl",
+      "hidden": true,
+      "inherits": "base-clangcl",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-static",
+        "VCPKG_BUILD_TYPE": "release",
         "BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "debug-x64-windows",
+      "inherits": "base-debug-clangcl",
+      "binaryDir": "${sourceDir}/build/debug/x64-windows",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "test-x64-windows",
+      "inherits": "base-test-clangcl",
+      "binaryDir": "${sourceDir}/build/test/x64-windows",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic",
+        "VCPKG_MANIFEST_FEATURES": "tests"
+      }
+    },
+    {
+      "name": "release-x64-windows",
+      "inherits": "base-release-clangcl",
+      "binaryDir": "${sourceDir}/build/release/x64-windows",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clangcl-dynamic"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "debug-x64",
-      "configurePreset": "debug-x64"
+      "name": "debug-x64-windows",
+      "configurePreset": "debug-x64-windows"
     },
     {
-      "name": "test-x64",
-      "configurePreset": "test-x64"
+      "name": "test-x64-windows",
+      "configurePreset": "test-x64-windows"
     },
     {
-      "name": "release-x64",
-      "configurePreset": "release-x64"
+      "name": "release-x64-windows",
+      "configurePreset": "release-x64-windows"
     }
   ],
   "testPresets": [
     {
-      "name": "test-x64",
-      "configurePreset": "test-x64"
+      "name": "test-x64-windows",
+      "configurePreset": "test-x64-windows"
     }
   ]
 }

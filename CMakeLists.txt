@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 project(sst_cam_firmware
     VERSION 0.1.0
     LANGUAGES C CXX
@@ -73,7 +75,6 @@ target_link_libraries(sst_cam_firmware PRIVATE
 option(BUILD_TESTS "Build tests" OFF)
 if (BUILD_TESTS)
     enable_testing()
-    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
     find_package(GTest CONFIG REQUIRED)
 
     file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
@@ -90,7 +91,6 @@ if (BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests)
 
-    # also output tests exe to bin/
     set_target_properties(sst_cam_firmware_tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
     )
