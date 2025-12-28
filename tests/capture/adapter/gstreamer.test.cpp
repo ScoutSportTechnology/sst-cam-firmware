@@ -2,8 +2,10 @@
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
+#include "capture/adapters/gstreamer_runtime.hpp"
+
 TEST(GstreamerAdapter, SimplePipelineSmoke) {
-    gst_init(nullptr, nullptr);
+    sst::capture::adapters::GstInitWithLocalPluginsOnce();
 
     const char* pipeline_str = "videotestsrc num-buffers=30 ! videoconvert ! fakesink sync=false";
 
@@ -17,7 +19,7 @@ TEST(GstreamerAdapter, SimplePipelineSmoke) {
         if (err != nullptr) {
             g_error_free(err);
         }
-        FAIL();  // stop test here with your log shown
+        FAIL();
     }
     if (err != nullptr) {
         g_error_free(err);
@@ -34,6 +36,7 @@ TEST(GstreamerAdapter, SimplePipelineSmoke) {
         GError* gstreamerError = nullptr;
         gchar* dbg = nullptr;
         gst_message_parse_error(msg, &gstreamerError, &dbg);
+
         spdlog::error("BUS ERROR: {}",
                       ((gstreamerError != nullptr) && (gstreamerError->message != nullptr))
                           ? gstreamerError->message
@@ -41,12 +44,14 @@ TEST(GstreamerAdapter, SimplePipelineSmoke) {
         if (dbg != nullptr) {
             spdlog::error("debug: {}", dbg);
         }
+
         if (gstreamerError != nullptr) {
             g_error_free(gstreamerError);
         }
         if (dbg != nullptr) {
             g_free(dbg);
         }
+
         gst_message_unref(msg);
         FAIL();
     }

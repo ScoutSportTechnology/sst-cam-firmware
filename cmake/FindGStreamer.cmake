@@ -1,3 +1,4 @@
+# cmake/FindGStreamer.cmake
 # - Try to find GStreamer and its plugins
 # Once done, this will define
 #
@@ -24,34 +25,16 @@
 #
 # Copyright (C) 2012 Raphael Kubo da Costa <rakuco@webkit.org>
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions
-# are met:
-# 1.  Redistributions of source code must retain the above copyright
-#     notice, this list of conditions and the following disclaimer.
-# 2.  Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER AND ITS CONTRIBUTORS ``AS
-# IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
-# THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR ITS
-# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
-# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# BSD license...
+
 find_package(PkgConfig)
+
 # Helper macro to find a GStreamer plugin (or GStreamer itself)
 #   _component_prefix is prepended to the _INCLUDE_DIRS and _LIBRARIES variables (eg. "GSTREAMER_AUDIO")
 #   _pkgconfig_name is the component's pkg-config name (eg. "gstreamer-1.0", or "gstreamer-video-1.0").
 #   _header is the component's header, relative to the gstreamer-1.0 directory (eg. "gst/gst.h").
 #   _library is the component's library name (eg. "gstreamer-1.0" or "gstvideo-1.0")
 macro(FIND_GSTREAMER_COMPONENT _component_prefix _pkgconfig_name _header _library)
-    # FIXME: The QUIET keyword can be used once we require CMake 2.8.2.
     pkg_check_modules(PC_${_component_prefix} ${_pkgconfig_name})
     find_path(${_component_prefix}_INCLUDE_DIRS
         NAMES ${_header}
@@ -63,12 +46,15 @@ macro(FIND_GSTREAMER_COMPONENT _component_prefix _pkgconfig_name _header _librar
         HINTS ${PC_${_component_prefix}_LIBRARY_DIRS} ${PC_${_component_prefix}_LIBDIR}
     )
 endmacro()
+
 # ------------------------
 # 1. Find GStreamer itself
 # ------------------------
+
 # 1.1. Find headers and libraries
-FIND_GSTREAMER_COMPONENT(GSTREAMER gstreamer-1.0 gst/gst.h gstreamer-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_BASE gstreamer-base-1.0 gst/gst.h gstbase-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER      gstreamer-1.0      gst/gst.h          gstreamer-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_BASE gstreamer-base-1.0 gst/gst.h          gstbase-1.0)
+
 # 1.2. Check GStreamer version
 if (GSTREAMER_INCLUDE_DIRS)
     if (EXISTS "${GSTREAMER_INCLUDE_DIRS}/gst/gstversion.h")
@@ -82,6 +68,7 @@ if (GSTREAMER_INCLUDE_DIRS)
         set(GSTREAMER_VERSION "${GSTREAMER_VERSION_MAJOR}.${GSTREAMER_VERSION_MINOR}.${GSTREAMER_VERSION_MICRO}")
     endif ()
 endif ()
+
 # FIXME: With CMake 2.8.3 we can just pass GSTREAMER_VERSION to FIND_PACKAGE_HANDLE_STANDARD_ARGS as VERSION_VAR
 #        and remove the version check here (GSTREAMER_FIND_VERSION would be passed to FIND_PACKAGE).
 set(VERSION_OK TRUE)
@@ -94,25 +81,83 @@ else ()
         set(VERSION_OK FALSE)
     endif ()
 endif ()
+
 # -------------------------
 # 2. Find GStreamer plugins
 # -------------------------
-FIND_GSTREAMER_COMPONENT(GSTREAMER_APP gstreamer-app-1.0 gst/app/gstappsink.h gstapp-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_AUDIO gstreamer-audio-1.0 gst/audio/audio.h gstaudio-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_FFT gstreamer-fft-1.0 gst/fft/gstfft.h gstfft-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_PBUTILS gstreamer-pbutils-1.0 gst/pbutils/pbutils.h gstpbutils-1.0)
-FIND_GSTREAMER_COMPONENT(GSTREAMER_VIDEO gstreamer-video-1.0 gst/video/video.h gstvideo-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_APP     gstreamer-app-1.0     gst/app/gstappsink.h      gstapp-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_AUDIO   gstreamer-audio-1.0   gst/audio/audio.h         gstaudio-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_FFT     gstreamer-fft-1.0     gst/fft/gstfft.h          gstfft-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_PBUTILS gstreamer-pbutils-1.0 gst/pbutils/pbutils.h     gstpbutils-1.0)
+FIND_GSTREAMER_COMPONENT(GSTREAMER_VIDEO   gstreamer-video-1.0   gst/video/video.h         gstvideo-1.0)
+
+# -------------------------
+# 2.5 Find GLib (required on Windows for g_free/g_error_free etc.)
+# -------------------------
+FIND_GSTREAMER_COMPONENT(GLIB    glib-2.0    glib.h         glib-2.0)
+FIND_GSTREAMER_COMPONENT(GOBJECT gobject-2.0 glib-object.h  gobject-2.0)
+FIND_GSTREAMER_COMPONENT(GIO     gio-2.0     gio/gio.h      gio-2.0)
+
 # ------------------------------------------------
 # 3. Process the COMPONENTS passed to FIND_PACKAGE
 # ------------------------------------------------
-set(_GSTREAMER_REQUIRED_VARS GSTREAMER_INCLUDE_DIRS GSTREAMER_LIBRARIES VERSION_OK GSTREAMER_BASE_INCLUDE_DIRS GSTREAMER_BASE_LIBRARIES)
+set(_GSTREAMER_REQUIRED_VARS
+    GSTREAMER_INCLUDE_DIRS GSTREAMER_LIBRARIES
+    VERSION_OK
+    GSTREAMER_BASE_INCLUDE_DIRS GSTREAMER_BASE_LIBRARIES
+    GLIB_INCLUDE_DIRS GLIB_LIBRARIES
+    GOBJECT_INCLUDE_DIRS GOBJECT_LIBRARIES
+    GIO_INCLUDE_DIRS GIO_LIBRARIES
+)
+
 foreach (_component ${GStreamer_FIND_COMPONENTS})
     set(_gst_component "GSTREAMER_${_component}")
     string(TOUPPER ${_gst_component} _UPPER_NAME)
     list(APPEND _GSTREAMER_REQUIRED_VARS ${_UPPER_NAME}_INCLUDE_DIRS ${_UPPER_NAME}_LIBRARIES)
 endforeach ()
+
 include(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(GStreamer DEFAULT_MSG ${_GSTREAMER_REQUIRED_VARS})
+
+# ------------------------------------------------------------------------
+# 3.5 vcpkg-friendly GLib include fix:
+# gst/gst.h includes <glib.h>. On Windows/vcpkg, pkg-config may not provide
+# GLib include dirs, so add the common vcpkg layout paths if they exist.
+# ------------------------------------------------------------------------
+if(GSTREAMER_FOUND)
+    # GSTREAMER_INCLUDE_DIRS is typically .../include/gstreamer-1.0
+    get_filename_component(_gst_inc_root "${GSTREAMER_INCLUDE_DIRS}" DIRECTORY) # -> .../include
+
+    set(_glib_inc_1 "${_gst_inc_root}/glib-2.0")
+    set(_glib_inc_2 "${_gst_inc_root}/../lib/glib-2.0/include")
+
+    if(EXISTS "${_glib_inc_1}")
+        list(APPEND GSTREAMER_INCLUDE_DIRS "${_glib_inc_1}")
+        list(APPEND GLIB_INCLUDE_DIRS "${_glib_inc_1}")
+        list(APPEND GOBJECT_INCLUDE_DIRS "${_glib_inc_1}")
+        list(APPEND GIO_INCLUDE_DIRS "${_glib_inc_1}")
+    endif()
+    if(EXISTS "${_glib_inc_2}")
+        list(APPEND GSTREAMER_INCLUDE_DIRS "${_glib_inc_2}")
+        list(APPEND GLIB_INCLUDE_DIRS "${_glib_inc_2}")
+        list(APPEND GOBJECT_INCLUDE_DIRS "${_glib_inc_2}")
+        list(APPEND GIO_INCLUDE_DIRS "${_glib_inc_2}")
+    endif()
+
+    if(DEFINED GSTREAMER_BASE_INCLUDE_DIRS)
+        get_filename_component(_gst_base_inc_root "${GSTREAMER_BASE_INCLUDE_DIRS}" DIRECTORY) # -> .../include
+
+        set(_glib_base_inc_1 "${_gst_base_inc_root}/glib-2.0")
+        set(_glib_base_inc_2 "${_gst_base_inc_root}/../lib/glib-2.0/include")
+
+        if(EXISTS "${_glib_base_inc_1}")
+            list(APPEND GSTREAMER_BASE_INCLUDE_DIRS "${_glib_base_inc_1}")
+        endif()
+        if(EXISTS "${_glib_base_inc_2}")
+            list(APPEND GSTREAMER_BASE_INCLUDE_DIRS "${_glib_base_inc_2}")
+        endif()
+    endif()
+endif()
 
 # ------------------------------------------------
 # 4. Provide a modern target alias: gstreamer::gstreamer
@@ -123,9 +168,9 @@ if(GSTREAMER_FOUND AND NOT TARGET gstreamer::gstreamer)
     # Base include + lib are required
     set_target_properties(gstreamer::gstreamer PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES
-            "${GSTREAMER_INCLUDE_DIRS};${GSTREAMER_BASE_INCLUDE_DIRS}"
+            "${GSTREAMER_INCLUDE_DIRS};${GSTREAMER_BASE_INCLUDE_DIRS};${GLIB_INCLUDE_DIRS};${GOBJECT_INCLUDE_DIRS};${GIO_INCLUDE_DIRS}"
         INTERFACE_LINK_LIBRARIES
-            "${GSTREAMER_LIBRARIES};${GSTREAMER_BASE_LIBRARIES}"
+            "${GSTREAMER_LIBRARIES};${GSTREAMER_BASE_LIBRARIES};${GLIB_LIBRARIES};${GOBJECT_LIBRARIES};${GIO_LIBRARIES}"
     )
 
     # If plugin components were found, add them too (safe even if empty)

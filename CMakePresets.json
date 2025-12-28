@@ -5,6 +5,7 @@
       "name": "base-clangcl",
       "hidden": true,
       "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang-cl",
         "CMAKE_CXX_COMPILER": "clang-cl",
@@ -44,26 +45,23 @@
       }
     },
     {
-      "name": "debug-x64-windows",
+      "name": "debug/x64-windows",
       "inherits": "base-debug-clangcl",
-      "binaryDir": "${sourceDir}/build/debug/x64-windows",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     },
     {
-      "name": "test-x64-windows",
+      "name": "test/x64-windows",
       "inherits": "base-test-clangcl",
-      "binaryDir": "${sourceDir}/build/test/x64-windows",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows",
         "VCPKG_MANIFEST_FEATURES": "tests"
       }
     },
     {
-      "name": "release-x64-windows",
+      "name": "release/x64-windows",
       "inherits": "base-release-clangcl",
-      "binaryDir": "${sourceDir}/build/release/x64-windows",
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
@@ -71,22 +69,22 @@
   ],
   "buildPresets": [
     {
-      "name": "debug-x64-windows",
-      "configurePreset": "debug-x64-windows"
+      "name": "debug/x64-windows",
+      "configurePreset": "debug/x64-windows"
     },
     {
-      "name": "test-x64-windows",
-      "configurePreset": "test-x64-windows"
+      "name": "test/x64-windows",
+      "configurePreset": "test/x64-windows"
     },
     {
-      "name": "release-x64-windows",
-      "configurePreset": "release-x64-windows"
+      "name": "release/x64-windows",
+      "configurePreset": "release/x64-windows"
     }
   ],
   "testPresets": [
     {
-      "name": "test-x64-windows",
-      "configurePreset": "test-x64-windows"
+      "name": "test/x64-windows",
+      "configurePreset": "test/x64-windows"
     }
   ]
 }
