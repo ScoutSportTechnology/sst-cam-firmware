@@ -6,7 +6,6 @@ project(sst_cam_firmware
 )
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-#include(${CMAKE_SOURCE_DIR}/cmake/SetGStreamer.cmake)
 
 set(SST_REPO_ROOT_DIR "${CMAKE_SOURCE_DIR}")
 
@@ -60,8 +59,6 @@ target_link_libraries(sst_cam_firmware PRIVATE
     sst_cam_firmware_internal_libs
 )
 
-#sst_cam_firmware_gstreamer_runtime(sst_cam_firmware)
-
 option(BUILD_TESTS "Build tests" OFF)
 if (BUILD_TESTS)
     enable_testing()
@@ -78,8 +75,25 @@ if (BUILD_TESTS)
         GTest::gtest_main
     )
 
-    #sst_cam_firmware_gstreamer_runtime(sst_cam_firmware_tests)
-
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests)
+endif()
+
+option(BUNDLE_GSTREAMER_RUNTIME "Bundle GStreamer runtime with the executable" OFF)
+if (BUNDLE_GSTREAMER_RUNTIME)
+    include(${CMAKE_SOURCE_DIR}/cmake/SetGStreamerRuntime.cmake)
+    set_GStreamer_Runtime(sst_cam_firmware)
+
+    if (BUILD_TESTS)
+        set_GStreamer_Runtime(sst_cam_firmware_tests)
+    endif()
+else()
+    target_compile_definitions(sst_cam_firmware PRIVATE
+        BUNDLED_GSTREAMER_RUNTIME=0
+    )
+    if (BUILD_TESTS)
+        target_compile_definitions(sst_cam_firmware_tests PRIVATE
+            BUNDLED_GSTREAMER_RUNTIME=0
+        )
+    endif()
 endif()

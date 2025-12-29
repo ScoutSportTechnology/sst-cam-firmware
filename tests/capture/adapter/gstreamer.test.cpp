@@ -5,7 +5,7 @@
 #include "capture/adapters/gstreamer_runtime.hpp"
 
 TEST(GstreamerAdapter, SimplePipelineSmoke) {
-    sst::capture::adapters::GstInitWithLocalPluginsOnce();
+    sst::capture::adapters::GstInitRuntime();
 
     const char* pipeline_str = "videotestsrc num-buffers=30 ! videoconvert ! fakesink sync=false";
 

@@ -1,10 +1,12 @@
-function(sst_cam_firmware_gstreamer_runtime target)
+function(set_GStreamer_Runtime target)
   if(NOT TARGET ${target})
-    message(FATAL_ERROR "sst_cam_firmware_gstreamer_runtime: target '${target}' does not exist")
+    message(FATAL_ERROR "set_GStreamer_Runtime: target '${target}' does not exist")
   endif()
 
+  target_compile_definitions(${target} PRIVATE BUNDLED_GSTREAMER_RUNTIME=1)
+
   if(NOT DEFINED VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
-    message(FATAL_ERROR "sst_cam_firmware_gstreamer_runtime: VCPKG_TARGET_TRIPLET is not set")
+    message(FATAL_ERROR "set_GStreamer_Runtime: VCPKG_TARGET_TRIPLET is not set")
   endif()
 
   set(_prefix "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}")
