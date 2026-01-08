@@ -7,7 +7,8 @@ REM  - Project env vars: SST_CAM_FIRMWARE_*
 REM  - Keeps console open when double-clicked
 REM ============================================================
 
-REM If double-clicked (no args), relaunch in a persistent window
+REM Entry point for SST Cam Firmware development (Windows + MSVC)
+REM Double-click to open VS Code with MSVC environment initialized
 if "%~1"=="" (
     start "SST Dev Shell" cmd.exe /c ""%~f0" __INVOKED__"
     exit /b 0
