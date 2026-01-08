@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "capture/adapters/gstreamer_runtime.hpp"
 #include "common/domain/memory_type.hpp"
 #include "common/domain/pixel_format.hpp"
 #include "common/utils/timestamp.hpp"
@@ -29,11 +30,15 @@ using sst::config::domain::DeviceModel;
 using sst::config::domain::FromStringDeviceModel;
 using sst::config::domain::ToStringDeviceModel;
 
+GStreamerAdapter::GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index)
+    : config_data_(config_data), camera_index_(camera_index) {
+    GstInitRuntime();
+}
+
 auto GStreamerAdapter::Start() -> void {
     if (is_running_) {
         return;
     }
-    gst_init(nullptr, nullptr);
 
     CalibrationData calibration = config_data_.calibration;
     if (!calibration.devices) {
@@ -44,6 +49,7 @@ auto GStreamerAdapter::Start() -> void {
         return;
     }
     const std::vector<CalibrationCameraData>& cameras = *devices.camera;
+
     const CalibrationCameraData* camera = nullptr;
     for (const auto& cam : cameras) {
         if (cam.id && *cam.id == camera_index_) {
@@ -55,13 +61,16 @@ auto GStreamerAdapter::Start() -> void {
         return;
     }
 
-    // sst_cam_v1 (usb cam), sst_cam_v2 (raspberry pi camera module), sst_cam_v3 (nvidia jetson
-    // camera module) specific pipelines
     // TODO: parametrize format, resolution, and framerate
     DeviceModel model = DeviceModel::UNKNOWN;
     if (config_data_.device.model) {
         model = FromStringDeviceModel(*config_data_.device.model);
     }
+
+    const unsigned int width = camera->width.value_or(1920);
+    const unsigned int height = camera->height.value_or(1080);
+    const unsigned int fps = camera->fps.value_or(60);
+
     switch (model) {
         case DeviceModel::V1:
             pipeline_str_ = "sst_cam_v1";  // placeholder
@@ -69,22 +78,25 @@ auto GStreamerAdapter::Start() -> void {
         case DeviceModel::V2:
             pipeline_str_ = "sst_cam_v2";  // placeholder
             break;
-        case DeviceModel::V3:
-            pipeline_str_ = "sst_cam_v3";  // placeholder
-            break;
         case DeviceModel::UNKNOWN:
         default:
-            pipeline_str_ = "v4l2src device=/dev/video" + std::to_string(camera_index_) +
-                            " ! video/x-raw,format=" + camera->format.value() +
-                            ",width=" + std::to_string(camera->width.value()) +
-                            ",height=" + std::to_string(camera->height.value()) +
-                            ",framerate=" + std::to_string(camera->fps.value()) +
-                            "/1 "
-                            " ! videoconvert ! video/x-raw,format=BGR "
-                            " ! appsink name=sink sync=false max-buffers=2 drop=true";
+            pipeline_str_ = "mfvideosrc device-index=" + std::to_string(camera_index_) +
+                            " ! video/x-raw,width=" + std::to_string(width) +
+                            ",height=" + std::to_string(height) +
+                            ",framerate=" + std::to_string(fps) +
+                            "/1"
+                            " ! videoconvert"
+                            " ! tee name=t "
+                            " t. ! queue "
+                            "     ! video/x-raw,format=BGR "
+                            "     ! appsink name=sink sync=false "
+                            " t. ! queue "
+                            "     ! videoconvert "
+                            "     ! autovideosink sync=false";
             break;
     }
 
+    gst_err_ = nullptr;
     gst_pipeline_ = gst_parse_launch(pipeline_str_.c_str(), &gst_err_);
     if (gst_pipeline_ == nullptr) {
         if (gst_err_ != nullptr) {
@@ -95,9 +107,19 @@ auto GStreamerAdapter::Start() -> void {
         return;
     }
 
+    gst_bus_ = gst_element_get_bus(gst_pipeline_);
+    if (gst_bus_ == nullptr) {
+        g_printerr("Failed to get bus from pipeline\n");
+        gst_object_unref(gst_pipeline_);
+        gst_pipeline_ = nullptr;
+        return;
+    }
+
     gst_sink_ = gst_bin_get_by_name(GST_BIN(gst_pipeline_), "sink");
     if (gst_sink_ == nullptr) {
         g_printerr("Failed to get appsink from pipeline\n");
+        gst_object_unref(gst_bus_);
+        gst_bus_ = nullptr;
         gst_object_unref(gst_pipeline_);
         gst_pipeline_ = nullptr;
         return;
@@ -105,91 +127,232 @@ auto GStreamerAdapter::Start() -> void {
 
     GstAppSink* gst_appsink = GST_APP_SINK(gst_sink_);
     gst_app_sink_set_drop(gst_appsink, 1);
-    gst_app_sink_set_max_buffers(gst_appsink, 2);
+    gst_app_sink_set_max_buffers(gst_appsink, 5);
     gst_app_sink_set_emit_signals(gst_appsink, 0);
 
     const GstStateChangeReturn ret = gst_element_set_state(gst_pipeline_, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
         g_printerr("Failed to set pipeline to PLAYING state\n");
+        gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
+
+        if (gst_sink_ != nullptr) {
+            gst_object_unref(gst_sink_);
+            gst_sink_ = nullptr;
+        }
+        if (gst_bus_ != nullptr) {
+            gst_object_unref(gst_bus_);
+            gst_bus_ = nullptr;
+        }
         gst_object_unref(gst_pipeline_);
-        gst_sink_ = nullptr;
         gst_pipeline_ = nullptr;
         return;
     }
 
     is_running_ = true;
-};
+
+    // Prime one frame so Capture() can be non-blocking and still return a buffered frame
+    {
+        constexpr GstClockTime kPrimeTimeout = 2 * GST_SECOND;
+
+        GstSample* gstSample = gst_app_sink_try_pull_sample(gst_appsink, kPrimeTimeout);
+        if (gstSample != nullptr) {
+            auto owner = std::shared_ptr<GstSample>(
+                gstSample, [](GstSample* sample) { gst_sample_unref(sample); });
+
+            auto capturedFrame = CreateFrameFromSample(owner.get());
+            if (capturedFrame) {
+                std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+                last_frame_ = *capturedFrame;
+            }
+        } else {
+            spdlog::warn("GStreamer: did not receive initial frame during Start() prime");
+        }
+    }
+}
 
 auto GStreamerAdapter::Stop() -> void {
-    if (!is_running_) {
-        return;
+    if (gst_pipeline_ != nullptr) {
+        gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
     }
+
     if (gst_sink_ != nullptr) {
         gst_object_unref(gst_sink_);
         gst_sink_ = nullptr;
     }
 
+    if (gst_bus_ != nullptr) {
+        gst_object_unref(gst_bus_);
+        gst_bus_ = nullptr;
+    }
+
     if (gst_pipeline_ != nullptr) {
-        gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
         gst_object_unref(gst_pipeline_);
         gst_pipeline_ = nullptr;
     }
+
+    if (gst_err_ != nullptr) {
+        g_error_free(gst_err_);
+        gst_err_ = nullptr;
+    }
+
+    std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+    last_frame_.reset();
+
     is_running_ = false;
 };
 
-auto GStreamerAdapter::IsRunning() const -> bool { return is_running_; }
+auto GStreamerAdapter::IsRunning() const -> bool {
+    return is_running_ && (gst_pipeline_ != nullptr);
+}
 
-auto GStreamerAdapter::Capture() -> std::optional<Frame> {
-    if (!is_running_ || (gst_pipeline_ == nullptr) || (gst_sink_ == nullptr)) {
-        return std::nullopt;
+auto GStreamerAdapter::HandleBusMessages() -> bool {
+    if (gst_bus_ == nullptr) {
+        return false;
     }
+    while (GstMessage* msg = gst_bus_pop_filtered(
+               gst_bus_, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS))) {
+        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+            GError* gerr = nullptr;
+            gchar* dbg = nullptr;
+            gst_message_parse_error(msg, &gerr, &dbg);
 
-    GstAppSink* gst_appsink = GST_APP_SINK(gst_sink_);
-    constexpr GstClockTime kTimeout = 50 * GST_MSECOND;
-    GstSample* gst_sample = gst_app_sink_try_pull_sample(gst_appsink, kTimeout);
+            g_printerr("GStreamer ERROR: %s\n", ((gerr != nullptr) && (gerr->message != nullptr))
+                                                    ? gerr->message
+                                                    : "(null)");
+            if (dbg != nullptr) {
+                g_printerr("debug: %s\n", dbg);
+            }
+
+            if (gerr != nullptr) {
+                g_error_free(gerr);
+            }
+            if (dbg != nullptr) {
+                g_free(dbg);
+            }
+
+            gst_message_unref(msg);
+            Stop();
+            return false;
+        }
+
+        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS) {
+            gst_message_unref(msg);
+            Stop();
+            return false;
+        }
+
+        gst_message_unref(msg);
+    }
+    return true;
+}
+
+auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::optional<Frame> {
     if (gst_sample == nullptr) {
         return std::nullopt;
     }
-    auto sample_owner = std::shared_ptr<GstSample>(
-        gst_sample, [](GstSample* currentGstSample) { gst_sample_unref(currentGstSample); });
-    GstCaps* gst_caps = gst_sample_get_caps(gst_sample);
-    GstBuffer* gst_buffer = gst_sample_get_buffer(gst_sample);
-    if (gst_caps == nullptr || gst_buffer == nullptr) {
+
+    GstCaps* caps = gst_sample_get_caps(gst_sample);
+    GstBuffer* buf = gst_sample_get_buffer(gst_sample);
+    if (caps == nullptr || buf == nullptr) {
         return std::nullopt;
     }
-    GstVideoInfo gst_video_info;
-    if (gst_video_info_from_caps(&gst_video_info, gst_caps) == 0) {
+
+    GstVideoInfo info;
+    if (gst_video_info_from_caps(&info, caps) == 0) {
         return std::nullopt;
     }
-    GstMapInfo gst_map;
-    if (gst_buffer_map(gst_buffer, &gst_map, GST_MAP_READ) == 0) {
+
+    // Take ownership of the buffer (per-frame lifetime)
+    GstBuffer* buf_ref = gst_buffer_ref(buf);
+
+    // Map ONCE and keep it mapped for the Frame lifetime
+    auto map = std::make_shared<GstMapInfo>();
+    if (gst_buffer_map(buf_ref, map.get(), GST_MAP_READ) == 0) {
+        gst_buffer_unref(buf_ref);
         return std::nullopt;
     }
-    auto bytes = std::shared_ptr<std::uint8_t>(new std::uint8_t[gst_map.size],
-                                               std::default_delete<std::uint8_t[]>());
-    std::memcpy(bytes.get(), gst_map.data, gst_map.size);
-    gst_buffer_unmap(gst_buffer, &gst_map);
 
     Frame frame{};
     frame.frame_id = frame_counter_++;
     frame.captured_at = GetCurrentTimestamp();
 
-    FrameGeometry geometry{};
-    geometry.width = GST_VIDEO_INFO_WIDTH(&gst_video_info);
-    geometry.height = GST_VIDEO_INFO_HEIGHT(&gst_video_info);
-    frame.geometry = geometry;
+    frame.geometry = FrameGeometry{
+        .width = static_cast<std::uint32_t>(GST_VIDEO_INFO_WIDTH(&info)),
+        .height = static_cast<std::uint32_t>(GST_VIDEO_INFO_HEIGHT(&info)),
+    };
 
     FramePlane plane{};
-    plane.data = bytes.get();
-    plane.size = gst_map.size;
-    plane.stride = GST_VIDEO_INFO_PLANE_STRIDE(&gst_video_info, 0);
+    plane.data = map->data;
+    plane.size = map->size;
+    plane.stride = GST_VIDEO_INFO_PLANE_STRIDE(&info, 0);
     frame.planes = {plane};
 
-    frame.owner = bytes;
-    // TODO: fill format, memory, and other frame fields based on GStreamer
-    frame.format = PixelFormat::BGR8;  // Placeholder
-    frame.memory = MemoryType::CPU;    // Placeholder
-    // pipeline
+    // IMPORTANT: owner keeps map + buffer alive, and cleans up correctly
+    frame.owner = std::shared_ptr<void>(buf_ref, [map](void* gstreamerPipeline) {
+        auto* gstreamerBuffer = static_cast<GstBuffer*>(gstreamerPipeline);
+        gst_buffer_unmap(gstreamerBuffer, map.get());
+        gst_buffer_unref(gstreamerBuffer);
+    });
+
+    // Set format from caps/video-info, not by guessing
+    const GstVideoFormat fmt = GST_VIDEO_INFO_FORMAT(&info);
+    switch (fmt) {
+        case GST_VIDEO_FORMAT_BGR:
+            frame.format = PixelFormat::BGR8;
+            break;
+        case GST_VIDEO_FORMAT_BGRA:
+            // if you have it; otherwise treat as unsupported
+            // frame.format = PixelFormat::BGRA8;
+            return std::nullopt;
+        case GST_VIDEO_FORMAT_BGRx:
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+
+    frame.memory = MemoryType::CPU;
     return frame;
 }
+
+auto GStreamerAdapter::Capture() -> std::optional<Frame> {
+    if (!is_running_ || (gst_pipeline_ == nullptr) || (gst_sink_ == nullptr) ||
+        (gst_bus_ == nullptr)) {
+        return std::nullopt;
+    }
+    if (!HandleBusMessages()) {
+        return std::nullopt;
+    }
+
+    GstAppSink* appsink = GST_APP_SINK(gst_sink_);
+
+    GstSample* captureGstSample = nullptr;
+    GstSample* last = nullptr;
+
+    while ((captureGstSample = gst_app_sink_try_pull_sample(appsink, 0)) != nullptr) {
+        if (last != nullptr) {
+            gst_sample_unref(last);
+        }
+        last = captureGstSample;
+    }
+
+    if (last == nullptr) {
+        std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+        return last_frame_ ? std::optional<Frame>(*last_frame_) : std::nullopt;
+    }
+
+    auto owner =
+        std::shared_ptr<GstSample>(last, [](GstSample* gstSample) { gst_sample_unref(gstSample); });
+    auto fresh = CreateFrameFromSample(owner.get());
+    if (!fresh) {
+        std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+        return last_frame_ ? std::optional<Frame>(*last_frame_) : std::nullopt;
+    }
+
+    {
+        std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+        last_frame_ = *fresh;
+    }
+    return fresh;
+}
+
 }  // namespace sst::capture::adapters

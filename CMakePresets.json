@@ -16,7 +16,8 @@
         "CMAKE_CXX_COMPILER": "clang-cl",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_VISUAL_STUDIO_PATH": "$env{VCPKG_VISUAL_STUDIO_PATH}"
+        "VCPKG_VISUAL_STUDIO_PATH": "$env{VCPKG_VISUAL_STUDIO_PATH}",
+        "BUNDLE_GSTREAMER_RUNTIME": "OFF"
       }
     },
     {

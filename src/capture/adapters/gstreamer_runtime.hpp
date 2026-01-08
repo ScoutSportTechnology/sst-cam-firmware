@@ -6,25 +6,37 @@
 
 #include <glib.h>
 #include <gst/gst.h>
-
-#if BUNDLED_GSTREAMER_RUNTIME
-#include <filesystem>
-#endif
+#include <spdlog/spdlog.h>
 
 #include <mutex>
 
 namespace sst::capture::adapters {
 
-inline void GstInitRuntime() {
+inline void GstInitRuntime(int* argc = nullptr, char*** argv = nullptr) {
     static std::once_flag once;
 
-    std::call_once(once, [] {
-        gst_init(nullptr, nullptr);
+    std::call_once(once, [&] {
+        gst_init(argc, argv);
 
 #if BUNDLED_GSTREAMER_RUNTIME
         if (std::filesystem::exists("gstreamer-plugins")) {
             gst_registry_scan_path(gst_registry_get(), "gstreamer-plugins");
+            spdlog::info("GStreamer: scanned bundled plugins");
         }
+#else
+        const char* sys = g_getenv("GST_PLUGIN_SYSTEM_PATH_1_0");
+        const char* extra = g_getenv("GST_PLUGIN_PATH_1_0");
+
+        if (sys != nullptr) {
+            gst_registry_scan_path(gst_registry_get(), sys);
+            spdlog::info("GStreamer: scanned system plugins from GST_PLUGIN_SYSTEM_PATH_1_0");
+        }
+
+        if (extra != nullptr) {
+            gst_registry_scan_path(gst_registry_get(), extra);
+            spdlog::info("GStreamer: scanned system plugins from GST_PLUGIN_PATH_1_0");
+        }
+
 #endif
     });
 }

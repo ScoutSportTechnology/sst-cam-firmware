@@ -4,7 +4,6 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <nlohmann/json.hpp>
 #include <string>
 
 #include "config/adapters/json/json_adapter.hpp"
@@ -19,30 +18,20 @@
 namespace fs = std::filesystem;
 
 template <typename T>
-auto SetAdapter(const std::string& path_str) -> sst::config::adapters::JsonAdapter<T> {
-    fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
-    return sst::config::adapters::JsonAdapter<T>(path);
-}
-
-template <typename T>
 auto LogObject(const T& object, std::string_view label = "Object") -> void {
     spdlog::info("{}:\n{}", label, object);
 }
 
-static constexpr const char* path_user = "tests/config/config_files/users.json";
-static constexpr const char* path_profile = "tests/config/config_files/profile.json";
-static constexpr const char* path_device = "tests/config/config_files/device.json";
-static constexpr const char* path_calibration = "tests/config/config_files/calibration.json";
-static constexpr const char* path_storage = "tests/config/config_files/storage.json";
-static constexpr const char* path_stream = "tests/config/config_files/stream.json";
-
 namespace {
+constexpr const char* kRootRel = "tests/config/config_files";
+
+auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
 
 auto MakeUsersConfig() -> sst::config::domain::UsersConfig {
     using sst::config::domain::UsersConfig;
 
     UsersConfig userConfig;
-    userConfig.users.push_back({1, {"Alice"}});
+    userConfig.users.push_back({.id = 1, .user_data = {"Alice"}});
     return userConfig;
 }
 
@@ -50,8 +39,8 @@ auto MakeProfileConfig() -> sst::config::domain::ProfileConfig {
     using sst::config::domain::ProfileConfig;
 
     ProfileConfig profileConfig;
-    profileConfig.users.push_back({1,
-                                   {
+    profileConfig.users.push_back({.id = 1,
+                                   .user_data = {
                                        .calibration = true,
                                        .device = true,
                                        .stream = true,
@@ -122,7 +111,7 @@ auto MakeStreamConfig() -> sst::config::domain::StreamConfig {
 
 }  // namespace
 
-class ConfigLoader : public ::testing::Test {
+class ConfigLoaderTest : public ::testing::Test {
    protected:
     void SetUp() override {
         using sst::config::adapters::JsonAdapter;
@@ -133,29 +122,28 @@ class ConfigLoader : public ::testing::Test {
         using sst::config::domain::StreamConfig;
         using sst::config::domain::UsersConfig;
 
-        JsonAdapter<UsersConfig> usersAdapter = SetAdapter<UsersConfig>(path_user);
-        JsonAdapter<ProfileConfig> profileAdapter = SetAdapter<ProfileConfig>(path_profile);
-        JsonAdapter<DeviceConfig> deviceAdapter = SetAdapter<DeviceConfig>(path_device);
-        JsonAdapter<StorageConfig> storageAdapter = SetAdapter<StorageConfig>(path_storage);
-        JsonAdapter<StreamConfig> streamAdapter = SetAdapter<StreamConfig>(path_stream);
-        JsonAdapter<CalibrationConfig> calibrationAdapter =
-            SetAdapter<CalibrationConfig>(path_calibration);
+        const fs::path root = RootDir();
 
-        ASSERT_TRUE(usersAdapter.save(MakeUsersConfig()).success);
-        ASSERT_TRUE(profileAdapter.save(MakeProfileConfig()).success);
-        ASSERT_TRUE(deviceAdapter.save(MakeDeviceConfig()).success);
-        ASSERT_TRUE(storageAdapter.save(MakeStorageConfig()).success);
-        ASSERT_TRUE(streamAdapter.save(MakeStreamConfig()).success);
-        ASSERT_TRUE(calibrationAdapter.save(MakeCalibrationConfig()).success);
+        // Seed config files
+        JsonAdapter<UsersConfig> users(root / "users.json");
+        JsonAdapter<ProfileConfig> profile(root / "profile.json");
+        JsonAdapter<DeviceConfig> device(root / "device.json");
+        JsonAdapter<StorageConfig> storage(root / "storage.json");
+        JsonAdapter<StreamConfig> stream(root / "stream.json");
+        JsonAdapter<CalibrationConfig> calibration(root / "calibration.json");
 
-        sst::config::app::ConfigLoader default_loader(usersAdapter, profileAdapter, deviceAdapter,
-                                                      storageAdapter, streamAdapter,
-                                                      calibrationAdapter);
+        ASSERT_TRUE(users.save(MakeUsersConfig()).success);
+        ASSERT_TRUE(profile.save(MakeProfileConfig()).success);
+        ASSERT_TRUE(device.save(MakeDeviceConfig()).success);
+        ASSERT_TRUE(storage.save(MakeStorageConfig()).success);
+        ASSERT_TRUE(stream.save(MakeStreamConfig()).success);
+        ASSERT_TRUE(calibration.save(MakeCalibrationConfig()).success);
+
+        // Load using new root-path constructor
+        sst::config::app::ConfigLoader default_loader(root.string(), "json");
         default_cfg_ = default_loader.get();
 
-        sst::config::app::ConfigLoader user_loader(usersAdapter, profileAdapter, deviceAdapter,
-                                                   storageAdapter, streamAdapter,
-                                                   calibrationAdapter, 1);
+        sst::config::app::ConfigLoader user_loader(root.string(), "json", 1);
         user_cfg_ = user_loader.get();
     }
 
@@ -163,7 +151,7 @@ class ConfigLoader : public ::testing::Test {
     sst::config::domain::ConfigData user_cfg_{};
 };
 
-TEST_F(ConfigLoader, Defaults) {
+TEST_F(ConfigLoaderTest, Defaults) {
     LogObject(default_cfg_, "ConfigData Defaults");
 
     ASSERT_TRUE(default_cfg_.storage.logs.has_value());
@@ -175,7 +163,7 @@ TEST_F(ConfigLoader, Defaults) {
     EXPECT_TRUE(*default_cfg_.stream.youtube->enabled);
 }
 
-TEST_F(ConfigLoader, UserOverride) {
+TEST_F(ConfigLoaderTest, UserOverride) {
     LogObject(user_cfg_, "ConfigData User 1");
 
     // Storage

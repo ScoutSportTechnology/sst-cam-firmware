@@ -1,66 +1,73 @@
+#include "capture/adapters/gstreamer.hpp"
+
+#include <glib.h>
 #include <gst/gst.h>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
-#include "capture/adapters/gstreamer_runtime.hpp"
+#include <chrono>
+#include <filesystem>
 
-TEST(GstreamerAdapter, SimplePipelineSmoke) {
-    sst::capture::adapters::GstInitRuntime();
+#include "config/app/config_loader.hpp"
 
-    const char* pipeline_str = "videotestsrc num-buffers=30 ! videoconvert ! fakesink sync=false";
+namespace fs = std::filesystem;
 
-    GError* err = nullptr;
-    GstElement* pipeline = gst_parse_launch(pipeline_str, &err);
+namespace {
+constexpr const char* kRootRel = "tests/config/config_files";
 
-    if (pipeline == nullptr) {
-        spdlog::error("gst_parse_launch FAILED for: {}", pipeline_str);
-        spdlog::error("error: {}",
-                      ((err != nullptr) && (err->message != nullptr)) ? err->message : "(null)");
-        if (err != nullptr) {
-            g_error_free(err);
-        }
-        FAIL();
-    }
-    if (err != nullptr) {
-        g_error_free(err);
-    }
+auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
+}  // namespace
 
-    GstBus* bus = gst_element_get_bus(pipeline);
+TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
+    const fs::path root = RootDir();
+    sst::config::app::ConfigLoader loader(root.string(), "json");
+    sst::config::domain::ConfigData cfg = loader.get();
 
-    ASSERT_NE(gst_element_set_state(pipeline, GST_STATE_PLAYING), GST_STATE_CHANGE_FAILURE);
+    constexpr std::uint16_t camera_index = 0;
 
-    GstMessage* msg = gst_bus_timed_pop_filtered(
-        bus, 2 * GST_SECOND, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
+    sst::capture::adapters::GStreamerAdapter adapter(cfg, camera_index);
+    adapter.Start();
+    ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 
-    if ((msg != nullptr) && GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
-        GError* gstreamerError = nullptr;
-        gchar* dbg = nullptr;
-        gst_message_parse_error(msg, &gstreamerError, &dbg);
+    std::optional<sst::capture::domain::Frame> frame;
+    std::optional<sst::capture::domain::Frame> last;
+    std::optional<sst::capture::domain::Frame> prev;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 
-        spdlog::error("BUS ERROR: {}",
-                      ((gstreamerError != nullptr) && (gstreamerError->message != nullptr))
-                          ? gstreamerError->message
-                          : "(null)");
-        if (dbg != nullptr) {
-            spdlog::error("debug: {}", dbg);
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto f = adapter.Capture();
+        if (!f) {
+            std::this_thread::yield();
+            continue;
         }
 
-        if (gstreamerError != nullptr) {
-            g_error_free(gstreamerError);
-        }
-        if (dbg != nullptr) {
-            g_free(dbg);
+        if (prev) {
+            auto dt = f->captured_at - prev->captured_at;
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(dt).count();
+            if (ms > 0) {
+                double fps = 1000.0 / ms;
+                spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", f->frame_id, ms, fps);
+            }
         }
 
-        gst_message_unref(msg);
-        FAIL();
+        prev = *f;
     }
 
-    if (msg != nullptr) {
-        gst_message_unref(msg);
-    }
+    ASSERT_TRUE(frame.has_value()) << "Failed to capture frame from GStreamer";
 
-    gst_element_set_state(pipeline, GST_STATE_NULL);
-    gst_object_unref(bus);
-    gst_object_unref(pipeline);
+    const auto ts_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(frame->captured_at.time_since_epoch())
+            .count();
+
+    spdlog::info("Captured frame:");
+    spdlog::info("  frame_id      = {}", frame->frame_id);
+    spdlog::info("  timestamp_ms  = {}", ts_ms);
+    spdlog::info("  width         = {}", frame->geometry.width);
+    spdlog::info("  height        = {}", frame->geometry.height);
+    spdlog::info("  planes        = {}", frame->planes.size());
+    spdlog::info("  bytes         = {}", frame->planes[0].size);
+    spdlog::info("  stride        = {}", frame->planes[0].stride);
+
+    adapter.Stop();
+    EXPECT_FALSE(adapter.IsRunning());
 }

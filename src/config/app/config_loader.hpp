@@ -1,16 +1,13 @@
 #pragma once
 
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <optional>
-#include <stdexcept>  // IWYU pragma: keep
+#include <string>
 
 #include "config/domain/calibration_config.hpp"
 #include "config/domain/config_data.hpp"
 #include "config/domain/device_config.hpp"
-#include "config/domain/patch/apply_patches.hpp"  // IWYU pragma: keep
 #include "config/domain/profile_config.hpp"
 #include "config/domain/storage_config.hpp"
 #include "config/domain/stream_config.hpp"
@@ -29,65 +26,25 @@ using sst::config::domain::UsersConfig;
 
 using sst::config::ports::IConfigFileAdapter;
 
-template <typename T>
-static auto HasUser(const T& users, std::uint32_t user_id_to_search) -> bool {
-    return std::any_of(users.begin(), users.end(),
-                       [&](const auto& user) { return user.id == user_id_to_search; });
-}
-
-template <typename T>
-static auto RetrieveUserById(const T& users, std::uint32_t user_id) -> const
-    typename T::value_type* {
-    auto userIterator = std::find_if(users.begin(), users.end(),
-                                     [&](const auto& user) { return user.id == user_id; });
-    return (userIterator == users.end()) ? nullptr : &*userIterator;
-}
-
-template <typename FileModel, typename DataModel>
-static auto GetData(const FileModel& file, const std::optional<std::uint32_t>& userId)
-    -> DataModel {
-    DataModel out = file.default_data;
-
-    if (!userId) {
-        return out;
-    }
-
-    const auto* entry = RetrieveUserById(file.users, *userId);
-    if (!entry) {
-        return out;
-    }
-
-    apply_patch(out, entry->user_data);
-    return out;
-}
+using sst::config::ports::IConfigFileAdapter;
 
 class ConfigLoader {
    public:
-    ConfigLoader(IConfigFileAdapter<UsersConfig>& usersAdapter,
-                 IConfigFileAdapter<ProfileConfig>& profileAdapter,
-                 IConfigFileAdapter<DeviceConfig>& deviceAdapter,
-                 IConfigFileAdapter<StorageConfig>& storageAdapter,
-                 IConfigFileAdapter<StreamConfig>& streamAdapter,
-                 IConfigFileAdapter<CalibrationConfig>& calibrationAdapter,
-                 std::optional<std::uint32_t> userId = std::nullopt)
-        : usersAdapter_(usersAdapter),
-          profileAdapter_(profileAdapter),
-          deviceAdapter_(deviceAdapter),
-          storageAdapter_(storageAdapter),
-          streamAdapter_(streamAdapter),
-          calibrationAdapter_(calibrationAdapter),
-          userId_(userId) {}
+    ConfigLoader(std::string root_path, std::string file_type,
+                 std::optional<std::uint32_t> user_id = std::nullopt);
 
     auto get() -> ConfigData;
 
    private:
-    IConfigFileAdapter<UsersConfig>& usersAdapter_;
-    IConfigFileAdapter<ProfileConfig>& profileAdapter_;
-    IConfigFileAdapter<DeviceConfig>& deviceAdapter_;
-    IConfigFileAdapter<StorageConfig>& storageAdapter_;
-    IConfigFileAdapter<StreamConfig>& streamAdapter_;
-    IConfigFileAdapter<CalibrationConfig>& calibrationAdapter_;
-    std::optional<std::uint32_t> userId_;
+    std::optional<std::uint32_t> user_id_;
+    std::string root_path_;
+    std::string file_type_;
+    std::unique_ptr<IConfigFileAdapter<UsersConfig>> usersAdapter_;
+    std::unique_ptr<IConfigFileAdapter<ProfileConfig>> profileAdapter_;
+    std::unique_ptr<IConfigFileAdapter<DeviceConfig>> deviceAdapter_;
+    std::unique_ptr<IConfigFileAdapter<StorageConfig>> storageAdapter_;
+    std::unique_ptr<IConfigFileAdapter<StreamConfig>> streamAdapter_;
+    std::unique_ptr<IConfigFileAdapter<CalibrationConfig>> calibrationAdapter_;
 };
 
 }  // namespace sst::config::app

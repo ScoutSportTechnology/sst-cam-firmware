@@ -1,15 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 
 #include "capture/ports/capture.hpp"
 #include "config/domain/config_data.hpp"
 
+
 extern "C" {
 using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)
 using GError = struct _GError;          // NOLINT(bugprone-reserved-identifier)
+using GstBus = struct _GstBus;          // NOLINT(bugprone-reserved-identifier)
+using GstSample = struct _GstSample;    // NOLINT(bugprone-reserved-identifier)
 }
 
 namespace sst::capture::adapters {
@@ -20,8 +24,7 @@ using sst::config::domain::ConfigData;
 
 class GStreamerAdapter final : public ICaptureAdapter {
    public:
-    GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index)
-        : config_data_(config_data), camera_index_(camera_index) {}
+    GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index);
 
     ~GStreamerAdapter() override = default;
 
@@ -37,8 +40,15 @@ class GStreamerAdapter final : public ICaptureAdapter {
     bool is_running_{false};
     std::string pipeline_str_;
     GstElement* gst_pipeline_{nullptr};
+    GstBus* gst_bus_{nullptr};
     GError* gst_err_{nullptr};
     GstElement* gst_sink_{nullptr};
+
+    auto HandleBusMessages() -> bool;
+    auto CreateFrameFromSample(GstSample* gst_sample) -> std::optional<Frame>;
+
+    mutable std::mutex last_frame_mtx_;
+    std::optional<sst::capture::domain::Frame> last_frame_;
 };
 
 }  // namespace sst::capture::adapters
