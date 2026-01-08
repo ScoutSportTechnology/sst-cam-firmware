@@ -97,8 +97,8 @@ echo ===============================================================
 echo   Environment ready.
 echo.
 echo   - MSVC toolchain initialized  : %SST_CAM_FIRMWARE_ARCH%
-echo   - Project root               : %SST_CAM_FIRMWARE_ROOT%
-echo   - VS Code                    : launched
+echo   - Project root                : %SST_CAM_FIRMWARE_ROOT%
+echo   - VS Code                     : launched
 echo.
 echo   This window will close automatically after closing VS Code.
 echo ===============================================================
