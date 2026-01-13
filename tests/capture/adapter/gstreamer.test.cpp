@@ -79,6 +79,8 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     spdlog::info("  planes        = {}", frame->planes.size());
     spdlog::info("  bytes         = {}", frame->planes[0].size);
     spdlog::info("  stride        = {}", frame->planes[0].stride);
+    spdlog::info("  pixel_format  = {}",
+                 static_cast<int>(frame->format));
 
     adapter.Stop();
     EXPECT_FALSE(adapter.IsRunning());
