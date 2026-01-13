@@ -30,28 +30,40 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 
     std::optional<sst::capture::domain::Frame> frame;
-    std::optional<sst::capture::domain::Frame> last;
     std::optional<sst::capture::domain::Frame> prev;
+
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 
+    spdlog::info("Starting frame capture loop...");
+
     while (std::chrono::steady_clock::now() < deadline) {
-        auto f = adapter.Capture();
-        if (!f) {
+        auto capturedFrame = adapter.Capture();  // <-- don't shadow
+        if (!capturedFrame) {
             std::this_thread::yield();
             continue;
         }
 
+        frame = *capturedFrame;  // <-- store latest good frame
+
+        spdlog::debug("Capture frame");
+
         if (prev) {
-            auto dt = f->captured_at - prev->captured_at;
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(dt).count();
-            if (ms > 0) {
-                double fps = 1000.0 / ms;
-                spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", f->frame_id, ms, fps);
+            spdlog::debug("Have previous frame to compute delta time");
+            auto captureInterval = frame->captured_at - prev->captured_at;
+            auto millisecondsCount =
+                std::chrono::duration_cast<std::chrono::milliseconds>(captureInterval).count();
+            spdlog::debug("Delta time: {} ms", millisecondsCount);
+            if (millisecondsCount > 0) {
+                double fps = 1000.0 / millisecondsCount;
+                spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", frame->frame_id,
+                             millisecondsCount, fps);
             }
         }
 
-        prev = *f;
+        prev = *frame;
     }
+
+    spdlog::info("Frame capture loop ended.");
 
     ASSERT_TRUE(frame.has_value()) << "Failed to capture frame from GStreamer";
 

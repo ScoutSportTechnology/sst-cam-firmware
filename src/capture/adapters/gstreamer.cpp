@@ -86,12 +86,11 @@ auto GStreamerAdapter::Start() -> void {
                             ",framerate=" + std::to_string(fps) +
                             "/1"
                             " ! videoconvert"
+                            " ! video/x-raw,format=NV12 "
                             " ! tee name=t "
                             " t. ! queue "
-                            "     ! video/x-raw,format=BGR "
                             "     ! appsink name=sink sync=false "
                             " t. ! queue "
-                            "     ! videoconvert "
                             "     ! autovideosink sync=false";
             break;
     }
@@ -262,10 +261,8 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
         return std::nullopt;
     }
 
-    // Take ownership of the buffer (per-frame lifetime)
     GstBuffer* buf_ref = gst_buffer_ref(buf);
 
-    // Map ONCE and keep it mapped for the Frame lifetime
     auto map = std::make_shared<GstMapInfo>();
     if (gst_buffer_map(buf_ref, map.get(), GST_MAP_READ) == 0) {
         gst_buffer_unref(buf_ref);
@@ -281,33 +278,62 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
         .height = static_cast<std::uint32_t>(GST_VIDEO_INFO_HEIGHT(&info)),
     };
 
-    FramePlane plane{};
-    plane.data = map->data;
-    plane.size = map->size;
-    plane.stride = GST_VIDEO_INFO_PLANE_STRIDE(&info, 0);
-    frame.planes = {plane};
-
-    // IMPORTANT: owner keeps map + buffer alive, and cleans up correctly
     frame.owner = std::shared_ptr<void>(buf_ref, [map](void* gstreamerPipeline) {
         auto* gstreamerBuffer = static_cast<GstBuffer*>(gstreamerPipeline);
         gst_buffer_unmap(gstreamerBuffer, map.get());
         gst_buffer_unref(gstreamerBuffer);
     });
 
-    // Set format from caps/video-info, not by guessing
+    const guint number_of_planes = GST_VIDEO_INFO_N_PLANES(&info);
+    frame.planes.clear();
+    frame.planes.reserve(number_of_planes);
+    for (guint i = 0; i < number_of_planes; ++i) {
+        const guint plane_stride = GST_VIDEO_INFO_PLANE_STRIDE(&info, i);
+        const gsize plane_offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, i);
+
+        gsize next_plane_offset = map->size;
+        if (i + 1 < number_of_planes) {
+            next_plane_offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, i + 1);
+        }
+        if(plane_offset >= next_plane_offset || next_plane_offset > map->size || next_plane_offset < plane_offset) {
+            return std::nullopt;
+        }
+
+        FramePlane plane{};
+        plane.data = map->data + plane_offset;
+        plane.size = next_plane_offset - plane_offset;
+        plane.stride = plane_stride;
+        frame.planes.push_back(plane);
+    }
+
     const GstVideoFormat fmt = GST_VIDEO_INFO_FORMAT(&info);
     switch (fmt) {
         case GST_VIDEO_FORMAT_BGR:
             frame.format = PixelFormat::BGR8;
             break;
         case GST_VIDEO_FORMAT_BGRA:
-            // if you have it; otherwise treat as unsupported
-            // frame.format = PixelFormat::BGRA8;
-            return std::nullopt;
-        case GST_VIDEO_FORMAT_BGRx:
-            return std::nullopt;
+            frame.format = PixelFormat::BGRA8;
+            break;
+        case GST_VIDEO_FORMAT_NV12:
+            frame.format = PixelFormat::NV12;
+            break;
+        case GST_VIDEO_FORMAT_I420:
+            frame.format = PixelFormat::I420;
+            break;
+        case GST_VIDEO_FORMAT_YUY2:
+            frame.format = PixelFormat::YUYV;
+            break;
+        case GST_VIDEO_FORMAT_RGB:
+            frame.format = PixelFormat::RGB8;
+            break;
+        case GST_VIDEO_FORMAT_RGBA:
+            frame.format = PixelFormat::RGBA8;
+            break;
+        case GST_VIDEO_FORMAT_GRAY8:
+            frame.format = PixelFormat::GRAY8;
+            break;
         default:
-            return std::nullopt;
+            frame.format = PixelFormat::UNKNOWN;
     }
 
     frame.memory = MemoryType::CPU;
