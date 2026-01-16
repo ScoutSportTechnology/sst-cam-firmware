@@ -14,7 +14,7 @@ using sst::common::domain::Timestamp;
 
 struct FramePlane {
     std::uint32_t stride{0};
-    void* data{nullptr};
+    const uint8_t* data{nullptr};
     std::size_t size{0};
 };
 
@@ -33,4 +33,4 @@ struct Frame {
     std::shared_ptr<void> owner{nullptr};
 };
 
-}  // namespace sst::video::domain
+}  // namespace sst::capture::domain

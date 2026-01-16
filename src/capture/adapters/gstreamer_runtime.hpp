@@ -24,18 +24,7 @@ inline void GstInitRuntime(int* argc = nullptr, char*** argv = nullptr) {
             spdlog::info("GStreamer: scanned bundled plugins");
         }
 #else
-        const char* sys = g_getenv("GST_PLUGIN_SYSTEM_PATH_1_0");
-        const char* extra = g_getenv("GST_PLUGIN_PATH_1_0");
-
-        if (sys != nullptr) {
-            gst_registry_scan_path(gst_registry_get(), sys);
-            spdlog::info("GStreamer: scanned system plugins from GST_PLUGIN_SYSTEM_PATH_1_0");
-        }
-
-        if (extra != nullptr) {
-            gst_registry_scan_path(gst_registry_get(), extra);
-            spdlog::info("GStreamer: scanned system plugins from GST_PLUGIN_PATH_1_0");
-        }
+        spdlog::info("GStreamer: using system-installed runtime");
 
 #endif
     });

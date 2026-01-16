@@ -8,7 +8,6 @@
 #include "capture/ports/capture.hpp"
 #include "config/domain/config_data.hpp"
 
-
 extern "C" {
 using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)
 using GError = struct _GError;          // NOLINT(bugprone-reserved-identifier)
@@ -43,9 +42,11 @@ class GStreamerAdapter final : public ICaptureAdapter {
     GstBus* gst_bus_{nullptr};
     GError* gst_err_{nullptr};
     GstElement* gst_sink_{nullptr};
+    std::string gst_sink_name_{"sink"};
 
     auto HandleBusMessages() -> bool;
     auto CreateFrameFromSample(GstSample* gst_sample) -> std::optional<Frame>;
+    auto CreatePipeline() -> std::string;
 
     mutable std::mutex last_frame_mtx_;
     std::optional<sst::capture::domain::Frame> last_frame_;

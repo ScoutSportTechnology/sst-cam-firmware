@@ -32,7 +32,9 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     std::optional<sst::capture::domain::Frame> frame;
     std::optional<sst::capture::domain::Frame> prev;
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    constexpr int kMaxSeconds = 5;
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kMaxSeconds);
 
     spdlog::info("Starting frame capture loop...");
 
@@ -48,13 +50,12 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
         spdlog::debug("Capture frame");
 
         if (prev) {
-            spdlog::debug("Have previous frame to compute delta time");
             auto captureInterval = frame->captured_at - prev->captured_at;
             auto millisecondsCount =
                 std::chrono::duration_cast<std::chrono::milliseconds>(captureInterval).count();
-            spdlog::debug("Delta time: {} ms", millisecondsCount);
             if (millisecondsCount > 0) {
-                double fps = 1000.0 / millisecondsCount;
+                constexpr double kMillisecondsPerSecond = 1000.0;
+                double fps = kMillisecondsPerSecond / static_cast<double>(millisecondsCount);
                 spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", frame->frame_id,
                              millisecondsCount, fps);
             }
