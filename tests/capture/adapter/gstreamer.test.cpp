@@ -39,13 +39,13 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     spdlog::info("Starting frame capture loop...");
 
     while (std::chrono::steady_clock::now() < deadline) {
-        auto capturedFrame = adapter.Capture();  // <-- don't shadow
+        auto capturedFrame = adapter.Capture();
         if (!capturedFrame) {
             std::this_thread::yield();
             continue;
         }
 
-        frame = *capturedFrame;  // <-- store latest good frame
+        frame = *capturedFrame;
 
         spdlog::debug("Capture frame");
 
