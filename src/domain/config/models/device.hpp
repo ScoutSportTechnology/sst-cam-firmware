@@ -1,0 +1,65 @@
+#pragma once
+
+#include <optional>
+#include <string>
+
+#include "domain/config/models/config_files.hpp"
+
+namespace sst::config::domain {
+
+struct DeviceStaticIpData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> ip_address{std::nullopt};
+    std::optional<std::string> subnet_mask{std::nullopt};
+    std::optional<std::string> gateway{std::nullopt};
+};
+
+struct DeviceConnectivityWifiClientData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> wifi_ssid{std::nullopt};
+    std::optional<std::string> wifi_password{std::nullopt};
+    std::optional<DeviceStaticIpData> static_ip{std::nullopt};
+};
+
+struct DeviceConnectivityWifiAccessPointData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> ssid{std::nullopt};
+    std::optional<std::string> password{std::nullopt};
+};
+
+struct DeviceConnectivityWifiData {
+    std::optional<DeviceConnectivityWifiClientData> client{std::nullopt};
+    std::optional<DeviceConnectivityWifiAccessPointData> access_point{std::nullopt};
+};
+
+struct DeviceConnectivityEthernetData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<DeviceStaticIpData> static_ip{std::nullopt};
+};
+
+struct DeviceConnectivityBluetoothData {
+    std::optional<bool> enabled{std::nullopt};
+    std::optional<std::string> name{std::nullopt};
+    std::optional<std::string> password{std::nullopt};
+};
+
+struct DeviceConnectivityData {
+    std::optional<DeviceConnectivityWifiData> wifi{std::nullopt};
+    std::optional<DeviceConnectivityEthernetData> ethernet{std::nullopt};
+    std::optional<DeviceConnectivityBluetoothData> bluetooth{std::nullopt};
+};
+
+struct DeviceData {
+    std::optional<std::string> name{std::nullopt};
+    std::optional<std::string> model{std::nullopt};
+    std::optional<std::string> version{std::nullopt};
+    std::optional<std::string> serial_number{std::nullopt};
+    std::optional<std::string> manufacturer{std::nullopt};
+    std::optional<std::string> timezone{std::nullopt};
+    std::optional<std::string> timestamp{std::nullopt};
+    std::optional<DeviceConnectivityData> connectivity{std::nullopt};
+};
+
+using DeviceConfig = ConfigFiles<DeviceData, DeviceData>;
+
+}  // namespace sst::config::domain

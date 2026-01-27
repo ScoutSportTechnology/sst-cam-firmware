@@ -1,21 +1,26 @@
 {
-  //"clang-format.executable": "${env:CLANG_ROOT}/clang-format.exe",
-  //"clangd.path": "${env:CLANG_ROOT}/clangd.exe",
-  //"cmake.cmakePath": "${env:CMAKE_ROOT}/cmake.exe",
   "cmake.useCMakePresets": "always",
   "cmake.configureOnOpen": true,
   "cmake.copyCompileCommands": "${workspaceFolder}/compile_commands.json",
   "cmake.useVsDeveloperEnvironment": "auto",
-  "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "editor.inlayHints.enabled": "on",
   "C_Cpp.intelliSenseEngine": "disabled",
+  //"C_Cpp.errorSquiggles": "enabled",
+  //"C_Cpp.formatting": "clangFormat",
+  //"C_Cpp.clang_format_fallbackStyle": "Google",
+  //"C_Cpp.codeAnalysis.clangTidy.enabled": true,
+  //"C_Cpp.errorSquiggles": "enabled",
+  //"C_Cpp.default.cStandard": "c23",
+  //"C_Cpp.default.cppStandard": "c++26"
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
   "clangd.arguments": [
     "--background-index"
   ],
-  "editor.formatOnSave": true,
-  "[cpp]": {
-    "editor.defaultFormatter": "xaver.clang-format"
-  },
-  "[c]": {
-    "editor.defaultFormatter": "xaver.clang-format"
-  },
 }
