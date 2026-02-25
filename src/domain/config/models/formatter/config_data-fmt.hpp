@@ -4,10 +4,9 @@
 
 #include "calibration-fmt.hpp"  // IWYU pragma: keep
 #include "device-fmt.hpp"       // IWYU pragma: keep
-#include "domain/config/models/config_data.hpp"
+#include "domain/config/models/config-data.hpp"
 #include "storage-fmt.hpp"  // IWYU pragma: keep
 #include "stream-fmt.hpp"   // IWYU pragma: keep
-
 
 template <>
 struct fmt::formatter<sst::config::domain::ConfigData> {

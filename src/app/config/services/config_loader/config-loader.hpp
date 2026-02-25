@@ -6,9 +6,8 @@
 #include <string>
 
 #include "app/config/ports/config-reader.hpp"
-#include "app/config/ports/config-writer.hpp"
-#include "domain/config/models//config_data.hpp"
-#include "domain/config/models/config_data.hpp"
+//#include "app/config/ports/config-writer.hpp"
+#include "domain/config/models/config-data.hpp"
 #include "domain/config/models/device.hpp"
 #include "domain/config/models/profile.hpp"
 #include "domain/config/models/storage.hpp"
@@ -26,8 +25,7 @@ using sst::config::domain::StreamConfig;
 using sst::config::domain::UsersConfig;
 
 using sst::config::ports::IConfigFileReaderAdapter;
-
-using sst::config::ports::IConfigFileReaderAdapter;
+//using sst::config::ports::IConfigFileWriterAdapter;
 
 class ConfigLoader {
    public:

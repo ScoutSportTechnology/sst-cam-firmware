@@ -6,7 +6,7 @@
 #include <string>
 
 #include "app/capture/ports/frame-src.hpp"
-#include "domain/config/models/config_data.hpp"
+#include "domain/config/models/config-data.hpp"
 
 extern "C" {
 using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)

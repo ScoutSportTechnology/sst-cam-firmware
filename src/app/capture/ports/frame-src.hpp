@@ -3,7 +3,7 @@
 #include <optional>
 
 #include "domain/capture/models/frame.hpp"
-#include "domain/config/models/config_data.hpp"
+#include "domain/config/models/config-data.hpp"
 
 namespace sst::capture::ports {
 
