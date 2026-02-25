@@ -1,7 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
-#include "domain/config/models/config_files.hpp"
+#include "domain/config/models/config-files.hpp"
 
 namespace sst::config::domain {
 using nlohmann::json;

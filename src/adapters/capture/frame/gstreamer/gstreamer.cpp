@@ -15,15 +15,16 @@
 
 #include "adapters/capture/frame/gstreamer/set-gstreamer-runtime.hpp"
 #include "app/capture/ports/frame-src.hpp"
-#include "domain/common/utils/get-timestamp.hpp"
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
+#include "domain/common/utils/get-timestamp.hpp"
 #include "domain/config/models/calibration.hpp"
-#include "domain/config/models/device_model.hpp"
+#include "domain/config/models/device-model.hpp"
+
 
 namespace sst::capture::adapters {
 using sst::capture::domain::FrameGeometry;
-using sst::capture::domain::FramePlane; 
+using sst::capture::domain::FramePlane;
 using sst::common::domain::MemoryType;
 using sst::common::domain::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;

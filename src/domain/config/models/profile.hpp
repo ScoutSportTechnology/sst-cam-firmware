@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "domain/config/models/config_files.hpp"
+#include "domain/config/models/config-files.hpp"
 
 namespace sst::config::domain {
 

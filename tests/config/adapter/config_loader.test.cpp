@@ -9,7 +9,7 @@
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device.hpp"
-#include "domain/config/models/formatter/config_data-fmt.hpp"  // IWYU pragma: keep
+#include "domain/config/models/formatter/config-data-fmt.hpp"  // IWYU pragma: keep
 #include "domain/config/models/profile.hpp"
 #include "domain/config/models/storage.hpp"
 #include "domain/config/models/stream.hpp"
