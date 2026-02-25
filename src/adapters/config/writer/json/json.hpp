@@ -11,52 +11,27 @@
 #include "adapters/config/reader/json/serde/_serde.hpp"  // IWYU pragma: keep
 #include "adapters/config/writer/json/serde/_serde.hpp"  // IWYU pragma: keep
 #include "app/config/ports/config-reader.hpp"
+#include "app/config/ports/config-writer.hpp"
+
 
 namespace sst::config::adapters {
 
 using nlohmann::json;
 using sst::config::ports::ConfigReturn;
-using sst::config::ports::IConfigFileAdapter;
+using sst::config::ports::IConfigFileReaderAdapter;
+using sst::config::ports::IConfigFileWriterAdapter;
 
 template <typename T>
-class JsonAdapter : public IConfigFileAdapter<T> {
+class JsonWriterAdapter : public IConfigFileWriterAdapter<T> {
    public:
-    explicit JsonAdapter(std::filesystem::path full_path) : full_path_{std::move(full_path)} {}
-
-    auto load() -> ConfigReturn<T> override {
-        try {
-            spdlog::debug("Loading JSON config from: {}", full_path_.string());
-
-            std::ifstream inputFileStream(full_path_, std::ios::in);
-            if (!inputFileStream.is_open()) {
-                spdlog::error("Cannot open config file: {}", full_path_.string());
-                return ConfigReturn<T>::fail();
-            }
-
-            json jsonData;
-            inputFileStream >> jsonData;
-
-            T loadedConfig = jsonData.get<T>();
-            spdlog::debug("Loaded JSON config OK: {}", full_path_.string());
-
-            return ConfigReturn<T>::ok(std::move(loadedConfig));
-
-        } catch (const json::exception& ex) {
-            spdlog::error("Failed to parse JSON config: {} (file: {})", ex.what(),
-                          full_path_.string());
-            return ConfigReturn<T>::fail();
-        } catch (const std::exception& ex) {
-            spdlog::error("Failed to load JSON config: {} (file: {})", ex.what(),
-                          full_path_.string());
-            return ConfigReturn<T>::fail();
-        }
-    }
+    explicit JsonWriterAdapter(std::filesystem::path full_path)
+        : full_path_{std::move(full_path)} {}
 
     auto save(const T& modifiedConfig) -> ConfigReturn<T> override {
         try {
             spdlog::info("Saving JSON config to: {}", full_path_.string());
 
-            auto loaded = load();
+            auto loaded = JsonReaderAdapter<T>(full_path_).load();
             if (!loaded.success) {
                 spdlog::error("Could not load existing config file, proceeding to save new one.");
                 return ConfigReturn<T>::fail();

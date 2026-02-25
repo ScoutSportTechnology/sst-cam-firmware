@@ -1,4 +1,4 @@
-#include "config/app/config_loader.hpp"
+#include "./config-loader.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -10,12 +10,14 @@
 #include <string_view>
 #include <utility>
 
-#include "config/adapters/json/json_adapter.hpp"
-#include "config/domain/patch/apply_patches.hpp"  // IWYU pragma: keep
+#include "adapters/config/reader/json/json.hpp"
+#include "adapters/config/writer/json/json.hpp"
+#include "domain/config/models/patch/_patch.hpp"  // IWYU pragma: keep
 
 namespace sst::config::app {
 
-using sst::config::adapters::JsonAdapter;
+using sst::config::adapters::JsonReaderAdapter;
+using sst::config::adapters::JsonWriterAdapter;
 using sst::config::domain::CalibrationData;
 using sst::config::domain::DeviceData;
 using sst::config::domain::ProfileData;
@@ -71,20 +73,21 @@ static auto fail(std::string_view name, const R& configurationReference) -> bool
 ConfigLoader::ConfigLoader(std::string root_path, std::string file_type,
                            std::optional<std::uint32_t> user_id)
     : user_id_(user_id), root_path_(std::move(root_path)), file_type_(std::move(file_type)) {
-    using sst::config::adapters::JsonAdapter;
+    using sst::config::adapters::JsonReaderAdapter;
+    using sst::config::adapters::JsonWriterAdapter;
     const std::string ext = file_type_;
     if (file_type_ == "json") {
         usersAdapter_ =
-            std::make_unique<JsonAdapter<UsersConfig>>(MakePath(root_path_, "users", ext));
+            std::make_unique<JsonReaderAdapter<UsersConfig>>(MakePath(root_path_, "users", ext));
         profileAdapter_ =
-            std::make_unique<JsonAdapter<ProfileConfig>>(MakePath(root_path_, "profile", ext));
+            std::make_unique<JsonReaderAdapter<ProfileConfig>>(MakePath(root_path_, "profile", ext));
         deviceAdapter_ =
-            std::make_unique<JsonAdapter<DeviceConfig>>(MakePath(root_path_, "device", ext));
+            std::make_unique<JsonReaderAdapter<DeviceConfig>>(MakePath(root_path_, "device", ext));
         storageAdapter_ =
-            std::make_unique<JsonAdapter<StorageConfig>>(MakePath(root_path_, "storage", ext));
+            std::make_unique<JsonReaderAdapter<StorageConfig>>(MakePath(root_path_, "storage", ext));
         streamAdapter_ =
-            std::make_unique<JsonAdapter<StreamConfig>>(MakePath(root_path_, "stream", ext));
-        calibrationAdapter_ = std::make_unique<JsonAdapter<CalibrationConfig>>(
+            std::make_unique<JsonReaderAdapter<StreamConfig>>(MakePath(root_path_, "stream", ext));
+        calibrationAdapter_ = std::make_unique<JsonReaderAdapter<CalibrationConfig>>(
             MakePath(root_path_, "calibration", ext));
     } else {
         throw std::runtime_error("Unsupported config file type: " + file_type_);

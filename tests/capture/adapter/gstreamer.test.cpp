@@ -1,5 +1,3 @@
-#include "capture/adapters/gstreamer.hpp"
-
 #include <glib.h>
 #include <gst/gst.h>
 #include <gtest/gtest.h>
@@ -8,7 +6,9 @@
 #include <chrono>
 #include <filesystem>
 
-#include "config/app/config_loader.hpp"
+#include "adapters/capture/frame/gstreamer/gstreamer.hpp"
+#include "app/config/services/config_loader/config-loader.hpp"
+
 
 namespace fs = std::filesystem;
 
@@ -80,8 +80,7 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     spdlog::info("  planes        = {}", frame->planes.size());
     spdlog::info("  bytes         = {}", frame->planes[0].size);
     spdlog::info("  stride        = {}", frame->planes[0].stride);
-    spdlog::info("  pixel_format  = {}",
-                 static_cast<int>(frame->format));
+    spdlog::info("  pixel_format  = {}", static_cast<int>(frame->format));
 
     adapter.Stop();
     EXPECT_FALSE(adapter.IsRunning());

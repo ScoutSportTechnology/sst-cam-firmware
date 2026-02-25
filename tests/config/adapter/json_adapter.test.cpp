@@ -1,4 +1,5 @@
-#include "config/adapters/json/json_adapter.hpp"
+#include "adapters/config/reader/json/json.hpp"
+#include "adapters/config/writer/json/json.hpp"
 
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
@@ -6,29 +7,31 @@
 #include <filesystem>
 #include <string>
 
-#include "config/domain/calibration_config.hpp"
-#include "config/domain/device_config.hpp"
-#include "config/domain/profile_config.hpp"
-#include "config/domain/storage_config.hpp"
-#include "config/domain/stream_config.hpp"
-#include "config/domain/users_config.hpp"
+#include "domain/config/models/calibration.hpp"
+#include "domain/config/models/device.hpp"
+#include "domain/config/models/profile.hpp"
+#include "domain/config/models/storage.hpp"
+#include "domain/config/models/stream.hpp"
+#include "domain/config/models/users.hpp"
 
 namespace fs = std::filesystem;
 using sst::config::ports::ConfigReturn;
 
 namespace test::utils {
+using sst::config::adapters::JsonReaderAdapter;
+using sst::config::adapters::JsonWriterAdapter;
 
 template <typename T>
 auto load_config(const std::string& path_str) -> ConfigReturn<T> {
     fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
-    sst::config::adapters::JsonAdapter<T> adapter(path);
+    JsonReaderAdapter<T> adapter(path);
     return adapter.load();
 }
 
 template <typename T>
 auto save_config(const std::string& path_str, const T& config) -> ConfigReturn<T> {
     fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
-    sst::config::adapters::JsonAdapter<T> adapter(path);
+    JsonWriterAdapter<T> adapter(path);
 
     return adapter.save(config);
 }
@@ -36,7 +39,7 @@ auto save_config(const std::string& path_str, const T& config) -> ConfigReturn<T
 template <typename T>
 auto reset_config(const std::string& path_str) -> ConfigReturn<T> {
     fs::path path = fs::path{SST_REPO_ROOT_DIR} / path_str;
-    sst::config::adapters::JsonAdapter<T> adapter(path);
+    JsonWriterAdapter<T> adapter(path);
 
     return adapter.reset();
 }

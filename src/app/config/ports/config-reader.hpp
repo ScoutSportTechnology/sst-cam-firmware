@@ -1,32 +1,18 @@
 #pragma once
 
-#include <utility>
+
+#include "domain/config/models/config-return.hpp"
 
 namespace sst::config::ports {
 
-template <typename T>
-struct ConfigReturn {
-    bool success{false};
-    T data{};
-
-    static auto ok(T value) -> ConfigReturn {
-        ConfigReturn configReturn;
-        configReturn.success = true;
-        configReturn.data = std::move(value);
-        return configReturn;
-    }
-
-    static auto fail() -> ConfigReturn { return ConfigReturn{}; }
-};
+using sst::config::domain::ConfigReturn;
 
 template <typename T>
-class IConfigFileAdapter {
+class IConfigFileReaderAdapter {
    public:
-    virtual ~IConfigFileAdapter() = default;
+    virtual ~IConfigFileReaderAdapter() = default;
 
     virtual auto load() -> ConfigReturn<T> = 0;
-    virtual auto save(const T& modifiedConfig) -> ConfigReturn<T> = 0;
-    virtual auto reset() -> ConfigReturn<T> = 0;
 };
 
 }  // namespace sst::config::ports

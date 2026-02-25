@@ -13,17 +13,17 @@
 #include <string>
 #include <vector>
 
-#include "capture/adapters/gstreamer_runtime.hpp"
-#include "capture/ports/capture.hpp"
-#include "common/domain/memory_type.hpp"
-#include "common/domain/pixel_format.hpp"
-#include "common/utils/timestamp.hpp"
-#include "config/domain/calibration_config.hpp"
-#include "config/domain/device_model.hpp"
+#include "adapters/capture/frame/gstreamer/set-gstreamer-runtime.hpp"
+#include "app/capture/ports/frame-src.hpp"
+#include "domain/common/utils/get-timestamp.hpp"
+#include "domain/common/models/memory-type.hpp"
+#include "domain/common/models/pixel-format.hpp"
+#include "domain/config/models/calibration.hpp"
+#include "domain/config/models/device_model.hpp"
 
 namespace sst::capture::adapters {
 using sst::capture::domain::FrameGeometry;
-using sst::capture::domain::FramePlane;
+using sst::capture::domain::FramePlane; 
 using sst::common::domain::MemoryType;
 using sst::common::domain::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;

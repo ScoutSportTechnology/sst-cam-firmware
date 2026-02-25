@@ -5,14 +5,15 @@
 #include <optional>
 #include <string>
 
-#include "config/domain/calibration_config.hpp"
-#include "config/domain/config_data.hpp"
-#include "config/domain/device_config.hpp"
-#include "config/domain/profile_config.hpp"
-#include "config/domain/storage_config.hpp"
-#include "config/domain/stream_config.hpp"
-#include "config/domain/users_config.hpp"
-#include "config/ports/config_file_adapter.hpp"
+#include "app/config/ports/config-reader.hpp"
+#include "app/config/ports/config-writer.hpp"
+#include "domain/config/models//config_data.hpp"
+#include "domain/config/models/config_data.hpp"
+#include "domain/config/models/device.hpp"
+#include "domain/config/models/profile.hpp"
+#include "domain/config/models/storage.hpp"
+#include "domain/config/models/stream.hpp"
+#include "domain/config/models/users.hpp"
 
 namespace sst::config::app {
 
@@ -24,9 +25,9 @@ using sst::config::domain::StorageConfig;
 using sst::config::domain::StreamConfig;
 using sst::config::domain::UsersConfig;
 
-using sst::config::ports::IConfigFileAdapter;
+using sst::config::ports::IConfigFileReaderAdapter;
 
-using sst::config::ports::IConfigFileAdapter;
+using sst::config::ports::IConfigFileReaderAdapter;
 
 class ConfigLoader {
    public:
@@ -39,12 +40,12 @@ class ConfigLoader {
     std::optional<std::uint32_t> user_id_;
     std::string root_path_;
     std::string file_type_;
-    std::unique_ptr<IConfigFileAdapter<UsersConfig>> usersAdapter_;
-    std::unique_ptr<IConfigFileAdapter<ProfileConfig>> profileAdapter_;
-    std::unique_ptr<IConfigFileAdapter<DeviceConfig>> deviceAdapter_;
-    std::unique_ptr<IConfigFileAdapter<StorageConfig>> storageAdapter_;
-    std::unique_ptr<IConfigFileAdapter<StreamConfig>> streamAdapter_;
-    std::unique_ptr<IConfigFileAdapter<CalibrationConfig>> calibrationAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<UsersConfig>> usersAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<ProfileConfig>> profileAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<DeviceConfig>> deviceAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<StorageConfig>> storageAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<StreamConfig>> streamAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<CalibrationConfig>> calibrationAdapter_;
 };
 
 }  // namespace sst::config::app

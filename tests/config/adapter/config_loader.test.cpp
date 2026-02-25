@@ -1,19 +1,19 @@
-#include "config/app/config_loader.hpp"
-
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
 #include <string>
 
-#include "config/adapters/json/json_adapter.hpp"
-#include "config/domain/calibration_config.hpp"
-#include "config/domain/device_config.hpp"
-#include "config/domain/formatter/config_data.fmt.hpp"  // IWYU pragma: keep
-#include "config/domain/profile_config.hpp"
-#include "config/domain/storage_config.hpp"
-#include "config/domain/stream_config.hpp"
-#include "config/domain/users_config.hpp"
+#include "adapters/config/reader/json/json.hpp"
+#include "adapters/config/writer/json/json.hpp"
+#include "app/config/services/config_loader/config-loader.hpp"
+#include "domain/config/models/calibration.hpp"
+#include "domain/config/models/device.hpp"
+#include "domain/config/models/formatter/config_data-fmt.hpp"  // IWYU pragma: keep
+#include "domain/config/models/profile.hpp"
+#include "domain/config/models/storage.hpp"
+#include "domain/config/models/stream.hpp"
+#include "domain/config/models/users.hpp"
 
 namespace fs = std::filesystem;
 
@@ -114,7 +114,8 @@ auto MakeStreamConfig() -> sst::config::domain::StreamConfig {
 class ConfigLoaderTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        using sst::config::adapters::JsonAdapter;
+        using sst::config::adapters::JsonReaderAdapter;
+        using sst::config::adapters::JsonWriterAdapter;
         using sst::config::domain::CalibrationConfig;
         using sst::config::domain::DeviceConfig;
         using sst::config::domain::ProfileConfig;
@@ -125,12 +126,12 @@ class ConfigLoaderTest : public ::testing::Test {
         const fs::path root = RootDir();
 
         // Seed config files
-        JsonAdapter<UsersConfig> users(root / "users.json");
-        JsonAdapter<ProfileConfig> profile(root / "profile.json");
-        JsonAdapter<DeviceConfig> device(root / "device.json");
-        JsonAdapter<StorageConfig> storage(root / "storage.json");
-        JsonAdapter<StreamConfig> stream(root / "stream.json");
-        JsonAdapter<CalibrationConfig> calibration(root / "calibration.json");
+        JsonWriterAdapter<UsersConfig> users(root / "users.json");
+        JsonWriterAdapter<ProfileConfig> profile(root / "profile.json");
+        JsonWriterAdapter<DeviceConfig> device(root / "device.json");
+        JsonWriterAdapter<StorageConfig> storage(root / "storage.json");
+        JsonWriterAdapter<StreamConfig> stream(root / "stream.json");
+        JsonWriterAdapter<CalibrationConfig> calibration(root / "calibration.json");
 
         ASSERT_TRUE(users.save(MakeUsersConfig()).success);
         ASSERT_TRUE(profile.save(MakeProfileConfig()).success);

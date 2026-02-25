@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-#include "common/domain/timestamp.hpp"
+#include "domain/common/models/timestamp.hpp"
 
 namespace sst::common::utils {
 using namespace sst::common::domain;

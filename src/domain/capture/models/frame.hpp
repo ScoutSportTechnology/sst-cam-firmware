@@ -3,9 +3,9 @@
 #include <memory>
 #include <vector>
 
-#include "common/domain/memory_type.hpp"
-#include "common/domain/pixel_format.hpp"
-#include "common/domain/timestamp.hpp"
+#include "domain/common/models/memory-type.hpp"
+#include "domain/common/models/pixel-format.hpp"
+#include "domain/common/models/timestamp.hpp"
 
 namespace sst::capture::domain {
 using sst::common::domain::MemoryType;

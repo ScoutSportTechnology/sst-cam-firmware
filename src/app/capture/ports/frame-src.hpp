@@ -2,8 +2,8 @@
 
 #include <optional>
 
-#include "capture/domain/frame.hpp"
-#include "config/domain/config_data.hpp"
+#include "domain/capture/models/frame.hpp"
+#include "domain/config/models/config_data.hpp"
 
 namespace sst::capture::ports {
 
