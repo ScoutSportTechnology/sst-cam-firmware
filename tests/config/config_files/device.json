@@ -42,12 +42,5 @@
     "timezone": "UTC",
     "version": "1.0.0"
   },
-  "users": [
-    {
-      "id": 1,
-      "user_data": {
-        "timezone": "EST"
-      }
-    }
-  ]
+  "users": []
 }

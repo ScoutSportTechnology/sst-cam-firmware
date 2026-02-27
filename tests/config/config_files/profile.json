@@ -5,15 +5,5 @@
     "storage": false,
     "stream": false
   },
-  "users": [
-    {
-      "id": 1,
-      "user_data": {
-        "calibration": true,
-        "device": true,
-        "storage": true,
-        "stream": true
-      }
-    }
-  ]
+  "users": []
 }

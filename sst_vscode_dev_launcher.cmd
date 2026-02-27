@@ -69,17 +69,17 @@ echo   [9] arm64_x86     cross :  arm64 - x86
 echo.
 
 choice /C 123456789 /N /T 15 /D 1 /M "Enter choice"
+set "ARCH_CHOICE=%errorlevel%"
 
 set "SST_CAM_FIRMWARE_ARCH=x64"
-if errorlevel 9 set "SST_CAM_FIRMWARE_ARCH=arm64_x86"
-if errorlevel 8 set "SST_CAM_FIRMWARE_ARCH=arm64_x64"
-if errorlevel 7 set "SST_CAM_FIRMWARE_ARCH=x86_arm64"
-if errorlevel 6 set "SST_CAM_FIRMWARE_ARCH=x86_x64"
-if errorlevel 5 set "SST_CAM_FIRMWARE_ARCH=x64_arm64"
-if errorlevel 4 set "SST_CAM_FIRMWARE_ARCH=x64_x86"
-if errorlevel 3 set "SST_CAM_FIRMWARE_ARCH=arm64"
-if errorlevel 2 set "SST_CAM_FIRMWARE_ARCH=x86"
-if errorlevel 1 set "SST_CAM_FIRMWARE_ARCH=x64"
+if "%ARCH_CHOICE%"=="2" set "SST_CAM_FIRMWARE_ARCH=x86"
+if "%ARCH_CHOICE%"=="3" set "SST_CAM_FIRMWARE_ARCH=arm64"
+if "%ARCH_CHOICE%"=="4" set "SST_CAM_FIRMWARE_ARCH=x64_x86"
+if "%ARCH_CHOICE%"=="5" set "SST_CAM_FIRMWARE_ARCH=x64_arm64"
+if "%ARCH_CHOICE%"=="6" set "SST_CAM_FIRMWARE_ARCH=x86_x64"
+if "%ARCH_CHOICE%"=="7" set "SST_CAM_FIRMWARE_ARCH=x86_arm64"
+if "%ARCH_CHOICE%"=="8" set "SST_CAM_FIRMWARE_ARCH=arm64_x64"
+if "%ARCH_CHOICE%"=="9" set "SST_CAM_FIRMWARE_ARCH=arm64_x86"
 
 echo.
 echo Using architecture: %SST_CAM_FIRMWARE_ARCH%
@@ -90,22 +90,45 @@ if errorlevel 1 goto :VCVARS_FAILED
 
 cd /d "%SST_CAM_FIRMWARE_ROOT%"
 
-where code >nul 2>&1
-if errorlevel 1 goto :CODE_MISSING
-
 echo.
 echo ===============================================================
 echo   Environment ready.
 echo.
 echo   - MSVC toolchain initialized  : %SST_CAM_FIRMWARE_ARCH%
 echo   - Project root                : %SST_CAM_FIRMWARE_ROOT%
-echo   - VS Code                     : launched
 echo.
-echo   This window will close automatically after closing VS Code.
 echo ===============================================================
 echo.
-code .
-exit /b 0
+echo Select IDE:
+echo.
+echo   [1] VS Code   (default)
+echo   [2] CLion
+echo.
+
+choice /C 12 /N /T 10 /D 1 /M "Enter choice"
+set "IDE_CHOICE=%errorlevel%"
+
+if "%IDE_CHOICE%"=="1" set "SST_CAM_FIRMWARE_IDE=VSCODE"
+if "%IDE_CHOICE%"=="2" set "SST_CAM_FIRMWARE_IDE=CLION"
+
+
+echo.
+echo Launching: %SST_CAM_FIRMWARE_IDE%
+echo.
+
+if "%SST_CAM_FIRMWARE_IDE%"=="VSCODE" (
+    where code >nul 2>&1
+    if errorlevel 1 goto :CODE_MISSING
+    code .
+    exit /b 0
+)
+
+if "%SST_CAM_FIRMWARE_IDE%"=="CLION" (
+    where clion64 >nul 2>&1
+    if errorlevel 1 goto :CLION_MISSING
+    clion64 "%SST_CAM_FIRMWARE_ROOT%"
+    exit /b 0
+)
 
 :VSWHERE_MISSING
 echo ERROR: vswhere not found at:
@@ -134,5 +157,12 @@ exit /b 1
 :CODE_MISSING
 echo ERROR: VS Code command 'code' not found in PATH.
 echo Fix in VS Code: Command Palette -> "Shell Command: Install 'code' command in PATH"
+pause
+exit /b 1
+
+:CLION_MISSING
+echo ERROR: CLion command 'clion64' not found in PATH.
+echo Fix: Add CLion's bin folder to PATH (usually something like:)
+echo   C:\Program Files\JetBrains\CLion <version>\bin
 pause
 exit /b 1
