@@ -4,22 +4,7 @@
   "dependencies": [
     "nlohmann-json",
     "spdlog",
-    {
-      "name": "opencv",
-      "default-features": false,
-      "features": [
-        "ffmpeg",
-        "gstreamer"
-      ]
-    },
-    {
-      "name": "gstreamer",
-      "default-features": false,
-      "features": [
-        "plugins-base",
-        "plugins-good"
-      ]
-    }
+    "fmt"
   ],
   "features": {
     "tests": {

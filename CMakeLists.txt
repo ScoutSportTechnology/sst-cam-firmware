@@ -5,8 +5,6 @@ project(sst_cam_firmware
     LANGUAGES C CXX
 )
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-
 set(SST_REPO_ROOT_DIR "${CMAKE_SOURCE_DIR}")
 
 set(CMAKE_CXX_STANDARD 23)
@@ -22,18 +20,48 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
+add_library(sst_cam_firmware_external_libs INTERFACE)
+
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(OpenCV REQUIRED)
-find_package(GStreamer REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 
-add_library(sst_cam_firmware_external_libs INTERFACE)
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    gstreamer::gstreamer
-    opencv::opencv
+    fmt::fmt
 )
+
+if (WIN32)
+  find_package(OpenCV CONFIG REQUIRED)
+  find_package(GStreamer CONFIG REQUIRED)
+
+  target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    opencv::opencv
+    gstreamer::gstreamer
+)
+elseif(UNIX)
+  find_package(PkgConfig REQUIRED)
+
+  pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
+  pkg_search_module(gstreamer_sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0>=1.4)
+  pkg_search_module(gstreamer_app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
+  pkg_search_module(gstreamer_video REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
+
+  pkg_search_module(opencv REQUIRED IMPORTED_TARGET opencv4)
+
+  target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    PkgConfig::gstreamer
+    PkgConfig::gstreamer_sdp
+    PkgConfig::gstreamer_app
+    PkgConfig::gstreamer_video
+    PkgConfig::opencv
+)
+
+else()
+  message(FATAL_ERROR "Unsupported platform")
+endif()
+
 
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
@@ -77,23 +105,4 @@ if (BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests)
-endif()
-
-option(BUNDLE_GSTREAMER_RUNTIME "Bundle GStreamer runtime with the executable" OFF)
-if (BUNDLE_GSTREAMER_RUNTIME)
-    include(${CMAKE_SOURCE_DIR}/cmake/SetGStreamerRuntime.cmake)
-    set_GStreamer_Runtime(sst_cam_firmware)
-
-    if (BUILD_TESTS)
-        set_GStreamer_Runtime(sst_cam_firmware_tests)
-    endif()
-else()
-    target_compile_definitions(sst_cam_firmware PRIVATE
-        BUNDLED_GSTREAMER_RUNTIME=0
-    )
-    if (BUILD_TESTS)
-        target_compile_definitions(sst_cam_firmware_tests PRIVATE
-            BUNDLED_GSTREAMER_RUNTIME=0
-        )
-    endif()
 endif()
