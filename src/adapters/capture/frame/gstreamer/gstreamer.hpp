@@ -18,10 +18,10 @@ using GstSample = struct _GstSample;    // NOLINT(bugprone-reserved-identifier)
 namespace sst::capture::adapters {
 
 using sst::capture::domain::Frame;
-using sst::capture::ports::ICapture;
+using sst::capture::ports::ICaptureFrame;
 using sst::config::domain::ConfigData;
 
-class GStreamerAdapter final : public ICapture {
+class GStreamerAdapter final : public ICaptureFrame {
    public:
     GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index);
 

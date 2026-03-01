@@ -14,12 +14,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-if (MSVC)
-    add_compile_options(/W4)
-else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
-endif()
+add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 
+# ============================================================
+# Platform selection (Jetson / Raspberry Pi only)
+# ============================================================
+set(SST_PLATFORM "jetson" CACHE STRING "Target platform: jetson|rpi")
+set_property(CACHE SST_PLATFORM PROPERTY STRINGS jetson rpi)
+
+# These two platforms both use GStreamer + OpenCV (system packages)
+option(SST_WITH_GSTREAMER "Enable GStreamer integration" ON)
+option(SST_WITH_OPENCV "Enable OpenCV integration" ON)
+
+message(STATUS "SST_PLATFORM=${SST_PLATFORM}")
+message(STATUS "SST_WITH_GSTREAMER=${SST_WITH_GSTREAMER}")
+message(STATUS "SST_WITH_OPENCV=${SST_WITH_OPENCV}")
+
+# ============================================================
+# External libs (portable + platform)
+# ============================================================
 add_library(sst_cam_firmware_external_libs INTERFACE)
 
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -32,44 +45,72 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     fmt::fmt
 )
 
-if (WIN32)
-  find_package(OpenCV CONFIG REQUIRED)
-  find_package(GStreamer CONFIG REQUIRED)
+# ============================================================
+# GStreamer + OpenCV (Linux only via pkg-config)
+# ============================================================
+find_package(PkgConfig REQUIRED)
 
-  target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-    opencv::opencv
-    gstreamer::gstreamer
-)
-elseif(UNIX)
-  find_package(PkgConfig REQUIRED)
+if (SST_WITH_GSTREAMER)
+    pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
+    pkg_search_module(gstreamer_sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0>=1.4)
+    pkg_search_module(gstreamer_app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
+    pkg_search_module(gstreamer_video REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
 
-  pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
-  pkg_search_module(gstreamer_sdp REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0>=1.4)
-  pkg_search_module(gstreamer_app REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
-  pkg_search_module(gstreamer_video REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
+    target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+        PkgConfig::gstreamer
+        PkgConfig::gstreamer_sdp
+        PkgConfig::gstreamer_app
+        PkgConfig::gstreamer_video
+    )
 
-  pkg_search_module(opencv REQUIRED IMPORTED_TARGET opencv4)
-
-  target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-    PkgConfig::gstreamer
-    PkgConfig::gstreamer_sdp
-    PkgConfig::gstreamer_app
-    PkgConfig::gstreamer_video
-    PkgConfig::opencv
-)
-
+    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
+        SST_HAS_GSTREAMER=1
+    )
 else()
-  message(FATAL_ERROR "Unsupported platform")
+    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
+        SST_HAS_GSTREAMER=0
+    )
 endif()
 
+if (SST_WITH_OPENCV)
+    pkg_search_module(opencv REQUIRED IMPORTED_TARGET opencv4)
 
+    target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+        PkgConfig::opencv
+    )
+
+    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
+        SST_HAS_OPENCV=1
+    )
+else()
+    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
+        SST_HAS_OPENCV=0
+    )
+endif()
+
+# Platform macros (for #ifdef in code)
+target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
+  SST_PLATFORM_JETSON=0
+  SST_PLATFORM_RPI=1
+)
+if (SST_PLATFORM STREQUAL "jetson")
+  target_compile_definitions(sst_cam_firmware_external_libs INTERFACE SST_PLATFORM_ID=SST_PLATFORM_JETSON)
+elseif (SST_PLATFORM STREQUAL "rpi")
+  target_compile_definitions(sst_cam_firmware_external_libs INTERFACE SST_PLATFORM_ID=SST_PLATFORM_RPI)
+else()
+  message(FATAL_ERROR "SST_PLATFORM must be 'jetson' or 'rpi'")
+endif()
+
+# ============================================================
+# Internal library
+# ============================================================
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
-
 list(FILTER CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 
 add_library(sst_cam_firmware_internal_libs STATIC ${CORE_SOURCES})
+
 target_link_libraries(sst_cam_firmware_internal_libs PUBLIC
     sst_cam_firmware_external_libs
 )
@@ -82,11 +123,18 @@ target_compile_definitions(sst_cam_firmware_internal_libs PUBLIC
     SST_REPO_ROOT_DIR="${SST_REPO_ROOT_DIR}"
 )
 
+# ============================================================
+# Main executable
+# ============================================================
 add_executable(sst_cam_firmware ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
+
 target_link_libraries(sst_cam_firmware PRIVATE
     sst_cam_firmware_internal_libs
 )
 
+# ============================================================
+# Tests
+# ============================================================
 option(BUILD_TESTS "Build tests" OFF)
 if (BUILD_TESTS)
     enable_testing()

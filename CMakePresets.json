@@ -2,87 +2,39 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "base-clang-windows",
+      "name": "base-clang",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      },
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang-cl",
-        "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_VISUAL_STUDIO_PATH": "$env{VCPKG_VISUAL_STUDIO_PATH}",
-        "BUNDLE_GSTREAMER_RUNTIME": "OFF"
-      }
-    },
-    {
-      "name": "base-clang-linux",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-      }
-    },
-    {
-      "name": "base-debug-clang-windows",
-      "hidden": true,
-      "inherits": "base-clang-windows",
-      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "CMAKE_BUILD_TYPE": "Debug",
         "VCPKG_BUILD_TYPE": "debug",
         "BUILD_TESTS": "OFF"
       }
     },
     {
-      "name": "base-debug-clang-linux",
+      "name": "base-debug",
       "hidden": true,
-      "inherits": "base-clang-linux",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_BUILD_TYPE": "debug",
-        "BUILD_TESTS": "OFF"
-      }
+      "inherits": "base-clang",
+      "cacheVariables": {}
     },
     {
-      "name": "base-test-clang-windows",
+      "name": "base-test",
       "hidden": true,
-      "inherits": "base-clang-windows",
+      "inherits": "base-clang",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_BUILD_TYPE": "debug",
         "BUILD_TESTS": "ON",
         "VCPKG_MANIFEST_FEATURES": "tests"
       }
     },
     {
-      "name": "base-test-clang-linux",
+      "name": "base-release",
       "hidden": true,
-      "inherits": "base-clang-linux",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_BUILD_TYPE": "debug",
-        "BUILD_TESTS": "ON",
-        "VCPKG_MANIFEST_FEATURES": "tests"
-      }
-    },
-    {
-      "name": "base-release-clang-windows",
-      "hidden": true,
-      "inherits": "base-clang-windows",
+      "inherits": "base-clang",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "VCPKG_BUILD_TYPE": "release",
@@ -90,172 +42,62 @@
       }
     },
     {
-      "name": "base-release-clang-linux",
+      "name": "base-arm64",
       "hidden": true,
-      "inherits": "base-clang-linux",
+      "architecture": "arm64",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_BUILD_TYPE": "release",
-        "BUILD_TESTS": "OFF"
+        "VCPKG_TARGET_TRIPLET": "arm64-linux"
       }
     },
     {
-      "name": "debug/x64-windows",
-      "inherits": "base-debug-clang-windows",
+      "name": "debug/jetson",
+      "inherits": [
+        "base-debug",
+        "base-arm64"
+      ],
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "SST_PLATFORM": "jetson"
       }
     },
     {
-      "name": "debug/x86-windows",
-      "inherits": "base-debug-clang-windows",
-      "architecture": "x86",
+      "name": "test/jetson",
+      "inherits": [
+        "base-test",
+        "base-arm64"
+      ],
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-windows"
+        "SST_PLATFORM": "jetson"
       }
     },
     {
-      "name": "debug/x64-linux",
-      "inherits": "base-debug-clang-linux",
+      "name": "release/jetson",
+      "inherits": [
+        "base-release",
+        "base-arm64"
+      ],
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-linux"
-      }
-    },
-    {
-      "name": "debug/x86-linux",
-      "inherits": "base-debug-clang-linux",
-      "architecture": "x86",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-linux"
-      }
-    },
-    {
-      "name": "test/x64-windows",
-      "inherits": "base-test-clang-windows",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
-      }
-    },
-    {
-      "name": "test/x86-windows",
-      "inherits": "base-test-clang-windows",
-      "architecture": "x86",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-windows"
-      }
-    },
-    {
-      "name": "test/x64-linux",
-      "inherits": "base-test-clang-linux",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-linux"
-      }
-    },
-    {
-      "name": "test/x86-linux",
-      "inherits": "base-test-clang-linux",
-      "architecture": "x86",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-linux"
-      }
-    },
-    {
-      "name": "release/x64-windows",
-      "inherits": "base-release-clang-windows",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows-release"
-      }
-    },
-    {
-      "name": "release/x86-windows",
-      "inherits": "base-release-clang-windows",
-      "architecture": "x86",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-windows"
-      }
-    },
-    {
-      "name": "release/x64-linux",
-      "inherits": "base-release-clang-linux",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-linux-release"
-      }
-    },
-    {
-      "name": "release/x86-linux",
-      "inherits": "base-release-clang-linux",
-      "architecture": "x86",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x86-linux"
+        "SST_PLATFORM": "jetson"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "debug/x64-windows",
-      "configurePreset": "debug/x64-windows"
+      "name": "debug/jetson",
+      "configurePreset": "debug/jetson"
     },
     {
-      "name": "debug/x86-windows",
-      "configurePreset": "debug/x86-windows"
+      "name": "test/jetson",
+      "configurePreset": "test/jetson"
     },
     {
-      "name": "debug/x64-linux",
-      "configurePreset": "debug/x64-linux"
-    },
-    {
-      "name": "debug/x86-linux",
-      "configurePreset": "debug/x86-linux"
-    },
-    {
-      "name": "test/x64-windows",
-      "configurePreset": "test/x64-windows"
-    },
-    {
-      "name": "test/x86-windows",
-      "configurePreset": "test/x86-windows"
-    },
-    {
-      "name": "test/x64-linux",
-      "configurePreset": "test/x64-linux"
-    },
-    {
-      "name": "test/x86-linux",
-      "configurePreset": "test/x86-linux"
-    },
-    {
-      "name": "release/x64-windows",
-      "configurePreset": "release/x64-windows"
-    },
-    {
-      "name": "release/x86-windows",
-      "configurePreset": "release/x86-windows"
-    },
-    {
-      "name": "release/x64-linux",
-      "configurePreset": "release/x64-linux"
-    },
-    {
-      "name": "release/x86-linux",
-      "configurePreset": "release/x86-linux"
+      "name": "release/jetson",
+      "configurePreset": "release/jetson"
     }
   ],
   "testPresets": [
     {
-      "name": "test/x64-windows",
-      "configurePreset": "test/x64-windows"
-    },
-    {
-      "name": "test/x86-windows",
-      "configurePreset": "test/x86-windows"
-    },
-    {
-      "name": "test/x64-linux",
-      "configurePreset": "test/x64-linux"
-    },
-    {
-      "name": "test/x86-linux",
-      "configurePreset": "test/x86-linux"
+      "name": "test/jetson",
+      "configurePreset": "test/jetson"
     }
   ]
 }

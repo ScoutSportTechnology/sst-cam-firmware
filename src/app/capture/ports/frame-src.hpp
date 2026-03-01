@@ -10,9 +10,9 @@ namespace sst::capture::ports {
 using sst::capture::domain::Frame;
 using sst::config::domain::ConfigData;
 
-class ICapture {
+class ICaptureFrame {
    public:
-    virtual ~ICapture() = default;
+    virtual ~ICaptureFrame() = default;
 
     virtual auto Start() -> void = 0;
     virtual auto Stop() -> void = 0;

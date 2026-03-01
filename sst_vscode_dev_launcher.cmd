@@ -57,21 +57,21 @@ echo Select toolchain architecture:
 echo.
 echo   Architecture      Type   Host    Target
 echo   ------------      -------------------------------
-echo   [1] x64           native:  x64   - x64    [default]
+echo   [1] x64           native:  x64   - x64
 echo   [2] x86           native:  x86   - x86
 echo   [3] arm64         native:  arm64 - arm64
 echo   [4] x64_x86       cross :  x64   - x86
-echo   [5] x64_arm64     cross :  x64   - arm64
+echo   [5] x64_arm64     cross :  x64   - arm64 [default]
 echo   [6] x86_x64       cross :  x86   - x64
 echo   [7] x86_arm64     cross :  x86   - arm64
 echo   [8] arm64_x64     cross :  arm64 - x64
 echo   [9] arm64_x86     cross :  arm64 - x86
 echo.
 
-choice /C 123456789 /N /T 15 /D 1 /M "Enter choice"
+choice /C 123456789 /N /T 15 /D 5 /M "Enter choice"
 set "ARCH_CHOICE=%errorlevel%"
 
-set "SST_CAM_FIRMWARE_ARCH=x64"
+set "SST_CAM_FIRMWARE_ARCH=x64_arm64"
 if "%ARCH_CHOICE%"=="2" set "SST_CAM_FIRMWARE_ARCH=x86"
 if "%ARCH_CHOICE%"=="3" set "SST_CAM_FIRMWARE_ARCH=arm64"
 if "%ARCH_CHOICE%"=="4" set "SST_CAM_FIRMWARE_ARCH=x64_x86"

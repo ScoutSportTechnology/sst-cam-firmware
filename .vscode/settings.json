@@ -7,13 +7,6 @@
   "editor.formatOnType": true,
   "editor.inlayHints.enabled": "on",
   "C_Cpp.intelliSenseEngine": "disabled",
-  //"C_Cpp.errorSquiggles": "enabled",
-  //"C_Cpp.formatting": "clangFormat",
-  //"C_Cpp.clang_format_fallbackStyle": "Google",
-  //"C_Cpp.codeAnalysis.clangTidy.enabled": true,
-  //"C_Cpp.errorSquiggles": "enabled",
-  //"C_Cpp.default.cStandard": "c23",
-  //"C_Cpp.default.cppStandard": "c++26"
   "[cpp]": {
     "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
   },
