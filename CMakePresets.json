@@ -1,86 +1,54 @@
 {
-  "version": 6,
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
   "configurePresets": [
     {
-      "name": "base-clang",
+      "name": "base",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_BUILD_TYPE": "debug",
-        "BUILD_TESTS": "OFF"
-      }
-    },
-    {
-      "name": "base-debug",
-      "hidden": true,
-      "inherits": "base-clang",
-      "cacheVariables": {}
-    },
-    {
-      "name": "base-test",
-      "hidden": true,
-      "inherits": "base-clang",
-      "cacheVariables": {
-        "BUILD_TESTS": "ON",
-        "VCPKG_MANIFEST_FEATURES": "tests"
-      }
-    },
-    {
-      "name": "base-release",
-      "hidden": true,
-      "inherits": "base-clang",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_BUILD_TYPE": "release",
-        "BUILD_TESTS": "OFF"
-      }
-    },
-    {
-      "name": "base-arm64",
-      "hidden": true,
-      "architecture": "arm64",
-      "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "arm64-linux"
-      }
-    },
-    {
-      "name": "debug/jetson",
-      "inherits": [
-        "base-debug",
-        "base-arm64"
-      ],
-      "cacheVariables": {
-        "SST_PLATFORM": "jetson"
-      }
-    },
-    {
-      "name": "test/jetson",
-      "inherits": [
-        "base-test",
-        "base-arm64"
-      ],
-      "cacheVariables": {
-        "SST_PLATFORM": "jetson"
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/jetson-orin-jetpack_6.2.2-l4t_36.5.0.cmake",
+        "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "${sourceDir}/cmake/conan_provider.cmake",
+        "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/linux-x86_64-host.profile",
+        "CONAN_HOST_PROFILE": "${sourceDir}/conan/profiles/jetson-aarch64-target.profile"
       }
     },
     {
       "name": "release/jetson",
-      "inherits": [
-        "base-release",
-        "base-arm64"
-      ],
+      "inherits": "base",
       "cacheVariables": {
-        "SST_PLATFORM": "jetson"
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=Release"
+      }
+    },
+    {
+      "name": "debug/jetson",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=Debug"
+      }
+    },
+    {
+      "name": "test/jetson",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "SST_ENABLE_TESTS": "ON",
+        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=RelWithDebInfo"
       }
     }
   ],
   "buildPresets": [
+    {
+      "name": "release/jetson",
+      "configurePreset": "release/jetson"
+    },
     {
       "name": "debug/jetson",
       "configurePreset": "debug/jetson"
@@ -88,10 +56,6 @@
     {
       "name": "test/jetson",
       "configurePreset": "test/jetson"
-    },
-    {
-      "name": "release/jetson",
-      "configurePreset": "release/jetson"
     }
   ],
   "testPresets": [
