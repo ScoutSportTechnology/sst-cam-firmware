@@ -10,9 +10,9 @@ project(sst_cam_firmware
 # ============================================================
 set(SST_REPO_ROOT_DIR "${CMAKE_SOURCE_DIR}")
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -23,12 +23,7 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
 
-option(SST_WITH_GSTREAMER "Enable GStreamer integration (pkg-config)" ON)
-option(SST_WITH_OPENCV "Enable OpenCV integration (pkg-config)" ON)
 option(SST_ENABLE_TESTS "Enable tests" OFF)
-
-message(STATUS "SST_WITH_GSTREAMER=${SST_WITH_GSTREAMER}")
-message(STATUS "SST_WITH_OPENCV=${SST_WITH_OPENCV}")
 
 # ============================================================
 # Portable dependencies (Conan)
@@ -46,47 +41,28 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
 )
 
 # ============================================================
-# System dependencies (JetPack via sysroot)
+# System dependencies (JetPack via apt/pkg-config)
+# Always enabled for your projects.
 # ============================================================
 find_package(PkgConfig REQUIRED)
 
-if (SST_WITH_GSTREAMER)
-    pkg_search_module(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
-    pkg_search_module(GSTREAMER_SDP REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0>=1.4)
-    pkg_search_module(GSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
-    pkg_search_module(GSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
+pkg_search_module(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
+pkg_search_module(GSTREAMER_SDP REQUIRED IMPORTED_TARGET gstreamer-sdp-1.0>=1.4)
+pkg_search_module(GSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0>=1.4)
+pkg_search_module(GSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0>=1.4)
 
-    target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-        PkgConfig::GSTREAMER
-        PkgConfig::GSTREAMER_SDP
-        PkgConfig::GSTREAMER_APP
-        PkgConfig::GSTREAMER_VIDEO
-    )
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    PkgConfig::GSTREAMER
+    PkgConfig::GSTREAMER_SDP
+    PkgConfig::GSTREAMER_APP
+    PkgConfig::GSTREAMER_VIDEO
+)
 
-    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
-        SST_HAS_GSTREAMER=1
-    )
-else()
-    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
-        SST_HAS_GSTREAMER=0
-    )
-endif()
+pkg_search_module(OPENCV REQUIRED IMPORTED_TARGET opencv4)
 
-if (SST_WITH_OPENCV)
-    pkg_search_module(OPENCV REQUIRED IMPORTED_TARGET opencv4)
-
-    target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-        PkgConfig::OPENCV
-    )
-
-    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
-        SST_HAS_OPENCV=1
-    )
-else()
-    target_compile_definitions(sst_cam_firmware_external_libs INTERFACE
-        SST_HAS_OPENCV=0
-    )
-endif()
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    PkgConfig::OPENCV
+)
 
 # ============================================================
 # Internal library

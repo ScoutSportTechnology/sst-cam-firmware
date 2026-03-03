@@ -13,14 +13,12 @@
 #include <string>
 #include <vector>
 
-#include "adapters/capture/frame/gstreamer/set-gstreamer-runtime.hpp"
 #include "app/capture/ports/frame-src.hpp"
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/utils/get-timestamp.hpp"
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device-model.hpp"
-
 
 namespace sst::capture::adapters {
 using sst::capture::domain::FrameGeometry;
@@ -37,7 +35,7 @@ using sst::config::domain::ToString;
 
 GStreamerAdapter::GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index)
     : config_data_(config_data), camera_index_(camera_index) {
-    GstInitRuntime();
+    gst_init(nullptr, nullptr);
 }
 
 auto GStreamerAdapter::CreatePipeline() -> std::string {

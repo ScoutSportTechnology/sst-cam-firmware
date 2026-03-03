@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Jetson R36.5: Bootstrap Toolchain",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "scripts/bootstrap-jetson-r36.5-toolchain.sh"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ]
+}

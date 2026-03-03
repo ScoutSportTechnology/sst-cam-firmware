@@ -2,7 +2,7 @@
   "version": 5,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 24,
+    "minor": 22,
     "patch": 0
   },
   "configurePresets": [
@@ -11,57 +11,66 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "PATH": "$env{HOME}/.local/bin:$penv{PATH}"
+      },
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/jetson-orin-jetpack_6.2.2-l4t_36.5.0.cmake",
         "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "${sourceDir}/cmake/conan_provider.cmake",
-        "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/linux-x86_64-host.profile",
-        "CONAN_HOST_PROFILE": "${sourceDir}/conan/profiles/jetson-aarch64-target.profile"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CONAN_INSTALL_ARGS": "--build=missing"
       }
     },
     {
-      "name": "release/jetson",
+      "name": "base-jetson-r36.5",
+      "hidden": true,
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=Release"
+        "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/jetson-r36.5",
+        "CONAN_HOST_PROFILE": "${sourceDir}/conan/profiles/jetson-r36.5"
       }
     },
     {
-      "name": "debug/jetson",
-      "inherits": "base",
+      "name": "release/jetson/r36.5",
+      "inherits": "base-jetson-r36.5",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=Debug"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "test/jetson",
-      "inherits": "base",
+      "name": "debug/jetson/r36.5",
+      "inherits": "base-jetson-r36.5",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "test/jetson/r36.5",
+      "inherits": "base-jetson-r36.5",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "SST_ENABLE_TESTS": "ON",
-        "CONAN_INSTALL_ARGS": "--build=missing -s:h build_type=RelWithDebInfo"
+        "CONAN_INSTALL_ARGS": "--build=missing;-o;with_tests=True"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "release/jetson",
-      "configurePreset": "release/jetson"
+      "name": "release/jetson/r36.5",
+      "configurePreset": "release/jetson/r36.5"
     },
     {
-      "name": "debug/jetson",
-      "configurePreset": "debug/jetson"
+      "name": "debug/jetson/r36.5",
+      "configurePreset": "debug/jetson/r36.5"
     },
     {
-      "name": "test/jetson",
-      "configurePreset": "test/jetson"
+      "name": "test/jetson/r36.5",
+      "configurePreset": "test/jetson/r36.5"
     }
   ],
   "testPresets": [
     {
-      "name": "test/jetson",
-      "configurePreset": "test/jetson"
+      "name": "test/jetson/r36.5",
+      "configurePreset": "test/jetson/r36.5"
     }
   ]
 }
