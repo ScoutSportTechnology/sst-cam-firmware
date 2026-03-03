@@ -27,6 +27,7 @@ Status: **DONE**
 - [x] Runtime access from app layer
 
 Notes:
+
 - Config is treated as immutable snapshots at runtime.
 
 ---
@@ -43,6 +44,7 @@ Status: **DONE**
 - [x] Smoke tests for pipeline startup
 
 Notes:
+
 - Capture threads must never block downstream.
 
 ---
@@ -57,6 +59,7 @@ Status: **IN PROGRESS**
 - [ ] Clean shutdown behavior
 
 Notes:
+
 - Default policy: drop old frames.
 - No unbounded queues allowed in hot path.
 
@@ -73,6 +76,7 @@ Status: **TODO**
 - [ ] Instrumentation for sync misses
 
 Notes:
+
 - Sync logic must be explicit and deterministic.
 
 ---
@@ -87,6 +91,7 @@ Status: **TODO**
 - [ ] Zero-copy rules documented
 
 Notes:
+
 - No silent CPU fallbacks without logging.
 
 ---
@@ -101,6 +106,7 @@ Status: **TODO**
 - [ ] Output metrics domain types
 
 Notes:
+
 - Inference must not own camera-specific state.
 
 ---
@@ -115,6 +121,7 @@ Status: **TODO**
 - [ ] Debug visibility hooks
 
 Notes:
+
 - Metrics must not block the hot path.
 
 ---
@@ -129,6 +136,7 @@ Status: **TODO**
 - [ ] Stability guarantees (no rapid flip-flop)
 
 Notes:
+
 - Decision logic must be pure and testable.
 
 ---
@@ -142,6 +150,7 @@ Status: **TODO**
 - [ ] Final frame composition
 
 Notes:
+
 - Operates on a single selected frame or blend.
 
 ---
@@ -157,6 +166,7 @@ Status: **TODO**
 - [ ] Small bounded output queue (size 1–3)
 
 Notes:
+
 - Output must never apply backpressure to capture.
 
 ---
@@ -171,6 +181,7 @@ Status: **TODO**
 - [ ] Error propagation strategy
 
 Notes:
+
 - Config changes should be atomic.
 
 ---

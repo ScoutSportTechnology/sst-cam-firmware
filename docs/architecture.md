@@ -17,14 +17,16 @@ This project follows a **hexagonal (ports and adapters) architecture**, organize
 
 Example shape:
 
+``` md
 src/
-  <module>/
-    adapters/
-    app/
-    domain/
-    ports/
-    utils/            (optional)
-    ...
+├── [module]/
+│   ├── adapters/
+│   ├── app/
+│   ├── domain/
+│   ├── ports/
+│   └── utils/            (optional)
+└── ...
+```
 
 ## Modules
 
@@ -38,63 +40,78 @@ Cross-module dependencies should be deliberate and minimal. Prefer depending on 
 Each module uses these subfolders:
 
 ### `domain/`
+
 The core of the module.
 
 Contains:
+
 - Domain entities and value objects
 - Pure logic (no I/O)
 - Domain errors / invariants
 - Domain types (strong types preferred)
 
 Rules:
+
 - Must not depend on `adapters/`
 - Avoid depending on heavy external libraries
 - No logging required inside domain (prefer returning errors/status)
 
 ### `ports/`
+
 Interfaces that define how the domain/app communicates with the outside world.
 
 Contains:
+
 - Abstract interfaces (ports)
 - DTOs/contracts that cross the boundary
 - Minimal types needed to call into/out of the module
 
 Rules:
+
 - Ports are stable contracts.
 - Ports should not expose framework-specific types.
 
 ### `app/`
+
 Application use-cases / orchestration.
 
 Contains:
+
 - Use-case services (e.g., “start capture”, “process frame”, “apply config”)
 - Coordination across domain objects and ports
 - Validation and mapping between domain and adapter-friendly formats
 
 Rules:
+
 - `app/` depends on `domain/` and `ports/`
 - `app/` must not depend directly on external runtime details unless isolated behind ports
 
 ### `adapters/`
+
 Implementation details and integrations.
 
 Contains:
+
 - GStreamer/OpenCV/etc. integration code
 - Filesystem, networking, OS interaction
 - Concrete implementations of ports
 
 Rules:
+
 - Adapters depend inward (`ports/`, `app/`, sometimes `domain/`)
 - Domain must never depend on adapters
 
 ### `utils/` (optional)
+
 Small shared helpers that don’t belong to domain rules.
 
 Contains:
+
 - Small utilities (time helpers, small conversions)
 - Should stay lightweight and boring
 
 Rules:
+
 - Do not let `utils/` become a dumping ground.
 - If it grows teeth, it probably belongs in `domain/` or `app/`.
 
@@ -108,6 +125,7 @@ Allowed dependency direction (typical):
 - `domain/` → (nothing inward) only standard library / minimal low-level libs
 
 Forbidden:
+
 - `domain/` → `adapters/`
 - `ports/` → `adapters/`
 - “Helper” utilities that import GStreamer/OpenCV and get used by domain/app
