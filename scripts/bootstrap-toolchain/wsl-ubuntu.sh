@@ -7,18 +7,24 @@ set -euo pipefail
 # Host toolchain bootstrap for WSL Ubuntu (x86_64).
 #
 # Installs:
-#   - base dev tools
+#   - base dev tools (incl. ninja)
 #   - CMake (>= min, via Kitware repo if needed)
 #   - clang tools (clangd/format/tidy)
 #   - Conan (via pipx)
 #   - Bootlin aarch64 toolchain (Jetson r36)
 #   - QEMU + binfmt for ARM64 chroot execution on WSL
 #
+# IMPORTANT FIX (your current issue):
+#   Bootlin tarball includes "toolchain-wrapper" and *.br_real binaries.
+#   We MUST point stable compiler names to the *.br_real binaries,
+#   otherwise linking can fail (missing Scrt1.o/crti.o/crtn.o symptoms).
+#
 # Stages:
 #   apt-update | apt-packages | cmake | clang | conan | bootlin | binfmt | versions
 #
 # Usage:
 #   ./scripts/bootstrap-toolchain/wsl-ubuntu.sh
+#   ./scripts/bootstrap-toolchain/wsl-ubuntu.sh --stage bootlin --force
 #   ./scripts/bootstrap-toolchain/wsl-ubuntu.sh --stage binfmt --force
 #   ./scripts/bootstrap-toolchain/wsl-ubuntu.sh --list-stages
 # ============================================================
@@ -61,12 +67,11 @@ fp_write()   { printf "%s\n" "$2" >"$(stamp_file "$1")"; }
 # Config
 # ---------------------------
 
-# Host prerequisites + dev essentials
 APT_PACKAGES=(
-  # Your "sysroot bootstrap prereqs" (host-side)
+  # Sysroot bootstrap prereqs (host-side)
   ca-certificates curl tar bzip2 xz-utils rsync dpkg coreutils
 
-  # Needed for WSL ARM chroot execution
+  # Needed for ARM chroot execution (apply_binaries.sh) on WSL
   qemu-user-static binfmt-support
 
   # General dev tools
@@ -78,7 +83,6 @@ APT_PACKAGES=(
 )
 
 CLANG_PACKAGES=(clangd clang-format clang-tidy)
-
 CMAKE_MIN_VERSION="3.24.0"
 
 # Bootlin toolchain (Jetson r36 series)
@@ -125,7 +129,6 @@ stage_cmake() {
 
   local have="0"
   if need_cmd cmake; then have="$(cmake --version | head -n 1 | awk '{print $3}')"; fi
-
   if [[ "$have" != "0" ]] && version_ge "$CMAKE_MIN_VERSION" "$have"; then
     log "[cmake] CMake already >= ${CMAKE_MIN_VERSION} (found ${have})."
     fp_write "cmake" "$fp"
@@ -133,7 +136,6 @@ stage_cmake() {
   fi
 
   log "[cmake] Installing/Upgrading CMake via Kitware repo..."
-  # gpg/wget are already in APT_PACKAGES but safe to assume
   apt_install ca-certificates gpg wget
 
   wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null \
@@ -148,7 +150,6 @@ stage_cmake() {
 
   apt_update
   apt_install cmake
-
   fp_write "cmake" "$fp"
 }
 
@@ -179,31 +180,46 @@ stage_conan() {
   fp_write "conan" "$fp"
 }
 
-bootlin_make_stable_symlinks() {
+# Pick the REAL underlying compiler binaries (avoid toolchain-wrapper)
+bootlin_fix_compiler_symlinks() {
   local bin="${BOOTLIN_INSTALL_DIR}/bin"
   [[ -d "$bin" ]] || die "[bootlin] Missing bin dir: $bin"
 
-  shopt -s nullglob
-  local gcc_candidates=("$bin"/aarch64-buildroot-linux-gnu-gcc-*)
-  shopt -u nullglob
-  [[ ${#gcc_candidates[@]} -ge 1 ]] || die "[bootlin] No gcc found: $bin/aarch64-buildroot-linux-gnu-gcc-*"
-  local gcc_real="${gcc_candidates[0]}"
-
-  local cxx_real=""
-  if [[ -x "$bin/aarch64-buildroot-linux-gnu-g++" ]]; then
-    cxx_real="$bin/aarch64-buildroot-linux-gnu-g++"
-  elif [[ -x "$bin/aarch64-buildroot-linux-gnu-c++" ]]; then
-    cxx_real="$bin/aarch64-buildroot-linux-gnu-c++"
-  elif [[ -x "$bin/aarch64-linux-g++" ]]; then
-    cxx_real="$bin/aarch64-linux-g++"
+  # gcc: prefer explicit versioned .br_real, else gcc.br_real
+  local gcc_real=""
+  if [[ -x "$bin/aarch64-buildroot-linux-gnu-gcc-11.3.0.br_real" ]]; then
+    gcc_real="$bin/aarch64-buildroot-linux-gnu-gcc-11.3.0.br_real"
+  elif [[ -x "$bin/aarch64-buildroot-linux-gnu-gcc.br_real" ]]; then
+    gcc_real="$bin/aarch64-buildroot-linux-gnu-gcc.br_real"
   else
-    die "[bootlin] No C++ compiler found."
+    # last resort: find any gcc-*.br_real
+    gcc_real="$(ls -1 "$bin"/aarch64-buildroot-linux-gnu-gcc-*.br_real 2>/dev/null | head -n 1 || true)"
+  fi
+  [[ -n "$gcc_real" && -x "$gcc_real" ]] || die "[bootlin] Could not find gcc .br_real under: $bin"
+
+  # g++: prefer g++.br_real
+  local gxx_real=""
+  if [[ -x "$bin/aarch64-buildroot-linux-gnu-g++.br_real" ]]; then
+    gxx_real="$bin/aarch64-buildroot-linux-gnu-g++.br_real"
+  else
+    gxx_real="$(ls -1 "$bin"/aarch64-buildroot-linux-gnu-g++*.br_real 2>/dev/null | head -n 1 || true)"
+  fi
+  [[ -n "$gxx_real" && -x "$gxx_real" ]] || die "[bootlin] Could not find g++ .br_real under: $bin"
+
+  # Force stable names to the real binaries
+  ln -sf "$(basename "$gcc_real")" "$bin/aarch64-buildroot-linux-gnu-gcc"
+  ln -sf "$(basename "$gxx_real")" "$bin/aarch64-buildroot-linux-gnu-g++"
+
+  # Also keep c++ pointing somewhere valid (optional but nice)
+  if [[ -L "$bin/aarch64-buildroot-linux-gnu-c++" || -e "$bin/aarch64-buildroot-linux-gnu-c++" ]]; then
+    # If it's a wrapper symlink, repoint it to g++ for sanity
+    if [[ -L "$bin/aarch64-buildroot-linux-gnu-c++" ]]; then
+      ln -sf "aarch64-buildroot-linux-gnu-g++" "$bin/aarch64-buildroot-linux-gnu-c++"
+    fi
+  else
+    ln -sf "aarch64-buildroot-linux-gnu-g++" "$bin/aarch64-buildroot-linux-gnu-c++"
   fi
 
-  ln -sf "$(basename "$gcc_real")" "$bin/aarch64-buildroot-linux-gnu-gcc"
-  ln -sf "$(basename "$cxx_real")" "$bin/aarch64-buildroot-linux-gnu-g++"
-
-  run_as_root mkdir -p "$(dirname "$BOOTLIN_ENV_SH")"
   cat > "$BOOTLIN_ENV_SH" <<EOF
 export BOOTLIN_JETSON_R36_ROOT="${BOOTLIN_INSTALL_DIR}"
 export PATH="\${BOOTLIN_JETSON_R36_ROOT}/bin:\${PATH}"
@@ -217,13 +233,11 @@ stage_bootlin() {
   fp="$(printf "url=%s\n" "$BOOTLIN_URL" | hash_stdin)"
 
   if fp_match "bootlin" "$fp" && [[ "${FORCE:-0}" -ne 1 ]]; then
-    if [[ -x "${BOOTLIN_INSTALL_DIR}/bin/aarch64-buildroot-linux-gnu-gcc" ]]; then
-      log "[bootlin] Up to date."
+    if [[ -d "${BOOTLIN_INSTALL_DIR}/bin" ]]; then
+      log "[bootlin] Up to date (repairing symlinks just in case)..."
+      bootlin_fix_compiler_symlinks
       return 0
     fi
-    log "[bootlin] Repairing stable symlinks..."
-    bootlin_make_stable_symlinks
-    return 0
   fi
 
   mkdir -p "$BOOTLIN_TOOLCHAINS_DIR"
@@ -243,14 +257,14 @@ stage_bootlin() {
   rm -rf "$BOOTLIN_INSTALL_DIR"
   mv "$extracted" "$BOOTLIN_INSTALL_DIR"
 
-  bootlin_make_stable_symlinks
+  bootlin_fix_compiler_symlinks
 
   fp_write "bootlin" "$fp"
   log "[bootlin] Installed at: $BOOTLIN_INSTALL_DIR"
 }
 
 stage_binfmt() {
-  # This stage exists because WSL does not reliably auto-register qemu-aarch64 in binfmt_misc.
+  # WSL often does NOT auto-register qemu-aarch64 in binfmt_misc.
   local fp
   fp="$(printf "binfmt=qemu-aarch64-static\n" | hash_stdin)"
 
@@ -276,10 +290,6 @@ stage_binfmt() {
     return 0
   fi
 
-  if ! is_wsl; then
-    warn "[binfmt] Not WSL. If qemu-aarch64 isn't auto-registered, install qemu-user-binfmt or systemd-binfmt config."
-  fi
-
   log "[binfmt] Registering qemu-aarch64 handler (manual)..."
   run_as_root tee /proc/sys/fs/binfmt_misc/register >/dev/null <<'EOF'
 :qemu-aarch64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-aarch64-static:CF
@@ -301,12 +311,16 @@ stage_versions() {
   conan --version 2>/dev/null || true
   qemu-aarch64-static --version 2>/dev/null | head -n 1 || true
 
-  local stable_gcc="${BOOTLIN_INSTALL_DIR}/bin/aarch64-buildroot-linux-gnu-gcc"
-  if [[ -x "$stable_gcc" ]]; then
-    "$stable_gcc" --version | head -n 1 || true
+  local bin="${BOOTLIN_INSTALL_DIR}/bin"
+  if [[ -x "$bin/aarch64-buildroot-linux-gnu-gcc" ]]; then
+    log "[versions] Bootlin gcc: $("$bin/aarch64-buildroot-linux-gnu-gcc" --version | head -n 1 || true)"
   else
-    warn "[versions] Missing or non-executable: ${stable_gcc}"
-    warn "[versions] Run: source ${BOOTLIN_ENV_SH}"
+    warn "[versions] Missing: $bin/aarch64-buildroot-linux-gnu-gcc"
+  fi
+  if [[ -x "$bin/aarch64-buildroot-linux-gnu-g++" ]]; then
+    log "[versions] Bootlin g++: $("$bin/aarch64-buildroot-linux-gnu-g++" --version | head -n 1 || true)"
+  else
+    warn "[versions] Missing: $bin/aarch64-buildroot-linux-gnu-g++"
   fi
 
   if [[ -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]]; then
@@ -314,6 +328,9 @@ stage_versions() {
   else
     warn "[versions] binfmt qemu-aarch64: MISSING (run --stage binfmt)"
   fi
+
+  log "[versions] Bootlin env:"
+  printf "  source %s\n" "$BOOTLIN_ENV_SH"
 }
 
 # ---------------------------
@@ -355,7 +372,7 @@ main() {
 Usage:
   $0                        Run all stages (incremental)
   $0 --stage <name>         Run one stage
-  $0 --stage all --force    Force re-run
+  $0 --stage all --force    Force re-run all stages
   $0 --list-stages
 
 Stages: ${ALL_STAGES[*]}
@@ -377,13 +394,13 @@ EOF
 Bootlin toolchain:
   source "${BOOTLIN_ENV_SH}"
 
-Stable tool names:
+Stable tool names (these MUST point to *.br_real):
   ${BOOTLIN_INSTALL_DIR}/bin/aarch64-buildroot-linux-gnu-gcc
   ${BOOTLIN_INSTALL_DIR}/bin/aarch64-buildroot-linux-gnu-g++
 
 WSL binfmt:
   /proc/sys/fs/binfmt_misc/qemu-aarch64 should exist
-  Re-run if WSL resets it:
+  If WSL resets it:
     $0 --stage binfmt --force
 
 EOF

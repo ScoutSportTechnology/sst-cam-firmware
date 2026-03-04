@@ -20,7 +20,7 @@ get_filename_component(_CMAKE_DIR "${_TOOLCHAIN_DIR}" DIRECTORY)
 get_filename_component(_REPO_ROOT "${_CMAKE_DIR}" DIRECTORY)
 
 set(_SYSROOT "${_REPO_ROOT}/.cache/sysroot/jetson-r36.5")
-set(_BOOTLIN_BIN "${_REPO_ROOT}/.cache/toolchains/bootlin-jetson-r36/aarch64--glibc--stable-2022.08-1/bin")
+set(_BOOTLIN_BIN "${_REPO_ROOT}/.cache/toolchains/bootlin-jetson-r36/bin")
 
 if(NOT EXISTS "${_SYSROOT}")
   message(FATAL_ERROR

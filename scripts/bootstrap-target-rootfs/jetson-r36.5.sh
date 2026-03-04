@@ -205,6 +205,38 @@ stage_symlinks() {
 
   run_as_root mkdir -p "$usr_lib_dir" "$usr_multi_dir"
 
+  # ------------------------------------------------------------
+  # Bootlin triplet compatibility
+  # ------------------------------------------------------------
+  local trip_bootlin="aarch64-buildroot-linux-gnu"
+  local trip_ubuntu="aarch64-linux-gnu"
+
+  # /usr/lib/<bootlin-triplet> -> /usr/lib/<ubuntu-triplet>
+  run_as_root ln -sfn "$trip_ubuntu" "$sysroot/usr/lib/$trip_bootlin"
+
+  # /lib/<bootlin-triplet> -> /lib/<ubuntu-triplet> (if present)
+  if [[ -d "$sysroot/lib/$trip_ubuntu" || -L "$sysroot/lib/$trip_ubuntu" ]]; then
+    run_as_root mkdir -p "$sysroot/lib"
+    run_as_root ln -sfn "$trip_ubuntu" "$sysroot/lib/$trip_bootlin"
+  fi
+
+  # ------------------------------------------------------------
+  # Flat startfile symlinks (crt*.o) so ld finds them
+  # Some toolchains search $SYSROOT/usr/lib for crt objects.
+  # ------------------------------------------------------------
+  run_as_root bash -lc "
+    set -euo pipefail
+    sysroot='$sysroot'
+    src='$usr_multi_dir'
+    dst='$usr_lib_dir'
+
+    for f in crt1.o crti.o crtn.o Scrt1.o gcrt1.o grcrt1.o rcrt1.o; do
+      if [[ -e \"\$src/\$f\" ]]; then
+        ln -sfn \"aarch64-linux-gnu/\$f\" \"\$dst/\$f\"
+      fi
+    done
+  "
+
   # Remove only linker-name symlinks in /usr/lib (safe)
   run_as_root bash -lc "
     set -euo pipefail

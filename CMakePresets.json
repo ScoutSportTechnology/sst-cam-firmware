@@ -2,7 +2,7 @@
   "version": 5,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 22,
+    "minor": 24,
     "patch": 0
   },
   "configurePresets": [
@@ -34,7 +34,7 @@
       "hidden": true,
       "inherits": "base",
       "environment": {
-        "PATH": "${sourceDir}/.cache/toolchains/bootlin-jetson-r36/aarch64--glibc--stable-2022.08-1/bin:$env{HOME}/.local/bin:$penv{PATH}"
+        "PATH": "${sourceDir}/.cache/toolchains/bootlin-jetson-r36/bin:$env{HOME}/.local/bin:$penv{PATH}"
       },
       "cacheVariables": {
         "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/wsl-ubuntu",
