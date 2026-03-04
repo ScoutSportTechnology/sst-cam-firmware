@@ -12,11 +12,11 @@
 #include "adapters/config/writer/json/serde/_serde.hpp"  // IWYU pragma: keep
 #include "app/config/ports/config-reader.hpp"
 
-namespace sst::config::adapters {
+namespace sst::config {
 
 using nlohmann::json;
-using sst::config::ports::ConfigReturn;
-using sst::config::ports::IConfigFileReaderAdapter;
+using sst::config::ConfigReturn;
+using sst::config::IConfigFileReaderAdapter;
 template <typename T>
 class JsonReaderAdapter : public IConfigFileReaderAdapter<T> {
    public:
@@ -56,4 +56,4 @@ class JsonReaderAdapter : public IConfigFileReaderAdapter<T> {
     std::filesystem::path full_path_;
 };
 
-}  // namespace sst::config::adapters
+}  // namespace sst::config

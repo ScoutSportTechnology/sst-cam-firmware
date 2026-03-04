@@ -5,11 +5,11 @@
 #include "domain/config/models/storage.hpp"
 
 template <>
-struct fmt::formatter<sst::config::domain::StorageSectionData> {
+struct fmt::formatter<sst::config::StorageSectionData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::StorageSectionData& data, FormatContext& ctx) const {
+    auto format(const sst::config::StorageSectionData& data, FormatContext& ctx) const {
         const char* enabled;
         if (data.enabled) {
             enabled = *data.enabled ? "true" : "false";
@@ -30,11 +30,11 @@ struct fmt::formatter<sst::config::domain::StorageSectionData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::StorageData> {
+struct fmt::formatter<sst::config::StorageData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::StorageData& data, FormatContext& ctx) const {
+    auto format(const sst::config::StorageData& data, FormatContext& ctx) const {
         const auto recording = data.recording ? fmt::format("{}", *data.recording) : "null";
         const auto snapshots = data.snapshots ? fmt::format("{}", *data.snapshots) : "null";
         const auto logs = data.logs ? fmt::format("{}", *data.logs) : "null";

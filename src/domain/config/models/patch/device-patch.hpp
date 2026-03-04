@@ -2,7 +2,7 @@
 
 #include "domain/config/models/device.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto apply_patch(DeviceStaticIpData& modifiedData, const DeviceStaticIpData& defaultData)
     -> void {
@@ -146,4 +146,4 @@ inline auto apply_patch(DeviceData& modifiedData, const DeviceData& defaultData)
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

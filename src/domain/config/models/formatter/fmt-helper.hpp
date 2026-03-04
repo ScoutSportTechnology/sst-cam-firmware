@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto BoolOptToStr(const std::optional<bool>& values) -> const char* {
     if (!values) {
@@ -57,4 +57,4 @@ inline auto ObjOptToStr(const std::optional<T>& values) -> std::string {
     return fmt::format("{}", *values);
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

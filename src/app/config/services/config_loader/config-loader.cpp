@@ -16,13 +16,13 @@
 
 namespace sst::config::app {
 
-using sst::config::adapters::JsonReaderAdapter;
-using sst::config::adapters::JsonWriterAdapter;
-using sst::config::domain::CalibrationData;
-using sst::config::domain::DeviceData;
-using sst::config::domain::ProfileData;
-using sst::config::domain::StorageData;
-using sst::config::domain::StreamData;
+using sst::config::CalibrationData;
+using sst::config::DeviceData;
+using sst::config::JsonReaderAdapter;
+using sst::config::JsonWriterAdapter;
+using sst::config::ProfileData;
+using sst::config::StorageData;
+using sst::config::StreamData;
 
 template <typename T>
 static auto HasUser(const T& users, std::uint32_t user_id_to_search) -> bool {
@@ -73,18 +73,18 @@ static auto fail(std::string_view name, const R& configurationReference) -> bool
 ConfigLoader::ConfigLoader(std::string root_path, std::string file_type,
                            std::optional<std::uint32_t> user_id)
     : user_id_(user_id), root_path_(std::move(root_path)), file_type_(std::move(file_type)) {
-    using sst::config::adapters::JsonReaderAdapter;
-    using sst::config::adapters::JsonWriterAdapter;
+    using sst::config::JsonReaderAdapter;
+    using sst::config::JsonWriterAdapter;
     const std::string ext = file_type_;
     if (file_type_ == "json") {
         usersAdapter_ =
             std::make_unique<JsonReaderAdapter<UsersConfig>>(MakePath(root_path_, "users", ext));
-        profileAdapter_ =
-            std::make_unique<JsonReaderAdapter<ProfileConfig>>(MakePath(root_path_, "profile", ext));
+        profileAdapter_ = std::make_unique<JsonReaderAdapter<ProfileConfig>>(
+            MakePath(root_path_, "profile", ext));
         deviceAdapter_ =
             std::make_unique<JsonReaderAdapter<DeviceConfig>>(MakePath(root_path_, "device", ext));
-        storageAdapter_ =
-            std::make_unique<JsonReaderAdapter<StorageConfig>>(MakePath(root_path_, "storage", ext));
+        storageAdapter_ = std::make_unique<JsonReaderAdapter<StorageConfig>>(
+            MakePath(root_path_, "storage", ext));
         streamAdapter_ =
             std::make_unique<JsonReaderAdapter<StreamConfig>>(MakePath(root_path_, "stream", ext));
         calibrationAdapter_ = std::make_unique<JsonReaderAdapter<CalibrationConfig>>(

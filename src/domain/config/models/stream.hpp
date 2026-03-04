@@ -7,7 +7,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 struct StreamPlatformSettingsData {
     std::optional<std::uint32_t> width{std::nullopt};
@@ -36,4 +36,4 @@ struct StreamData {
 
 using StreamConfig = ConfigFiles<StreamData, StreamData>;
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

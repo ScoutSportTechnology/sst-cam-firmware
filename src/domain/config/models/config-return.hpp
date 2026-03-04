@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace sst::config::domain {
+namespace sst::config {
 
 template <typename T>
 struct ConfigReturn {
@@ -19,4 +19,4 @@ struct ConfigReturn {
     static auto fail() -> ConfigReturn { return ConfigReturn{}; }
 };
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

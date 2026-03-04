@@ -5,10 +5,10 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 struct UsersData {
     std::string name;
 };
 
 using UsersConfig = ConfigFiles<std::vector<UsersData>, UsersData>;
-}  // namespace sst::config::domain
+}  // namespace sst::config

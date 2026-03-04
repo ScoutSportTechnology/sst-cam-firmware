@@ -15,11 +15,11 @@ using GstBus = struct _GstBus;          // NOLINT(bugprone-reserved-identifier)
 using GstSample = struct _GstSample;    // NOLINT(bugprone-reserved-identifier)
 }
 
-namespace sst::capture::adapters {
+namespace sst::capture {
 
-using sst::capture::domain::Frame;
-using sst::capture::ports::ICaptureFrame;
-using sst::config::domain::ConfigData;
+using sst::capture::Frame;
+using sst::capture::ICaptureFrame;
+using sst::config::ConfigData;
 
 class GStreamerAdapter final : public ICaptureFrame {
    public:
@@ -49,7 +49,7 @@ class GStreamerAdapter final : public ICaptureFrame {
     auto CreatePipeline() -> std::string;
 
     mutable std::mutex last_frame_mtx_;
-    std::optional<sst::capture::domain::Frame> last_frame_;
+    std::optional<sst::capture::Frame> last_frame_;
 };
 
-}  // namespace sst::capture::adapters
+}  // namespace sst::capture

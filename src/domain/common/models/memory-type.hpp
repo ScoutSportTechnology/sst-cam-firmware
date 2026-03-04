@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace sst::common::domain {
+namespace sst::common {
 enum class MemoryType : std::uint8_t {
     CPU,
     GPU,

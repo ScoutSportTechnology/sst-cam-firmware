@@ -8,7 +8,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 struct CalibrationCameraData {
     std::optional<std::uint32_t> id{std::nullopt};
@@ -43,4 +43,4 @@ struct CalibrationData {
 
 using CalibrationConfig = ConfigFiles<CalibrationData, CalibrationData>;
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

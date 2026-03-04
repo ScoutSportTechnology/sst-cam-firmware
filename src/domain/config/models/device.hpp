@@ -5,7 +5,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 struct DeviceStaticIpData {
     std::optional<bool> enabled{std::nullopt};
@@ -62,4 +62,4 @@ struct DeviceData {
 
 using DeviceConfig = ConfigFiles<DeviceData, DeviceData>;
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

@@ -3,7 +3,7 @@
 
 #include "domain/config/models/calibration.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 using nlohmann::json;
 
@@ -85,4 +85,4 @@ inline void to_json(json& jsonObject, const CalibrationData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

@@ -2,7 +2,7 @@
 
 #include "domain/config/models/calibration.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto apply_patch(CalibrationCameraData& modifiedData,
                         const CalibrationCameraData& defaultData) -> void {
@@ -79,4 +79,4 @@ inline auto apply_patch(CalibrationData& modifiedData, const CalibrationData& de
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

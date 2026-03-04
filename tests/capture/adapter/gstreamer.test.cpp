@@ -1,3 +1,5 @@
+#include "adapters/capture/frame/gstreamer/gstreamer.hpp"
+
 #include <glib.h>
 #include <gst/gst.h>
 #include <gtest/gtest.h>
@@ -6,9 +8,7 @@
 #include <chrono>
 #include <filesystem>
 
-#include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
-
 
 namespace fs = std::filesystem;
 
@@ -21,16 +21,16 @@ auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
 TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     const fs::path root = RootDir();
     sst::config::app::ConfigLoader loader(root.string(), "json");
-    sst::config::domain::ConfigData cfg = loader.get();
+    sst::config::ConfigData cfg = loader.get();
 
     constexpr std::uint16_t camera_index = 0;
 
-    sst::capture::adapters::GStreamerAdapter adapter(cfg, camera_index);
+    sst::capture::GStreamerAdapter adapter(cfg, camera_index);
     adapter.Start();
     ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 
-    std::optional<sst::capture::domain::Frame> frame;
-    std::optional<sst::capture::domain::Frame> prev;
+    std::optional<sst::capture::Frame> frame;
+    std::optional<sst::capture::Frame> prev;
 
     constexpr int kMaxSeconds = 5;
 

@@ -2,7 +2,7 @@
 
 #include "domain/config/models/storage.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto apply_patch(StorageSectionData& modifiedData, const StorageSectionData& defaultData)
     -> void {
@@ -47,4 +47,4 @@ inline auto apply_patch(StorageData& modifiedData, const StorageData& defaultDat
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

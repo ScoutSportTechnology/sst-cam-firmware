@@ -6,12 +6,11 @@
 #include "domain/config/models/stream.hpp"
 
 template <>
-struct fmt::formatter<sst::config::domain::StreamPlatformSettingsData> {
+struct fmt::formatter<sst::config::StreamPlatformSettingsData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::StreamPlatformSettingsData& data,
-                FormatContext& ctx) const {
+    auto format(const sst::config::StreamPlatformSettingsData& data, FormatContext& ctx) const {
         const auto width = data.width ? fmt::format("{}", *data.width) : "null";
         const auto height = data.height ? fmt::format("{}", *data.height) : "null";
         const auto framerate = data.framerate ? fmt::format("{}", *data.framerate) : "null";
@@ -30,11 +29,11 @@ struct fmt::formatter<sst::config::domain::StreamPlatformSettingsData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::StreamPlatformData> {
+struct fmt::formatter<sst::config::StreamPlatformData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::StreamPlatformData& data, FormatContext& ctx) const {
+    auto format(const sst::config::StreamPlatformData& data, FormatContext& ctx) const {
         std::string enabled = "null";
         if (data.enabled) {
             enabled = *data.enabled ? "true" : "false";
@@ -60,11 +59,11 @@ struct fmt::formatter<sst::config::domain::StreamPlatformData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::StreamData> {
+struct fmt::formatter<sst::config::StreamData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::StreamData& data, FormatContext& ctx) const {
+    auto format(const sst::config::StreamData& data, FormatContext& ctx) const {
         const auto youtube = data.youtube ? fmt::format("{}", *data.youtube) : "null";
         const auto twitch = data.twitch ? fmt::format("{}", *data.twitch) : "null";
         const auto facebook = data.facebook ? fmt::format("{}", *data.facebook) : "null";

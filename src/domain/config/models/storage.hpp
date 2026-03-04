@@ -5,7 +5,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 struct StorageSectionData {
     std::optional<bool> enabled{std::nullopt};
@@ -22,4 +22,4 @@ struct StorageData {
 
 using StorageConfig = ConfigFiles<StorageData, StorageData>;
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

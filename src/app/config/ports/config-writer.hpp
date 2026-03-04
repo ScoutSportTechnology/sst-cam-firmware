@@ -2,9 +2,9 @@
 
 #include "domain/config/models/config-return.hpp"
 
-namespace sst::config::ports {
+namespace sst::config {
 
-using sst::config::domain::ConfigReturn;
+using sst::config::ConfigReturn;
 
 template <typename T>
 class IConfigFileWriterAdapter {
@@ -15,4 +15,4 @@ class IConfigFileWriterAdapter {
     virtual auto reset() -> ConfigReturn<T> = 0;
 };
 
-}  // namespace sst::config::ports
+}  // namespace sst::config

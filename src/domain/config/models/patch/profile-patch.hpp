@@ -2,7 +2,7 @@
 
 #include "domain/config/models/profile.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto apply_patch(ProfileData& modifiedData, const ProfileData& defaultData) -> void {
     if (defaultData.calibration) {
@@ -19,4 +19,4 @@ inline auto apply_patch(ProfileData& modifiedData, const ProfileData& defaultDat
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

@@ -6,12 +6,12 @@
 #include "fmt-helper.hpp"
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceStaticIpData> {
+struct fmt::formatter<sst::config::DeviceStaticIpData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceStaticIpData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::DeviceStaticIpData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceStaticIpData{{\n"
@@ -26,13 +26,13 @@ struct fmt::formatter<sst::config::domain::DeviceStaticIpData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiClientData> {
+struct fmt::formatter<sst::config::DeviceConnectivityWifiClientData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityWifiClientData& data,
+    auto format(const sst::config::DeviceConnectivityWifiClientData& data,
                 FormatContext& ctx) const {
-        using namespace sst::config::domain;
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityWifiClientData{{\n"
@@ -47,13 +47,13 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiClientData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiAccessPointData> {
+struct fmt::formatter<sst::config::DeviceConnectivityWifiAccessPointData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityWifiAccessPointData& data,
+    auto format(const sst::config::DeviceConnectivityWifiAccessPointData& data,
                 FormatContext& ctx) const {
-        using namespace sst::config::domain;
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityWifiAccessPointData{{\n"
@@ -67,13 +67,12 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiAccessPointData
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiData> {
+struct fmt::formatter<sst::config::DeviceConnectivityWifiData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityWifiData& data,
-                FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::DeviceConnectivityWifiData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityWifiData{{\n"
@@ -85,13 +84,12 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityWifiData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityEthernetData> {
+struct fmt::formatter<sst::config::DeviceConnectivityEthernetData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityEthernetData& data,
-                FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::DeviceConnectivityEthernetData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityEthernetData{{\n"
@@ -103,13 +101,13 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityEthernetData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityBluetoothData> {
+struct fmt::formatter<sst::config::DeviceConnectivityBluetoothData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityBluetoothData& data,
+    auto format(const sst::config::DeviceConnectivityBluetoothData& data,
                 FormatContext& ctx) const {
-        using namespace sst::config::domain;
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityBluetoothData{{\n"
@@ -123,12 +121,12 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityBluetoothData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceConnectivityData> {
+struct fmt::formatter<sst::config::DeviceConnectivityData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceConnectivityData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::DeviceConnectivityData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityData{{\n"
@@ -142,12 +140,12 @@ struct fmt::formatter<sst::config::domain::DeviceConnectivityData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::DeviceData> {
+struct fmt::formatter<sst::config::DeviceData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::DeviceData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::DeviceData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "DeviceData{{\n"

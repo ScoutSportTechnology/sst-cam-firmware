@@ -3,9 +3,9 @@
 
 #include "domain/config/models/calibration.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
-using nlohmann::json;
+    using nlohmann::json;
 
 inline void from_json(const json& jsonObject, CalibrationCameraData& values) {
     if (jsonObject.contains("id")) {
@@ -78,4 +78,4 @@ inline void from_json(const json& jsonObject, CalibrationData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

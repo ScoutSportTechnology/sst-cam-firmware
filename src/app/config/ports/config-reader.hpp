@@ -1,11 +1,10 @@
 #pragma once
 
-
 #include "domain/config/models/config-return.hpp"
 
-namespace sst::config::ports {
+namespace sst::config {
 
-using sst::config::domain::ConfigReturn;
+using sst::config::ConfigReturn;
 
 template <typename T>
 class IConfigFileReaderAdapter {
@@ -15,4 +14,4 @@ class IConfigFileReaderAdapter {
     virtual auto load() -> ConfigReturn<T> = 0;
 };
 
-}  // namespace sst::config::ports
+}  // namespace sst::config

@@ -3,7 +3,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 using nlohmann::json;
 
 template <typename UD>
@@ -22,4 +22,4 @@ inline void to_json(json& jsonObject, const ConfigFiles<DD, UD>& values) {
     };
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

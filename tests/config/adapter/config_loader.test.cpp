@@ -27,16 +27,16 @@ constexpr const char* kRootRel = "tests/config/config_files";
 
 auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
 
-auto MakeUsersConfig() -> sst::config::domain::UsersConfig {
-    using sst::config::domain::UsersConfig;
+auto MakeUsersConfig() -> sst::config::UsersConfig {
+    using sst::config::UsersConfig;
 
     UsersConfig userConfig;
     userConfig.users.push_back({.id = 1, .user_data = {"Alice"}});
     return userConfig;
 }
 
-auto MakeProfileConfig() -> sst::config::domain::ProfileConfig {
-    using sst::config::domain::ProfileConfig;
+auto MakeProfileConfig() -> sst::config::ProfileConfig {
+    using sst::config::ProfileConfig;
 
     ProfileConfig profileConfig;
     profileConfig.users.push_back({.id = 1,
@@ -50,9 +50,9 @@ auto MakeProfileConfig() -> sst::config::domain::ProfileConfig {
 }
 
 const char* DeviceChange = "EST";
-auto MakeDeviceConfig() -> sst::config::domain::DeviceConfig {
-    using sst::config::domain::DeviceConfig;
-    using sst::config::domain::DeviceData;
+auto MakeDeviceConfig() -> sst::config::DeviceConfig {
+    using sst::config::DeviceConfig;
+    using sst::config::DeviceData;
 
     DeviceData userData{.timezone = DeviceChange};
 
@@ -62,11 +62,11 @@ auto MakeDeviceConfig() -> sst::config::domain::DeviceConfig {
 }
 
 const char* CalibrationChange = "2024-06-01";
-auto MakeCalibrationConfig() -> sst::config::domain::CalibrationConfig {
-    using sst::config::domain::CalibrationCameraData;
-    using sst::config::domain::CalibrationConfig;
-    using sst::config::domain::CalibrationData;
-    using sst::config::domain::CalibrationDevicesData;
+auto MakeCalibrationConfig() -> sst::config::CalibrationConfig {
+    using sst::config::CalibrationCameraData;
+    using sst::config::CalibrationConfig;
+    using sst::config::CalibrationData;
+    using sst::config::CalibrationDevicesData;
 
     CalibrationConfig calibrationConfig;
     CalibrationCameraData cameraData{
@@ -82,10 +82,10 @@ auto MakeCalibrationConfig() -> sst::config::domain::CalibrationConfig {
 }
 
 const bool StorageChange = false;
-auto MakeStorageConfig() -> sst::config::domain::StorageConfig {
-    using sst::config::domain::StorageConfig;
-    using sst::config::domain::StorageData;
-    using sst::config::domain::StorageSectionData;
+auto MakeStorageConfig() -> sst::config::StorageConfig {
+    using sst::config::StorageConfig;
+    using sst::config::StorageData;
+    using sst::config::StorageSectionData;
 
     StorageConfig storageConfig;
     StorageSectionData logsData{.enabled = StorageChange};
@@ -96,10 +96,10 @@ auto MakeStorageConfig() -> sst::config::domain::StorageConfig {
 }
 
 const bool StreamChange = false;
-auto MakeStreamConfig() -> sst::config::domain::StreamConfig {
-    using sst::config::domain::StreamConfig;
-    using sst::config::domain::StreamData;
-    using sst::config::domain::StreamPlatformData;
+auto MakeStreamConfig() -> sst::config::StreamConfig {
+    using sst::config::StreamConfig;
+    using sst::config::StreamData;
+    using sst::config::StreamPlatformData;
 
     StreamConfig streamConfig;
     StreamPlatformData youtubeData{.enabled = StreamChange};
@@ -114,14 +114,14 @@ auto MakeStreamConfig() -> sst::config::domain::StreamConfig {
 class ConfigLoaderTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        using sst::config::adapters::JsonReaderAdapter;
-        using sst::config::adapters::JsonWriterAdapter;
-        using sst::config::domain::CalibrationConfig;
-        using sst::config::domain::DeviceConfig;
-        using sst::config::domain::ProfileConfig;
-        using sst::config::domain::StorageConfig;
-        using sst::config::domain::StreamConfig;
-        using sst::config::domain::UsersConfig;
+        using sst::config::CalibrationConfig;
+        using sst::config::DeviceConfig;
+        using sst::config::JsonReaderAdapter;
+        using sst::config::JsonWriterAdapter;
+        using sst::config::ProfileConfig;
+        using sst::config::StorageConfig;
+        using sst::config::StreamConfig;
+        using sst::config::UsersConfig;
 
         const fs::path root = RootDir();
 
@@ -148,8 +148,8 @@ class ConfigLoaderTest : public ::testing::Test {
         user_cfg_ = user_loader.get();
     }
 
-    sst::config::domain::ConfigData default_cfg_{};
-    sst::config::domain::ConfigData user_cfg_{};
+    sst::config::ConfigData default_cfg_{};
+    sst::config::ConfigData user_cfg_{};
 };
 
 TEST_F(ConfigLoaderTest, Defaults) {

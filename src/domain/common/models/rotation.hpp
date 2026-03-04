@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace sst::common::domain {
+namespace sst::common {
 enum class Rotation : std::uint8_t {
     DEGREE_0,
     DEGREE_90,

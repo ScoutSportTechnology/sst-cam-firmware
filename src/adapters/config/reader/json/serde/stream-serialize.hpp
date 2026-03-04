@@ -3,9 +3,9 @@
 
 #include "domain/config/models/stream.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
-using nlohmann::json;
+    using nlohmann::json;
 
 inline void to_json(json& jsonObject, const StreamPlatformSettingsData& values) {
     jsonObject = json::object();
@@ -70,4 +70,4 @@ inline void to_json(json& jsonObject, const StreamData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

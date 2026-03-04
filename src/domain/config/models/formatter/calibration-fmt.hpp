@@ -7,12 +7,12 @@
 #include "fmt-helper.hpp"
 
 template <>
-struct fmt::formatter<sst::config::domain::CalibrationCameraData> {
+struct fmt::formatter<sst::config::CalibrationCameraData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::CalibrationCameraData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::CalibrationCameraData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(
             ctx.out(),
@@ -39,13 +39,12 @@ struct fmt::formatter<sst::config::domain::CalibrationCameraData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::CalibrationMicrophoneData> {
+struct fmt::formatter<sst::config::CalibrationMicrophoneData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::CalibrationMicrophoneData& data,
-                FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::CalibrationMicrophoneData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "CalibrationMicrophoneData{{\n"
@@ -60,12 +59,12 @@ struct fmt::formatter<sst::config::domain::CalibrationMicrophoneData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::CalibrationDevicesData> {
+struct fmt::formatter<sst::config::CalibrationDevicesData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::CalibrationDevicesData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::CalibrationDevicesData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
                               "CalibrationDevicesData{{\n"
@@ -77,12 +76,12 @@ struct fmt::formatter<sst::config::domain::CalibrationDevicesData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::domain::CalibrationData> {
+struct fmt::formatter<sst::config::CalibrationData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::CalibrationData& data, FormatContext& ctx) const {
-        using namespace sst::config::domain;
+    auto format(const sst::config::CalibrationData& data, FormatContext& ctx) const {
+        using namespace sst::config;
 
         const auto devices = data.devices ? fmt::format("{}", *data.devices) : "null";
         return fmt::format_to(ctx.out(),

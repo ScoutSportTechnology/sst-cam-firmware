@@ -20,18 +20,18 @@
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device-model.hpp"
 
-namespace sst::capture::adapters {
-using sst::capture::domain::FrameGeometry;
-using sst::capture::domain::FramePlane;
-using sst::common::domain::MemoryType;
-using sst::common::domain::PixelFormat;
+namespace sst::capture {
+using sst::capture::FrameGeometry;
+using sst::capture::FramePlane;
+using sst::common::MemoryType;
+using sst::common::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
-using sst::config::domain::CalibrationCameraData;
-using sst::config::domain::CalibrationData;
-using sst::config::domain::CalibrationDevicesData;
-using sst::config::domain::DeviceModel;
-using sst::config::domain::FromString;
-using sst::config::domain::ToString;
+using sst::config::CalibrationCameraData;
+using sst::config::CalibrationData;
+using sst::config::CalibrationDevicesData;
+using sst::config::DeviceModel;
+using sst::config::FromString;
+using sst::config::ToString;
 
 GStreamerAdapter::GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index)
     : config_data_(config_data), camera_index_(camera_index) {
@@ -308,7 +308,7 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
     }
     std::vector<FramePlane> planes;
     planes.reserve(number_of_planes);
-    const gsize mapped_size = map->size;
+    const auto mapped_size = static_cast<gsize>(map->size);
     const auto* mapped_data = static_cast<const uint8_t*>(map->data);
     if (mapped_data == nullptr || mapped_size == 0) {
         gst_buffer_unmap(buf_ref, map.get());
@@ -316,8 +316,8 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
         return std::nullopt;
     }
     for (guint i = 0; i < number_of_planes; ++i) {
-        const guint stride = GST_VIDEO_INFO_PLANE_STRIDE(&info, i);
-        const gsize offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, i);
+        const auto stride = static_cast<guint>(GST_VIDEO_INFO_PLANE_STRIDE(&info, i));
+        const auto offset = static_cast<gsize>(GST_VIDEO_INFO_PLANE_OFFSET(&info, i));
         if (offset >= mapped_size) {
             gst_buffer_unmap(buf_ref, map.get());
             gst_buffer_unref(buf_ref);
@@ -325,7 +325,8 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
         }
         gsize current_plane_size = mapped_size;
         for (guint j = 0; j < number_of_planes; j++) {
-            const gsize current_plane_offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, j);
+            const auto current_plane_offset =
+                static_cast<gsize>(GST_VIDEO_INFO_PLANE_OFFSET(&info, j));
             if (current_plane_offset > offset && current_plane_offset < current_plane_size) {
                 current_plane_size = current_plane_offset;
             }
@@ -437,4 +438,4 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
     return fresh;
 }
 
-}  // namespace sst::capture::adapters
+}  // namespace sst::capture

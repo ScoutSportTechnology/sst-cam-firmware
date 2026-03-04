@@ -5,11 +5,11 @@
 #include "domain/config/models/profile.hpp"
 
 template <>
-struct fmt::formatter<sst::config::domain::ProfileData> {
+struct fmt::formatter<sst::config::ProfileData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::domain::ProfileData& data, FormatContext& ctx) const {
+    auto format(const sst::config::ProfileData& data, FormatContext& ctx) const {
         const char* calibration = "null";
         if (data.calibration) {
             calibration = *data.calibration ? "true" : "false";

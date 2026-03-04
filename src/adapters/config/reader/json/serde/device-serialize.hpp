@@ -3,7 +3,7 @@
 
 #include "domain/config/models/device.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 using nlohmann::json;
 
 inline void to_json(json& jsonObject, const DeviceStaticIpData& values) {
@@ -133,4 +133,4 @@ inline void to_json(json& jsonObject, const DeviceData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

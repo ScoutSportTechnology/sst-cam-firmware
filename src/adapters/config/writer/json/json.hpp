@@ -13,13 +13,12 @@
 #include "app/config/ports/config-reader.hpp"
 #include "app/config/ports/config-writer.hpp"
 
-
-namespace sst::config::adapters {
+namespace sst::config {
 
 using nlohmann::json;
-using sst::config::ports::ConfigReturn;
-using sst::config::ports::IConfigFileReaderAdapter;
-using sst::config::ports::IConfigFileWriterAdapter;
+using sst::config::ConfigReturn;
+using sst::config::IConfigFileReaderAdapter;
+using sst::config::IConfigFileWriterAdapter;
 
 template <typename T>
 class JsonWriterAdapter : public IConfigFileWriterAdapter<T> {
@@ -90,4 +89,4 @@ class JsonWriterAdapter : public IConfigFileWriterAdapter<T> {
     std::filesystem::path full_path_;
 };
 
-}  // namespace sst::config::adapters
+}  // namespace sst::config

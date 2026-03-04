@@ -4,7 +4,7 @@
 
 #include "domain/config/models/config-files.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 struct ProfileData {
     std::optional<bool> calibration{std::nullopt};
@@ -15,4 +15,4 @@ struct ProfileData {
 
 using ProfileConfig = ConfigFiles<ProfileData, ProfileData>;
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

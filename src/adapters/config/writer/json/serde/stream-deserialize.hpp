@@ -3,7 +3,7 @@
 
 #include "domain/config/models/stream.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 using nlohmann::json;
 
@@ -64,4 +64,4 @@ inline void from_json(const json& jsonObject, StreamData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

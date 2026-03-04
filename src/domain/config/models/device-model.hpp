@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace sst::config::domain {
+namespace sst::config {
 enum class DeviceModel : std::uint8_t { UNKNOWN, V1, V2, V3 };
 inline auto FromString(std::string_view model_str) -> DeviceModel {
     if (model_str == "sst_cam_v1" || model_str == "sst-cam-v1" || model_str == "SST-CAM-V1" ||
@@ -32,4 +32,4 @@ inline auto ToString(DeviceModel model) -> std::string {
             return "unknown";
     }
 }
-}  // namespace sst::config::domain
+}  // namespace sst::config

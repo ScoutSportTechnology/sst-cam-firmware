@@ -3,7 +3,7 @@
 
 #include "domain/config/models/storage.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 using nlohmann::json;
 
@@ -34,4 +34,4 @@ inline void from_json(const json& jsonObject, StorageData& values) {
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

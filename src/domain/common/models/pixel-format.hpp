@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace sst::common::domain {
+namespace sst::common {
 enum class PixelFormat : std::uint8_t {
     UNKNOWN,
     NV12,
@@ -68,4 +68,4 @@ inline auto ToString(PixelFormat format) -> std::string {
             return "UNKNOWN";
     }
 }
-}  // namespace sst::common::domain
+}  // namespace sst::common

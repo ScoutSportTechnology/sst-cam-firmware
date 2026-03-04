@@ -2,7 +2,7 @@
 
 #include "domain/config/models/stream.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 
 inline auto apply_patch(StreamPlatformSettingsData& modifiedData,
                         const StreamPlatformSettingsData& defaultData) -> void {
@@ -86,4 +86,4 @@ inline auto apply_patch(StreamData& modifiedData, const StreamData& defaultData)
     }
 }
 
-}  // namespace sst::config::domain
+}  // namespace sst::config

@@ -5,10 +5,10 @@
 #include "domain/capture/models/frame.hpp"
 #include "domain/config/models/config-data.hpp"
 
-namespace sst::capture::ports {
+namespace sst::capture {
 
-using sst::capture::domain::Frame;
-using sst::config::domain::ConfigData;
+using sst::capture::Frame;
+using sst::config::ConfigData;
 
 class ICaptureFrame {
    public:
@@ -24,4 +24,4 @@ class ICaptureFrame {
     virtual auto Capture() -> std::optional<Frame> = 0;
 };
 
-}  // namespace sst::capture::ports
+}  // namespace sst::capture

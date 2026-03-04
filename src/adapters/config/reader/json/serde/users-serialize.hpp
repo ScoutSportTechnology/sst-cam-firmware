@@ -3,11 +3,11 @@
 
 #include "domain/config/models/users.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 using nlohmann::json;
 inline void to_json(json& jsonObject, const UsersData& values) {
     jsonObject = json{
         {"name", values.name},
     };
 }
-}  // namespace sst::config::domain
+}  // namespace sst::config

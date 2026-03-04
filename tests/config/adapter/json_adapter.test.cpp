@@ -1,12 +1,11 @@
-#include "adapters/config/reader/json/json.hpp"
-#include "adapters/config/writer/json/json.hpp"
-
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
 #include <string>
 
+#include "adapters/config/reader/json/json.hpp"
+#include "adapters/config/writer/json/json.hpp"
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device.hpp"
 #include "domain/config/models/profile.hpp"
@@ -15,11 +14,11 @@
 #include "domain/config/models/users.hpp"
 
 namespace fs = std::filesystem;
-using sst::config::ports::ConfigReturn;
+using sst::config::ConfigReturn;
 
 namespace test::utils {
-using sst::config::adapters::JsonReaderAdapter;
-using sst::config::adapters::JsonWriterAdapter;
+using sst::config::JsonReaderAdapter;
+using sst::config::JsonWriterAdapter;
 
 template <typename T>
 auto load_config(const std::string& path_str) -> ConfigReturn<T> {
@@ -51,7 +50,7 @@ auto log_object(const T& obj, std::string_view label = "Object") -> void {
 }  // namespace test::utils
 
 struct UsersCase {
-    using Config = sst::config::domain::UsersConfig;
+    using Config = sst::config::UsersConfig;
     static constexpr std::string_view label = "UsersConfig";
     static constexpr const char* path = "tests/config/config_files/users.json";
     static auto Make() -> Config {
@@ -63,7 +62,7 @@ struct UsersCase {
 };
 
 struct ProfileCase {
-    using Config = sst::config::domain::ProfileConfig;
+    using Config = sst::config::ProfileConfig;
     static constexpr std::string_view label = "ProfileConfig";
     static constexpr const char* path = "tests/config/config_files/profile.json";
     static auto Make() -> Config {
@@ -80,8 +79,8 @@ struct ProfileCase {
 };
 
 struct DeviceCase {
-    using Config = sst::config::domain::DeviceConfig;
-    using Data = sst::config::domain::DeviceData;
+    using Config = sst::config::DeviceConfig;
+    using Data = sst::config::DeviceData;
     static constexpr std::string_view label = "DeviceConfig";
     static constexpr const char* path = "tests/config/config_files/device.json";
     static auto Make() -> Config {
@@ -93,13 +92,13 @@ struct DeviceCase {
 };
 
 struct CalibrationCase {
-    using Config = sst::config::domain::CalibrationConfig;
+    using Config = sst::config::CalibrationConfig;
     static constexpr std::string_view label = "CalibrationConfig";
     static constexpr const char* path = "tests/config/config_files/calibration.json";
     static auto Make() -> Config {
-        using sst::config::domain::CalibrationCameraData;
-        using sst::config::domain::CalibrationData;
-        using sst::config::domain::CalibrationDevicesData;
+        using sst::config::CalibrationCameraData;
+        using sst::config::CalibrationData;
+        using sst::config::CalibrationDevicesData;
 
         Config calibrationConfig;
         CalibrationCameraData cameraData{
@@ -116,12 +115,12 @@ struct CalibrationCase {
 };
 
 struct StorageCase {
-    using Config = sst::config::domain::StorageConfig;
+    using Config = sst::config::StorageConfig;
     static constexpr std::string_view label = "StorageConfig";
     static constexpr const char* path = "tests/config/config_files/storage.json";
     static auto Make() -> Config {
-        using sst::config::domain::StorageData;
-        using sst::config::domain::StorageSectionData;
+        using sst::config::StorageData;
+        using sst::config::StorageSectionData;
 
         Config storageConfig;
         StorageSectionData logsData{.enabled = false};
@@ -133,12 +132,12 @@ struct StorageCase {
 };
 
 struct StreamCase {
-    using Config = sst::config::domain::StreamConfig;
+    using Config = sst::config::StreamConfig;
     static constexpr std::string_view label = "StreamConfig";
     static constexpr const char* path = "tests/config/config_files/stream.json";
     static auto Make() -> Config {
-        using sst::config::domain::StreamData;
-        using sst::config::domain::StreamPlatformData;
+        using sst::config::StreamData;
+        using sst::config::StreamPlatformData;
 
         Config streamConfig;
         StreamPlatformData youtubeData{.enabled = false};

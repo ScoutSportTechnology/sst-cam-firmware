@@ -16,16 +16,16 @@
 
 namespace sst::config::app {
 
-using sst::config::domain::CalibrationConfig;
-using sst::config::domain::ConfigData;
-using sst::config::domain::DeviceConfig;
-using sst::config::domain::ProfileConfig;
-using sst::config::domain::StorageConfig;
-using sst::config::domain::StreamConfig;
-using sst::config::domain::UsersConfig;
+using sst::config::CalibrationConfig;
+using sst::config::ConfigData;
+using sst::config::DeviceConfig;
+using sst::config::ProfileConfig;
+using sst::config::StorageConfig;
+using sst::config::StreamConfig;
+using sst::config::UsersConfig;
 
-using sst::config::ports::IConfigFileReaderAdapter;
-//using sst::config::ports::IConfigFileWriterAdapter;
+using sst::config::IConfigFileReaderAdapter;
+// using sst::config::IConfigFileWriterAdapter;
 
 class ConfigLoader {
    public:

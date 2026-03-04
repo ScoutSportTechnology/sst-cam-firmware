@@ -5,11 +5,11 @@
 #include "domain/config/models/storage.hpp"
 #include "domain/config/models/stream.hpp"
 
-namespace sst::config::domain {
+namespace sst::config {
 struct ConfigData {
-    sst::config::domain::CalibrationData calibration;
-    sst::config::domain::DeviceData device;
-    sst::config::domain::StorageData storage;
-    sst::config::domain::StreamData stream;
+    sst::config::CalibrationData calibration;
+    sst::config::DeviceData device;
+    sst::config::StorageData storage;
+    sst::config::StreamData stream;
 };
-}  // namespace sst::config::domain
+}  // namespace sst::config
