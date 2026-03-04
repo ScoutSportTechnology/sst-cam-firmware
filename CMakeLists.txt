@@ -58,10 +58,12 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     PkgConfig::GSTREAMER_VIDEO
 )
 
-pkg_search_module(OPENCV REQUIRED IMPORTED_TARGET opencv4)
+target_include_directories(sst_cam_firmware_external_libs INTERFACE
+  "${CMAKE_SYSROOT}/usr/include/opencv4"
+)
 
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-    PkgConfig::OPENCV
+  opencv_core opencv_imgproc opencv_imgcodecs opencv_videoio
 )
 
 # ============================================================
