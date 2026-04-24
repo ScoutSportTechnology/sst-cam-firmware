@@ -2,6 +2,8 @@
 
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "app/db/services/db_manager/db-manager.hpp"
+#include "app/db/services/db_seeder/db-seeder.hpp"
+#include "domain/config/models/device-model.hpp"
 
 // ============================================================
 // Runtime paths — adjust per deployment environment
@@ -20,17 +22,30 @@ auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
+    // Config module: static device info + initial calibration seeds only
+    constexpr std::uint32_t kAdminUserId = 1;
+    sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat,
+                                          kAdminUserId);
+    auto cfg = config.get();
+
     // Database
     sst::db::DbManager db({
         .db_path = sst::paths::kDbFile,
         .schema_path = sst::paths::kDbSchema,
     });
 
-    // Config (user_id = 1 = admin, seeded by 001_defaults.sql)
-    constexpr std::uint32_t kAdminUserId = 1;
-    sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat,
-                                          kAdminUserId);
-    [[maybe_unused]] auto cfg = config.get();
+    // Seed DB from config on first boot (idempotent)
+    sst::db::DbSeeder::seedIfEmpty(db, cfg);
+
+    // Device model — stays in config module (device info)
+    sst::config::DeviceModel device_model = sst::config::DeviceModel::UNKNOWN;
+    if (cfg.device.model) {
+        device_model = sst::config::FromString(*cfg.device.model);
+    }
+
+    // Camera settings — from DB from here on
+    [[maybe_unused]] auto camera0_cfg = db.cameras().getConfig(kAdminUserId);
+    // sst::capture::GStreamerAdapter cam0(camera0_cfg.data, device_model, 0);
 
     spdlog::info("startup complete");
     return 0;

@@ -17,71 +17,64 @@
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/utils/get-timestamp.hpp"
-#include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device-model.hpp"
+#include "domain/db/models/camera.hpp"
 
 namespace sst::capture {
-using sst::capture::FrameGeometry;
-using sst::capture::FramePlane;
+
 using sst::common::MemoryType;
 using sst::common::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
-using sst::config::CalibrationCameraData;
-using sst::config::CalibrationData;
-using sst::config::CalibrationDevicesData;
 using sst::config::DeviceModel;
-using sst::config::FromString;
 using sst::config::ToString;
+using sst::db::CameraConfig;
+using sst::db::CameraFormat;
 
-GStreamerAdapter::GStreamerAdapter(const ConfigData& config_data, std::uint16_t camera_index)
-    : config_data_(config_data), camera_index_(camera_index) {
+namespace {
+
+auto cameraFormatToGstString(CameraFormat fmt) -> std::string {
+    switch (fmt) {
+        case CameraFormat::kYUV422:
+            return sst::common::ToString(PixelFormat::YUYV);
+        case CameraFormat::kNV12:
+            return sst::common::ToString(PixelFormat::NV12);
+        case CameraFormat::kI420:
+            return sst::common::ToString(PixelFormat::I420);
+        case CameraFormat::kRGB8:
+            return sst::common::ToString(PixelFormat::RGB8);
+        case CameraFormat::kBGR8:
+            return sst::common::ToString(PixelFormat::BGR8);
+        case CameraFormat::kRGBA8:
+            return sst::common::ToString(PixelFormat::RGBA8);
+        case CameraFormat::kBGRA8:
+            return sst::common::ToString(PixelFormat::BGRA8);
+        case CameraFormat::kGRAY8:
+            return sst::common::ToString(PixelFormat::GRAY8);
+        default:
+            return sst::common::ToString(PixelFormat::NV12);
+    }
+}
+
+}  // namespace
+
+GStreamerAdapter::GStreamerAdapter(const CameraConfig& camera_config, DeviceModel device_model,
+                                   std::uint16_t camera_index)
+    : camera_config_(camera_config),
+      device_model_(device_model),
+      camera_index_(camera_index) {
     gst_init(nullptr, nullptr);
 }
 
 auto GStreamerAdapter::CreatePipeline() -> std::string {
-    CalibrationData calibration = config_data_.calibration;
-    if (!calibration.devices) {
-        spdlog::error("GStreamerAdapter: missing calibration.devices");
-        return "";
-    }
-
-    const CalibrationDevicesData devices = *calibration.devices;
-    if (!devices.camera) {
-        spdlog::error("GStreamerAdapter: missing calibration.devices.camera");
-        return "";
-    }
-
-    const std::vector<CalibrationCameraData>& cameras = *devices.camera;
-
-    const CalibrationCameraData* camera = nullptr;
-    for (const auto& cam : cameras) {
-        if (cam.id && *cam.id == camera_index_) {
-            camera = &cam;
-            break;
-        }
-    }
-    if (camera == nullptr) {
-        spdlog::error("GStreamerAdapter: camera index {} not found in calibration", camera_index_);
-        return "";
-    }
-
-    DeviceModel model = DeviceModel::UNKNOWN;
-    if (config_data_.device.model) {
-        model = FromString(*config_data_.device.model);
-    }
-
-    constexpr int kDefaultWidth = 1920;
-    constexpr int kDefaultHeight = 1080;
-    constexpr int kDefaultFps = 60;
-
     const std::string device_index = std::to_string(camera_index_);
-    std::string width = std::to_string(camera->width.value_or(kDefaultWidth));
-    std::string height = std::to_string(camera->height.value_or(kDefaultHeight));
-    std::string fps = std::to_string(camera->fps.value_or(kDefaultFps));
-    std::string format = camera->format.value_or(ToString(PixelFormat::NV12));
+    const std::string width = std::to_string(camera_config_.width);
+    const std::string height = std::to_string(camera_config_.height);
+    const std::string fps = std::to_string(camera_config_.fps);
+    const std::string format = cameraFormatToGstString(camera_config_.format);
+
     std::string gst_pipeline;
 
-    switch (model) {
+    switch (device_model_) {
         case DeviceModel::V1:
             gst_pipeline = "sst_cam_v1";  // placeholder
             break;
@@ -90,10 +83,6 @@ auto GStreamerAdapter::CreatePipeline() -> std::string {
             break;
         case DeviceModel::UNKNOWN:
         default:
-            width = std::to_string(kDefaultWidth);
-            height = std::to_string(kDefaultHeight);
-            fps = std::to_string(kDefaultFps);
-            format = ToString(PixelFormat::NV12);
             gst_pipeline = "mfvideosrc device-index=" + device_index +
                            " ! video/x-raw,width=" + width + ",height=" + height +
                            ",framerate=" + fps +
@@ -104,9 +93,9 @@ auto GStreamerAdapter::CreatePipeline() -> std::string {
             break;
     }
 
-    spdlog::info("GStreamerAdapter: starting camera index={} model={} format={} {}x{}@{}fps",
-                 device_index, ToString(model), format, width, height, fps);
-    spdlog::info("GStreamerAdapter: pipeline string: {}", gst_pipeline);
+    spdlog::info("GStreamerAdapter: camera={} model={} format={} {}x{}@{}fps", device_index,
+                 ToString(device_model_), format, width, height, fps);
+    spdlog::info("GStreamerAdapter: pipeline: {}", gst_pipeline);
 
     return gst_pipeline;
 }
@@ -308,7 +297,7 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
     }
     std::vector<FramePlane> planes;
     planes.reserve(number_of_planes);
-    const auto mapped_size = static_cast<gsize>(map->size);
+    const gsize mapped_size = map->size;
     const auto* mapped_data = static_cast<const uint8_t*>(map->data);
     if (mapped_data == nullptr || mapped_size == 0) {
         gst_buffer_unmap(buf_ref, map.get());
@@ -317,7 +306,7 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
     }
     for (guint i = 0; i < number_of_planes; ++i) {
         const auto stride = static_cast<guint>(GST_VIDEO_INFO_PLANE_STRIDE(&info, i));
-        const auto offset = static_cast<gsize>(GST_VIDEO_INFO_PLANE_OFFSET(&info, i));
+        const gsize offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, i);
         if (offset >= mapped_size) {
             gst_buffer_unmap(buf_ref, map.get());
             gst_buffer_unref(buf_ref);
@@ -325,8 +314,7 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
         }
         gsize current_plane_size = mapped_size;
         for (guint j = 0; j < number_of_planes; j++) {
-            const auto current_plane_offset =
-                static_cast<gsize>(GST_VIDEO_INFO_PLANE_OFFSET(&info, j));
+            const gsize current_plane_offset = GST_VIDEO_INFO_PLANE_OFFSET(&info, j);
             if (current_plane_offset > offset && current_plane_offset < current_plane_size) {
                 current_plane_size = current_plane_offset;
             }
@@ -420,7 +408,7 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
 
     if (last == nullptr) {
         std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
-        return last_frame_ ? std::optional<Frame>(*last_frame_) : std::nullopt;
+        return last_frame_;
     }
 
     auto sample =
@@ -428,7 +416,7 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
     auto fresh = CreateFrameFromSample(sample.get());
     if (!fresh) {
         std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
-        return last_frame_ ? std::optional<Frame>(*last_frame_) : std::nullopt;
+        return last_frame_;
     }
 
     {

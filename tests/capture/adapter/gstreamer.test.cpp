@@ -9,6 +9,8 @@
 #include <filesystem>
 
 #include "app/config/services/config_loader/config-loader.hpp"
+#include "domain/config/models/device-model.hpp"
+#include "domain/db/models/camera.hpp"
 
 namespace fs = std::filesystem;
 
@@ -19,13 +21,21 @@ auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
 }  // namespace
 
 TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
+    // Device model comes from config module (device info)
     const fs::path root = RootDir();
     sst::config::app::ConfigLoader loader(root.string(), "json");
     sst::config::ConfigData cfg = loader.get();
+    sst::config::DeviceModel model = sst::config::DeviceModel::UNKNOWN;
+    if (cfg.device.model) {
+        model = sst::config::FromString(*cfg.device.model);
+    }
+
+    // Camera settings come from DB (use defaults for test)
+    sst::db::CameraConfig camera_cfg;
 
     constexpr std::uint16_t camera_index = 0;
 
-    sst::capture::GStreamerAdapter adapter(cfg, camera_index);
+    sst::capture::GStreamerAdapter adapter(camera_cfg, model, camera_index);
     adapter.Start();
     ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 
