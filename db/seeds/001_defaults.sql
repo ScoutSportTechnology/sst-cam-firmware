@@ -1,203 +1,152 @@
--- =============================================================================
--- SST CAM FIRMWARE - DEFAULT SEED DATA
--- Run once on fresh install only
--- =============================================================================
+BEGIN TRANSACTION;
 
--- Default admin user (password should be changed on first boot)
-INSERT
-    OR IGNORE INTO users (username, password_hash, role)
-VALUES (
-        'admin',
-        'CHANGE_ON_FIRST_BOOT',
-        'admin'
-    );
+-- User
+INSERT INTO "users" ("username") VALUES ('admin');
 
--- Device config
-INSERT
-    OR IGNORE INTO device_config (key, value)
-VALUES ('name', 'sst-cam'),
-    (
-        'manufacturer',
-        'Scout Sport Technology'
-    ),
-    ('model', 'sst-cam-v2'),
-    ('serial_number', '00000001'),
-    ('version', '1.0.0'),
-    ('timezone', 'UTC'),
-    ('timestamp_mode', 'monotonic');
-
--- Network interfaces
-INSERT
-    OR IGNORE INTO network_config (interface, enabled, config)
-VALUES (
-        'bluetooth',
-        1,
-        '{"name":"sst-cam","password":"123456"}'
-    ),
-    (
-        'wifi_ap',
-        0,
-        '{"ssid":"sst-cam","password":"123456"}'
-    ),
-    (
-        'wifi_client',
-        0,
-        '{"ssid":"","password":"","static_ip":{"enabled":false,"ip":"","subnet":"","gateway":""}}'
-    ),
-    (
-        'ethernet',
-        0,
-        '{"static_ip":{"enabled":false,"ip":"","subnet":"","gateway":""}}'
-    );
-
--- Camera calibration defaults (2 cameras)
-INSERT
-    OR IGNORE INTO camera_calibration (
-        camera_id,
-        exposure,
-        gain,
-        white_balance,
-        focus,
-        width,
-        height,
-        format,
-        fps,
-        intrinsic_matrix,
-        distortion_coefficients
+-- Device info
+INSERT INTO
+    "device_info" (
+        "model",
+        "name",
+        "timezone",
+        "version"
     )
 VALUES (
-        0,
-        100,
-        1.0,
-        'auto',
-        'auto',
-        1920,
-        1080,
-        'YUV422',
-        60,
-        '[1000.0,0.0,960.0,0.0,1000.0,540.0,0.0,0.0,1.0]',
-        '[0.10,-0.05,0.00,0.00,0.00]'
-    ),
-    (
-        1,
-        100,
-        1.0,
-        'auto',
-        'auto',
-        1920,
-        1080,
-        'YUV422',
-        60,
-        '[1000.0,0.0,960.0,0.0,1000.0,540.0,0.0,0.0,1.0]',
-        '[0.10,-0.05,0.00,0.00,0.00]'
+        'sst-cam-v2',
+        'sst-cam',
+        'UTC',
+        '1.0.0'
     );
 
--- Microphone calibration defaults (2 mics)
-INSERT
-    OR IGNORE INTO microphone_calibration (
-        mic_id,
-        noise_reduction,
-        sensitivity
+-- Network (all disabled by default)
+INSERT INTO
+    "config_client" (
+        "user_id",
+        "enabled",
+        "medium",
+        "static_ip"
     )
-VALUES (0, 1, 1.0),
-    (1, 1, 1.0);
+VALUES (1, false, 0, false);
+
+INSERT INTO
+    "config_access_point" (
+        "user_id",
+        "enabled",
+        "medium",
+        "ssid",
+        "wifi_password",
+        "static_ip"
+    )
+VALUES (
+        1,
+        false,
+        0,
+        'sst-cam',
+        '123456',
+        false
+    );
+
+INSERT INTO
+    "config_bluetooth" (
+        "user_id",
+        "enabled",
+        "name",
+        "password"
+    )
+VALUES (1, true, 'sst-cam', '123456');
 
 -- Storage config
-INSERT
-    OR IGNORE INTO storage_config (type, enabled, format, path)
+INSERT INTO
+    "storage_config" (
+        "user_id",
+        "type",
+        "enabled",
+        "format",
+        "path"
+    )
 VALUES (
-        'logs',
         1,
-        'txt',
+        0,
+        true,
+        0,
         '/var/log/sst/cam/'
     ),
     (
-        'recording',
         1,
-        'mp4',
+        1,
+        true,
+        1,
         '/var/lib/sst/cam/videos/'
     ),
     (
-        'snapshots',
         1,
-        'jpg',
+        2,
+        true,
+        2,
         '/var/lib/sst/cam/snapshots/'
     ),
     (
-        'thumbnails',
         1,
-        'jpg',
+        3,
+        true,
+        2,
         '/var/lib/sst/cam/thumbnails/'
     );
 
--- Stream platform presets
-INSERT
-    OR IGNORE INTO stream_platform_config (
-        platform,
-        enabled,
-        stream_type,
-        url,
-        codec,
-        width,
-        height,
-        framerate,
-        bitrate_kbps
+-- Camera calibration defaults
+INSERT INTO
+    "camera_calibration" (
+        "camera_id",
+        "exposure",
+        "gain",
+        "white_balance",
+        "focus",
+        "width",
+        "height",
+        "format",
+        "fps",
+        "intrinsic_matrix",
+        "distortion_coefficients"
     )
 VALUES (
-        'youtube',
         0,
-        'rtmp',
-        'rtmp://a.rtmp.youtube.com/live2',
-        'h264',
+        100,
+        1.0,
+        0,
+        0,
         1920,
         1080,
+        0,
         60,
-        4000
+        jsonb (
+            '[1000.0,0.0,960.0,0.0,1000.0,540.0,0.0,0.0,1.0]'
+        ),
+        jsonb ('[0.10,-0.05,0.00,0.00,0.00]')
     ),
     (
-        'twitch',
+        1,
+        100,
+        1.0,
         0,
-        'rtmp',
-        'rtmp://live.twitch.tv/app',
-        'h264',
+        0,
         1920,
         1080,
-        60,
-        4000
-    ),
-    (
-        'facebook',
         0,
-        'rtmps',
-        'rtmps://live-api-s.facebook.com:443/rtmp/',
-        'h264',
-        1920,
-        1080,
         60,
-        4000
-    ),
-    (
-        'instagram',
-        0,
-        'rtmp',
-        'rtmp://live.instagram.com:443/rtmp/',
-        'h264',
-        1920,
-        1080,
-        60,
-        4000
-    ),
-    (
-        'tik_tok',
-        0,
-        'rtmp',
-        'rtmp://live-api.tiktok.com/live',
-        'h264',
-        1920,
-        1080,
-        60,
-        4000
+        jsonb (
+            '[1000.0,0.0,960.0,0.0,1000.0,540.0,0.0,0.0,1.0]'
+        ),
+        jsonb ('[0.10,-0.05,0.00,0.00,0.00]')
     );
 
--- Default sport
-INSERT OR IGNORE INTO sports (name) VALUES ('soccer');
+-- Microphone calibration defaults
+INSERT INTO
+    "microphone_calibration" (
+        "mic_id",
+        "noise_reduction",
+        "sensitivity"
+    )
+VALUES (0, true, 1.0),
+    (1, true, 1.0);
+
+COMMIT;

@@ -8,10 +8,6 @@
 #include "adapters/config/writer/json/json.hpp"
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/device.hpp"
-#include "domain/config/models/profile.hpp"
-#include "domain/config/models/storage.hpp"
-#include "domain/config/models/stream.hpp"
-#include "domain/config/models/users.hpp"
 
 namespace fs = std::filesystem;
 using sst::config::ConfigReturn;
@@ -49,35 +45,6 @@ auto log_object(const T& obj, std::string_view label = "Object") -> void {
 }
 }  // namespace test::utils
 
-struct UsersCase {
-    using Config = sst::config::UsersConfig;
-    static constexpr std::string_view label = "UsersConfig";
-    static constexpr const char* path = "tests/config/config_files/users.json";
-    static auto Make() -> Config {
-        Config userConfig;
-        userConfig.users.push_back({1, {"Alice"}});
-        userConfig.users.push_back({2, {"Bob"}});
-        return userConfig;
-    }
-};
-
-struct ProfileCase {
-    using Config = sst::config::ProfileConfig;
-    static constexpr std::string_view label = "ProfileConfig";
-    static constexpr const char* path = "tests/config/config_files/profile.json";
-    static auto Make() -> Config {
-        Config profileConfig;
-        profileConfig.users.push_back({1,
-                                       {
-                                           .calibration = false,
-                                           .device = false,
-                                           .stream = false,
-                                           .storage = true,
-                                       }});
-        return profileConfig;
-    }
-};
-
 struct DeviceCase {
     using Config = sst::config::DeviceConfig;
     using Data = sst::config::DeviceData;
@@ -96,60 +63,25 @@ struct CalibrationCase {
     static constexpr std::string_view label = "CalibrationConfig";
     static constexpr const char* path = "tests/config/config_files/calibration.json";
     static auto Make() -> Config {
-        using sst::config::CalibrationCameraData;
+        using sst::config::CalibrationCameraDeviceData;
+        using sst::config::CalibrationCamerasData;
         using sst::config::CalibrationData;
-        using sst::config::CalibrationDevicesData;
 
         Config calibrationConfig;
-        CalibrationCameraData cameraData{
+        CalibrationCameraDeviceData cameraDeviceData{
+            .id = 0,
             .last_calibration_date = "2024-05-05",
         };
-        CalibrationDevicesData devicesData{.camera = std::vector<CalibrationCameraData>{cameraData},
-                                           .microphone = {}};
-
-        CalibrationData userData{.devices = devicesData};
-
+        CalibrationCamerasData camerasData{
+            .device = std::vector<CalibrationCameraDeviceData>{cameraDeviceData},
+        };
+        CalibrationData userData{.cameras = camerasData};
         calibrationConfig.users.push_back({.id = 2, .user_data = userData});
         return calibrationConfig;
     }
 };
 
-struct StorageCase {
-    using Config = sst::config::StorageConfig;
-    static constexpr std::string_view label = "StorageConfig";
-    static constexpr const char* path = "tests/config/config_files/storage.json";
-    static auto Make() -> Config {
-        using sst::config::StorageData;
-        using sst::config::StorageSectionData;
-
-        Config storageConfig;
-        StorageSectionData logsData{.enabled = false};
-        StorageData userData{.logs = logsData};
-
-        storageConfig.users.push_back({.id = 1, .user_data = userData});
-        return storageConfig;
-    }
-};
-
-struct StreamCase {
-    using Config = sst::config::StreamConfig;
-    static constexpr std::string_view label = "StreamConfig";
-    static constexpr const char* path = "tests/config/config_files/stream.json";
-    static auto Make() -> Config {
-        using sst::config::StreamData;
-        using sst::config::StreamPlatformData;
-
-        Config streamConfig;
-        StreamPlatformData youtubeData{.enabled = false};
-        StreamData userData{.youtube = youtubeData};
-
-        streamConfig.users.push_back({.id = 2, .user_data = userData});
-        return streamConfig;
-    }
-};
-
-using ConfigCases =
-    ::testing::Types<UsersCase, ProfileCase, DeviceCase, CalibrationCase, StorageCase, StreamCase>;
+using ConfigCases = ::testing::Types<DeviceCase, CalibrationCase>;
 
 template <typename Case>
 class JsonAdapter : public ::testing::Test {};

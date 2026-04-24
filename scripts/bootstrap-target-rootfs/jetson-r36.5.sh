@@ -101,8 +101,8 @@ stage_download() {
     log "[download] Up to date."; return 0
   fi
 
-  for pair in "$URL_BSP:$BSP_TBZ2" "$URL_ROOTFS:$ROOTFS_TBZ2"; do
-    local url="${pair%%:*}" out="${pair#*:}"
+  for pair in "$URL_BSP|$BSP_TBZ2" "$URL_ROOTFS|$ROOTFS_TBZ2"; do
+    local url="${pair%%|*}" out="${pair#*|}"
     run_as_root mkdir -p "$(dirname "$out")"
     if [[ -f "$out" && "${FORCE:-0}" -ne 1 ]]; then
       log "[download] Already have: $(basename "$out")"

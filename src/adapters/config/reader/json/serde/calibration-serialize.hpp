@@ -7,12 +7,24 @@ namespace sst::config {
 
 using nlohmann::json;
 
-inline void to_json(json& jsonObject, const CalibrationCameraData& values) {
+inline void to_json(json& jsonObject, const CalibrationCameraDeviceData& values) {
     jsonObject = json::object();
-
     if (values.id) {
         jsonObject["id"] = *values.id;
     }
+    if (values.intrinsic_matrix) {
+        jsonObject["intrinsic_matrix"] = *values.intrinsic_matrix;
+    }
+    if (values.distortion_coefficients) {
+        jsonObject["distortion_coefficients"] = *values.distortion_coefficients;
+    }
+    if (values.last_calibration_date) {
+        jsonObject["last_calibration_date"] = *values.last_calibration_date;
+    }
+}
+
+inline void to_json(json& jsonObject, const CalibrationCamerasData& values) {
+    jsonObject = json::object();
     if (values.exposure) {
         jsonObject["exposure"] = *values.exposure;
     }
@@ -37,51 +49,41 @@ inline void to_json(json& jsonObject, const CalibrationCameraData& values) {
     if (values.fps) {
         jsonObject["fps"] = *values.fps;
     }
-
-    if (values.intrinsic_matrix) {
-        jsonObject["intrinsic_matrix"] = *values.intrinsic_matrix;
-    }
-    if (values.distortion_coefficients) {
-        jsonObject["distortion_coefficients"] = *values.distortion_coefficients;
-    }
-    if (values.last_calibration_date) {
-        jsonObject["last_calibration_date"] = *values.last_calibration_date;
+    if (values.device) {
+        jsonObject["device"] = *values.device;
     }
 }
 
-inline void to_json(json& jsonObject, const CalibrationMicrophoneData& values) {
+inline void to_json(json& jsonObject, const CalibrationMicrophoneDeviceData& values) {
     jsonObject = json::object();
-
-    if (values.last_calibration_date) {
-        jsonObject["last_calibration_date"] = *values.last_calibration_date;
-    }
     if (values.id) {
         jsonObject["id"] = *values.id;
     }
     if (values.sensitivity) {
         jsonObject["sensitivity"] = *values.sensitivity;
     }
-    if (values.noise_reduction) {
-        jsonObject["noise_reduction"] = *values.noise_reduction;
+    if (values.last_calibration_date) {
+        jsonObject["last_calibration_date"] = *values.last_calibration_date;
     }
 }
 
-inline void to_json(json& jsonObject, const CalibrationDevicesData& values) {
+inline void to_json(json& jsonObject, const CalibrationMicrophonesData& values) {
     jsonObject = json::object();
-
-    if (values.camera.has_value()) {
-        jsonObject["camera"] = values.camera.value();
+    if (values.noise_reduction) {
+        jsonObject["noise_reduction"] = *values.noise_reduction;
     }
-
-    if (values.microphone.has_value()) {
-        jsonObject["microphone"] = values.microphone.value();
+    if (values.device) {
+        jsonObject["device"] = *values.device;
     }
 }
 
 inline void to_json(json& jsonObject, const CalibrationData& values) {
     jsonObject = json::object();
-    if (values.devices) {
-        jsonObject["devices"] = *values.devices;
+    if (values.cameras) {
+        jsonObject["cameras"] = *values.cameras;
+    }
+    if (values.microphones) {
+        jsonObject["microphones"] = *values.microphones;
     }
 }
 

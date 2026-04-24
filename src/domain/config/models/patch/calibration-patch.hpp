@@ -4,78 +4,47 @@
 
 namespace sst::config {
 
-inline auto apply_patch(CalibrationCameraData& modifiedData,
-                        const CalibrationCameraData& defaultData) -> void {
-    if (defaultData.id) {
-        modifiedData.id = defaultData.id;
-    }
-    if (defaultData.exposure) {
-        modifiedData.exposure = defaultData.exposure;
-    }
-    if (defaultData.gain) {
-        modifiedData.gain = defaultData.gain;
-    }
-    if (defaultData.white_balance) {
-        modifiedData.white_balance = defaultData.white_balance;
-    }
-    if (defaultData.focus) {
-        modifiedData.focus = defaultData.focus;
-    }
-    if (defaultData.width) {
-        modifiedData.width = defaultData.width;
-    }
-    if (defaultData.height) {
-        modifiedData.height = defaultData.height;
-    }
-    if (defaultData.format) {
-        modifiedData.format = defaultData.format;
-    }
-    if (defaultData.fps) {
-        modifiedData.fps = defaultData.fps;
-    }
-    if (defaultData.intrinsic_matrix) {
-        modifiedData.intrinsic_matrix = defaultData.intrinsic_matrix;
-    }
-    if (defaultData.distortion_coefficients) {
-        modifiedData.distortion_coefficients = defaultData.distortion_coefficients;
-    }
-    if (defaultData.last_calibration_date) {
-        modifiedData.last_calibration_date = defaultData.last_calibration_date;
-    }
+inline auto apply_patch(CalibrationCameraDeviceData& mod,
+                        const CalibrationCameraDeviceData& patch) -> void {
+    if (patch.id) mod.id = patch.id;
+    if (patch.intrinsic_matrix) mod.intrinsic_matrix = patch.intrinsic_matrix;
+    if (patch.distortion_coefficients) mod.distortion_coefficients = patch.distortion_coefficients;
+    if (patch.last_calibration_date) mod.last_calibration_date = patch.last_calibration_date;
 }
 
-inline auto apply_patch(CalibrationMicrophoneData& modifiedData,
-                        const CalibrationMicrophoneData& defaultData) -> void {
-    if (defaultData.last_calibration_date) {
-        modifiedData.last_calibration_date = defaultData.last_calibration_date;
-    }
-    if (defaultData.id) {
-        modifiedData.id = defaultData.id;
-    }
-    if (defaultData.sensitivity) {
-        modifiedData.sensitivity = defaultData.sensitivity;
-    }
-    if (defaultData.noise_reduction) {
-        modifiedData.noise_reduction = defaultData.noise_reduction;
-    }
+inline auto apply_patch(CalibrationCamerasData& mod, const CalibrationCamerasData& patch) -> void {
+    if (patch.exposure) mod.exposure = patch.exposure;
+    if (patch.gain) mod.gain = patch.gain;
+    if (patch.white_balance) mod.white_balance = patch.white_balance;
+    if (patch.focus) mod.focus = patch.focus;
+    if (patch.width) mod.width = patch.width;
+    if (patch.height) mod.height = patch.height;
+    if (patch.format) mod.format = patch.format;
+    if (patch.fps) mod.fps = patch.fps;
+    if (patch.device) mod.device = patch.device;
 }
 
-inline auto apply_patch(CalibrationDevicesData& modifiedData,
-                        const CalibrationDevicesData& defaultData) -> void {
-    if (defaultData.camera) {
-        modifiedData.camera = defaultData.camera;
-    }
-    if (defaultData.microphone) {
-        modifiedData.microphone = defaultData.microphone;
-    }
+inline auto apply_patch(CalibrationMicrophoneDeviceData& mod,
+                        const CalibrationMicrophoneDeviceData& patch) -> void {
+    if (patch.id) mod.id = patch.id;
+    if (patch.sensitivity) mod.sensitivity = patch.sensitivity;
+    if (patch.last_calibration_date) mod.last_calibration_date = patch.last_calibration_date;
 }
 
-inline auto apply_patch(CalibrationData& modifiedData, const CalibrationData& defaultData) -> void {
-    if (defaultData.devices) {
-        if (!modifiedData.devices) {
-            modifiedData.devices = CalibrationDevicesData{};
-        }
-        apply_patch(*modifiedData.devices, *defaultData.devices);
+inline auto apply_patch(CalibrationMicrophonesData& mod,
+                        const CalibrationMicrophonesData& patch) -> void {
+    if (patch.noise_reduction) mod.noise_reduction = patch.noise_reduction;
+    if (patch.device) mod.device = patch.device;
+}
+
+inline auto apply_patch(CalibrationData& mod, const CalibrationData& patch) -> void {
+    if (patch.cameras) {
+        if (!mod.cameras) mod.cameras = CalibrationCamerasData{};
+        apply_patch(*mod.cameras, *patch.cameras);
+    }
+    if (patch.microphones) {
+        if (!mod.microphones) mod.microphones = CalibrationMicrophonesData{};
+        apply_patch(*mod.microphones, *patch.microphones);
     }
 }
 

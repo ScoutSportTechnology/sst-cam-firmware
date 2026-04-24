@@ -15,6 +15,7 @@ class SstCamFirmwareConan(ConanFile):
     def requirements(self):
         self.requires("spdlog/1.14.1")
         self.requires("nlohmann_json/3.11.3")
+        self.requires("sqlitecpp/3.3.3")
 
         if self.options.with_tests:
             self.requires("gtest/1.15.0")

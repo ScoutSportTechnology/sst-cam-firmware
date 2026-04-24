@@ -1,0 +1,141 @@
+{
+  "version": "1.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "detailLevel": "All",
+  "tablePositions": [
+    {
+      "name": "users",
+      "schemaName": "public",
+      "x": 1014.181640625,
+      "y": 12
+    },
+    {
+      "name": "device_info",
+      "schemaName": "public",
+      "x": 12,
+      "y": 12
+    },
+    {
+      "name": "config_client",
+      "schemaName": "public",
+      "x": 1449.61328125,
+      "y": 12
+    },
+    {
+      "name": "config_access_point",
+      "schemaName": "public",
+      "x": 1449.61328125,
+      "y": 378
+    },
+    {
+      "name": "config_bluetooth",
+      "schemaName": "public",
+      "x": 1449.61328125,
+      "y": 744
+    },
+    {
+      "name": "stream_config",
+      "schemaName": "public",
+      "x": 1449.61328125,
+      "y": 950
+    },
+    {
+      "name": "storage_config",
+      "schemaName": "public",
+      "x": 1449.61328125,
+      "y": 1412
+    },
+    {
+      "name": "camera_calibration",
+      "schemaName": "public",
+      "x": 644.4599609375,
+      "y": 12
+    },
+    {
+      "name": "microphone_calibration",
+      "schemaName": "public",
+      "x": 297.1708984375,
+      "y": 12
+    }
+  ],
+  "tableGroupCollapseStates": [],
+  "stickyNoteLayouts": [],
+  "referencePaths": [
+    {
+      "firstFieldNames": [
+        "id"
+      ],
+      "firstTableName": "users",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "user_id"
+      ],
+      "secondTableName": "config_client",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "id"
+      ],
+      "firstTableName": "users",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "user_id"
+      ],
+      "secondTableName": "config_access_point",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "id"
+      ],
+      "firstTableName": "users",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "user_id"
+      ],
+      "secondTableName": "config_bluetooth",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "id"
+      ],
+      "firstTableName": "users",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "user_id"
+      ],
+      "secondTableName": "stream_config",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "id"
+      ],
+      "firstTableName": "users",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "user_id"
+      ],
+      "secondTableName": "storage_config",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    }
+  ]
+}

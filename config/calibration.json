@@ -1,83 +1,69 @@
 {
-  "default_data": {
-    "devices": {
-      "camera": [
-        {
-          "id": 0,
-          "exposure": 100,
-          "gain": 1.00,
-          "white_balance": "auto",
-          "focus": "auto",
-          "width": 1920,
-          "height": 1080,
-          "format": "YUV422",
-          "fps": 60,
-          "intrinsic_matrix": [
-            1000.00,
-            0.00,
-            960.00,
-            0.00,
-            1000.00,
-            540.00,
-            0.00,
-            0.00,
-            1.00
-          ],
-          "distortion_coefficients": [
-            0.10,
-            -0.05,
-            0.00,
-            0.00,
-            0.00
-          ],
-          "last_calibration_date": "2024-01-01T00:00:00Z"
-        },
-        {
-          "id": 1,
-          "exposure": 100,
-          "gain": 1.00,
-          "white_balance": "auto",
-          "focus": "auto",
-          "width": 1920,
-          "height": 1080,
-          "format": "YUV422",
-          "fps": 60,
-          "intrinsic_matrix": [
-            1000.00,
-            0.00,
-            960.00,
-            0.00,
-            1000.00,
-            540.00,
-            0.00,
-            0.00,
-            1.00
-          ],
-          "distortion_coefficients": [
-            0.10,
-            -0.05,
-            0.00,
-            0.00,
-            0.00
-          ],
-          "last_calibration_date": "2024-01-01T00:00:00Z"
-        }
-      ],
-      "microphone": [
-        {
-          "id": 0,
-          "noise_reduction": true,
-          "sensitivity": 1.00,
-          "last_calibration_date": "2024-01-01T00:00:00Z"
-        },
-        {
-          "id": 1,
-          "noise_reduction": true,
-          "sensitivity": 1.00,
-          "last_calibration_date": "2024-01-01T00:00:00Z"
-        }
-      ]
-    }
+  "cameras": {
+    "exposure": 100,
+    "gain": 1.00,
+    "white_balance": 0,
+    "focus": 0,
+    "width": 1920,
+    "height": 1080,
+    "format": 0,
+    "fps": 60,
+    "device": [
+      {
+        "id": 0,
+        "intrinsic_matrix": [
+          1000.00,
+          0.00,
+          960.00,
+          0.00,
+          1000.00,
+          540.00,
+          0.00,
+          0.00,
+          1.00
+        ],
+        "distortion_coefficients": [
+          0.10,
+          -0.05,
+          0.00,
+          0.00,
+          0.00
+        ]
+      },
+      {
+        "id": 1,
+        "intrinsic_matrix": [
+          1000.00,
+          0.00,
+          960.00,
+          0.00,
+          1000.00,
+          540.00,
+          0.00,
+          0.00,
+          1.00
+        ],
+        "distortion_coefficients": [
+          0.10,
+          -0.05,
+          0.00,
+          0.00,
+          0.00
+        ]
+      }
+    ]
   },
-  "users": []
+  "microphones": {
+    "noise_reduction": true,
+    "device": [
+      {
+        "id": 0,
+        "sensitivity": 1.00
+      },
+      {
+        "id": 1,
+        "sensitivity": 1.00
+      }
+    ]
+  }
 }

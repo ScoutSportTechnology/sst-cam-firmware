@@ -1,285 +1,208 @@
--- =============================================================================
--- SST CAM FIRMWARE - DATABASE SCHEMA
--- Path: /var/lib/sst/cam/data.db
--- =============================================================================
-
-PRAGMA journal_mode = WAL;
-
+-- SQLite database export
 PRAGMA foreign_keys = ON;
 
-PRAGMA synchronous = NORMAL;
+BEGIN TRANSACTION;
 
--- =============================================================================
--- MIGRATIONS TRACKING
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS migrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename TEXT NOT NULL UNIQUE,
-    applied_at TEXT NOT NULL DEFAULT(datetime('now'))
+CREATE TABLE IF NOT EXISTS "users" (
+    "id" INTEGER PRIMARY KEY NOT NULL,
+    "username" TEXT NOT NULL
 );
 
--- =============================================================================
--- USERS & AUTH
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (
-        role IN ('admin', 'operator', 'viewer')
+CREATE TABLE IF NOT EXISTS "config_client" (
+    "user_id" INTEGER PRIMARY KEY NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    -- wifi=0 | ethernet=1
+    "medium" INTEGER NOT NULL DEFAULT 0,
+    "ssid" TEXT,
+    "wifi_password" TEXT,
+    "static_ip" BOOLEAN NOT NULL DEFAULT false,
+    "ip_address" TEXT,
+    "subnet_mask" TEXT,
+    "gateway" TEXT,
+    CHECK (
+        medium = 1
+        OR ssid IS NOT NULL
     ),
-    created_at TEXT NOT NULL DEFAULT(datetime('now')),
-    last_login TEXT
-);
-
--- =============================================================================
--- CONFIG - DEVICE
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS device_config (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
--- =============================================================================
--- CONFIG - NETWORK
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS network_config (
-    interface TEXT PRIMARY KEY, -- 'wifi_client', 'wifi_ap', 'ethernet', 'bluetooth'
-    enabled INTEGER NOT NULL DEFAULT 0,
-    config TEXT NOT NULL DEFAULT '{}' -- JSON blob per interface
-);
-
--- =============================================================================
--- CONFIG - CAMERA CALIBRATION
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS camera_calibration (
-    camera_id INTEGER PRIMARY KEY,
-    exposure INTEGER NOT NULL DEFAULT 100,
-    gain REAL NOT NULL DEFAULT 1.0,
-    white_balance TEXT NOT NULL DEFAULT 'auto',
-    focus TEXT NOT NULL DEFAULT 'auto',
-    width INTEGER NOT NULL DEFAULT 1920,
-    height INTEGER NOT NULL DEFAULT 1080,
-    format TEXT NOT NULL DEFAULT 'YUV422',
-    fps INTEGER NOT NULL DEFAULT 60,
-    intrinsic_matrix TEXT NOT NULL DEFAULT '[]', -- JSON array, 3x3 flat
-    distortion_coefficients TEXT NOT NULL DEFAULT '[]', -- JSON array, 5 values
-    last_calibration_date TEXT
-);
-
--- =============================================================================
--- CONFIG - MICROPHONE CALIBRATION
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS microphone_calibration (
-    mic_id INTEGER PRIMARY KEY,
-    noise_reduction INTEGER NOT NULL DEFAULT 1,
-    sensitivity REAL NOT NULL DEFAULT 1.0,
-    last_calibration_date TEXT
-);
-
--- =============================================================================
--- CONFIG - STORAGE
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS storage_config (
-    type TEXT PRIMARY KEY, -- 'logs', 'recording', 'snapshots', 'thumbnails'
-    enabled INTEGER NOT NULL DEFAULT 1,
-    format TEXT NOT NULL,
-    path TEXT NOT NULL
-);
-
--- =============================================================================
--- CONFIG - STREAM PLATFORMS (built-in presets)
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS stream_platform_config (
-    platform TEXT PRIMARY KEY, -- 'youtube', 'twitch', 'facebook', 'instagram', 'tik_tok'
-    enabled INTEGER NOT NULL DEFAULT 0,
-    stream_type TEXT NOT NULL DEFAULT 'rtmp',
-    url TEXT NOT NULL,
-    stream_key TEXT NOT NULL DEFAULT '',
-    codec TEXT NOT NULL DEFAULT 'h264',
-    width INTEGER NOT NULL DEFAULT 1920,
-    height INTEGER NOT NULL DEFAULT 1080,
-    framerate INTEGER NOT NULL DEFAULT 60,
-    bitrate_kbps INTEGER NOT NULL DEFAULT 4000
-);
-
--- =============================================================================
--- CONFIG - CUSTOM STREAM SERVERS (user-defined)
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS stream_custom_servers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE, -- user-defined label
-    stream_type TEXT NOT NULL DEFAULT 'rtmp',
-    url TEXT NOT NULL,
-    stream_key TEXT NOT NULL DEFAULT '',
-    codec TEXT NOT NULL DEFAULT 'h264',
-    width INTEGER NOT NULL DEFAULT 1920,
-    height INTEGER NOT NULL DEFAULT 1080,
-    framerate INTEGER NOT NULL DEFAULT 60,
-    bitrate_kbps INTEGER NOT NULL DEFAULT 4000,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT(datetime('now'))
-);
-
--- =============================================================================
--- SPORT & TEAM DATA
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS sports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE -- 'soccer', 'basketball', etc.
-);
-
-CREATE TABLE IF NOT EXISTS teams (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    sport_id INTEGER NOT NULL REFERENCES sports (id),
-    logo_path TEXT, -- path to logo file on device
-    created_at TEXT NOT NULL DEFAULT(datetime('now')),
-    UNIQUE (name, sport_id)
-);
-
-CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id INTEGER NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    number INTEGER,
-    position TEXT,
-    created_at TEXT NOT NULL DEFAULT(datetime('now'))
-);
-
--- =============================================================================
--- MATCH DATA
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS matches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sport_id INTEGER NOT NULL REFERENCES sports (id),
-    home_team_id INTEGER NOT NULL REFERENCES teams (id),
-    away_team_id INTEGER NOT NULL REFERENCES teams (id),
-    venue TEXT,
-    scheduled_at TEXT,
-    started_at TEXT,
-    ended_at TEXT,
-    status TEXT NOT NULL DEFAULT 'scheduled' CHECK (
-        status IN (
-            'scheduled',
-            'live',
-            'finished',
-            'cancelled'
-        )
+    CHECK (
+        medium = 1
+        OR wifi_password IS NOT NULL
     ),
-    created_at TEXT NOT NULL DEFAULT(datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS score_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id INTEGER NOT NULL REFERENCES matches (id) ON DELETE CASCADE,
-    team_id INTEGER NOT NULL REFERENCES teams (id),
-    player_id INTEGER REFERENCES players (id), -- nullable, own goal or unknown
-    event_type TEXT NOT NULL DEFAULT 'goal' CHECK (
-        event_type IN ('goal', 'own_goal', 'penalty')
+    CHECK (
+        static_ip = false
+        OR ip_address IS NOT NULL
     ),
-    match_time TEXT, -- e.g. "00:34:12" elapsed time in match
-    timestamp TEXT NOT NULL DEFAULT(datetime('now'))
+    CHECK (
+        static_ip = false
+        OR subnet_mask IS NOT NULL
+    ),
+    CHECK (
+        static_ip = false
+        OR gateway IS NOT NULL
+    ),
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
 );
 
--- =============================================================================
--- SESSIONS & RECORDINGS
--- =============================================================================
+CREATE TABLE IF NOT EXISTS "config_access_point" (
+    "user_id" INTEGER PRIMARY KEY NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    -- wifi=0 | ethernet=1
+    "medium" INTEGER NOT NULL DEFAULT 0,
+    "ssid" TEXT DEFAULT 'sst-cam',
+    "wifi_password" TEXT DEFAULT 123456,
+    "static_ip" BOOLEAN NOT NULL DEFAULT false,
+    "ip_address" TEXT,
+    "subnet_mask" TEXT,
+    "gateway" TEXT,
+    CHECK (
+        medium = 1
+        OR ssid IS NOT NULL
+    ),
+    CHECK (
+        medium = 1
+        OR wifi_password IS NOT NULL
+    ),
+    CHECK (
+        static_ip = false
+        OR ip_address IS NOT NULL
+    ),
+    CHECK (
+        static_ip = false
+        OR subnet_mask IS NOT NULL
+    ),
+    CHECK (
+        static_ip = false
+        OR gateway IS NOT NULL
+    ),
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+);
 
-CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id INTEGER REFERENCES matches (id), -- nullable, can stream without a match
-    started_at TEXT NOT NULL DEFAULT(datetime('now')),
-    ended_at TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (
-        status IN (
-            'active',
-            'finished',
-            'crashed'
-        )
+CREATE TABLE IF NOT EXISTS "config_bluetooth" (
+    "user_id" INTEGER PRIMARY KEY NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "name" TEXT NOT NULL DEFAULT 'sst-cam',
+    "password" TEXT NOT NULL DEFAULT 123456,
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "stream_config" (
+    "id" INTEGER PRIMARY KEY NOT NULL,
+    "user_id" INTEGER NOT NULL UNIQUE,
+    -- 0=youtube | 1=twitch | 2=facebook | 3=instagram | 4=tiktok | 5=custom
+    "platform" INTEGER NOT NULL,
+    -- user defined label for custom, platform name for presets
+    "name" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "stream_key" TEXT NOT NULL,
+    -- 0=rtmp | 1=rtmps
+    "stream_type" INTEGER NOT NULL DEFAULT 0,
+    "url" TEXT NOT NULL,
+    -- 0=h264 | 1=h265
+    "codec" INTEGER NOT NULL DEFAULT 0,
+    "width" INTEGER NOT NULL DEFAULT 1920,
+    "height" INTEGER NOT NULL DEFAULT 1080,
+    "framerate" INTEGER NOT NULL DEFAULT 60,
+    "bitrate_kbps" INTEGER NOT NULL DEFAULT 4000,
+    CHECK (
+        platform >= 0
+        AND platform <= 5
+    ),
+    CHECK (
+        stream_type >= 0
+        AND stream_type <= 1
+    ),
+    CHECK (
+        codec >= 0
+        AND codec <= 1
+    ),
+    CHECK (framerate > 0),
+    CHECK (bitrate_kbps > 0),
+    CHECK (width > 0),
+    CHECK (height > 0),
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+);
+
+-- Indexes
+CREATE UNIQUE INDEX IF NOT EXISTS "stream_config_idx_stream_config_user_id_platform_name" ON "stream_config" ("user_id", "platform", "name");
+
+CREATE TABLE IF NOT EXISTS "storage_config" (
+    "user_id" INTEGER NOT NULL,
+    -- 0=logs | 1=recording | 2=snapshots | 3=thumbnails
+    "type" INTEGER NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    -- 0=txt | 1=mp4 | 2=jpg
+    "format" INTEGER NOT NULL,
+    "path" TEXT NOT NULL,
+    PRIMARY KEY ("user_id", "type"),
+    CHECK (
+        type >= 0
+        AND type <= 3
+    ),
+    CHECK (
+        format >= 0
+        AND format <= 2
+    ),
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "camera_config" (
+    "user_id" INTEGER PRIMARY KEY NOT NULL,
+    "exposure" INTEGER NOT NULL DEFAULT 100,
+    "gain" REAL NOT NULL DEFAULT 1,
+    -- 0=auto | 1=manual
+    "white_balance" INTEGER NOT NULL DEFAULT 0,
+    -- 0=auto | 1=manual
+    "focus" INTEGER NOT NULL DEFAULT 0,
+    "width" INTEGER NOT NULL DEFAULT 1920,
+    "height" INTEGER NOT NULL DEFAULT 1080,
+    -- 0=YUV422
+    "format" INTEGER NOT NULL DEFAULT 0,
+    "fps" INTEGER NOT NULL DEFAULT 60,
+    CHECK (exposure > 0),
+    CHECK (gain > 0),
+    CHECK (fps > 0),
+    CHECK (width > 0),
+    CHECK (height > 0),
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "camera_calibration" (
+    "id" INTEGER PRIMARY KEY NOT NULL,
+    -- 0 | 1
+    "camera_id" INTEGER NOT NULL,
+    -- JSONB, 3x3 flat array
+    "intrinsic_matrix" BLOB NOT NULL,
+    -- JSONB, 5 values
+    "distortion_coefficients" BLOB NOT NULL,
+    "calibrated_at" TEXT NOT NULL DEFAULT 'datetime(now)',
+    CHECK (
+        camera_id >= 0
+        AND camera_id <= 1
     )
 );
 
-CREATE TABLE IF NOT EXISTS recordings (
-    id TEXT PRIMARY KEY, -- UUID
-    session_id INTEGER NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    match_id INTEGER REFERENCES matches (id), -- denormalized for quick query
-    file_path TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    format TEXT NOT NULL DEFAULT 'mp4',
-    duration_sec INTEGER,
-    file_size_bytes INTEGER,
-    cameras_active TEXT NOT NULL DEFAULT '[]', -- JSON array of camera ids
-    started_at TEXT NOT NULL DEFAULT(datetime('now')),
-    ended_at TEXT,
-    status TEXT NOT NULL DEFAULT 'recording' CHECK (
-        status IN (
-            'recording',
-            'finished',
-            'corrupted'
-        )
-    )
+-- Indexes
+CREATE INDEX IF NOT EXISTS "camera_calibration_idx_camera_calibration_camera_id_calibrat" ON "camera_calibration" ("camera_id", "calibrated_at");
+
+CREATE TABLE IF NOT EXISTS "microphone_config" (
+    "user_id" INTEGER PRIMARY KEY NOT NULL,
+    "noise_reduction" BOOLEAN NOT NULL DEFAULT true,
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
 );
 
--- =============================================================================
--- STREAM HISTORY
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS stream_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    platform TEXT NOT NULL, -- 'youtube', 'twitch', or custom server name
-    started_at TEXT NOT NULL DEFAULT(datetime('now')),
-    ended_at TEXT,
-    avg_bitrate_kbps INTEGER,
-    dropped_frames INTEGER,
-    status TEXT NOT NULL DEFAULT 'streaming' CHECK (
-        status IN (
-            'streaming',
-            'finished',
-            'failed'
-        )
-    )
+CREATE TABLE IF NOT EXISTS "microphone_calibration" (
+    "id" INTEGER PRIMARY KEY NOT NULL,
+    -- 0 | 1
+    "mic_id" INTEGER NOT NULL,
+    "sensitivity" REAL NOT NULL DEFAULT 1,
+    "calibrated_at" TEXT NOT NULL DEFAULT 'datetime(now)',
+    CHECK (
+        mic_id >= 0
+        AND mic_id <= 1
+    ),
+    CHECK (sensitivity > 0)
 );
 
--- =============================================================================
--- AI TRACKING EVENTS
--- =============================================================================
+-- Indexes
+CREATE INDEX IF NOT EXISTS "microphone_calibration_idx_microphone_calibration_mic_id_cal" ON "microphone_calibration" ("mic_id", "calibrated_at");
 
-CREATE TABLE IF NOT EXISTS tracking_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    match_id INTEGER REFERENCES matches (id),
-    player_id INTEGER REFERENCES players (id),
-    event_type TEXT NOT NULL,
-    -- 'ball_detected', 'ball_lost', 'player_tracked',
-    -- 'camera_switch', 'goal_detected', 'offside_detected'
-    camera_id INTEGER,
-    payload TEXT NOT NULL DEFAULT '{}', -- JSON for event-specific data
-    timestamp TEXT NOT NULL DEFAULT(datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_tracking_events_session ON tracking_events (session_id);
-
-CREATE INDEX IF NOT EXISTS idx_tracking_events_match ON tracking_events (match_id);
-
-CREATE INDEX IF NOT EXISTS idx_tracking_events_type ON tracking_events (event_type);
-
-CREATE INDEX IF NOT EXISTS idx_score_events_match ON score_events (match_id);
-
-CREATE INDEX IF NOT EXISTS idx_recordings_session ON recordings (session_id);
-
-CREATE INDEX IF NOT EXISTS idx_stream_history_session ON stream_history (session_id);
-
-CREATE INDEX IF NOT EXISTS idx_players_team ON players (team_id);
+COMMIT;

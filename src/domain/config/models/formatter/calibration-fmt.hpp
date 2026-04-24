@@ -7,71 +7,84 @@
 #include "fmt-helper.hpp"
 
 template <>
-struct fmt::formatter<sst::config::CalibrationCameraData> {
+struct fmt::formatter<sst::config::CalibrationCameraDeviceData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::CalibrationCameraData& data, FormatContext& ctx) const {
+    auto format(const sst::config::CalibrationCameraDeviceData& data, FormatContext& ctx) const {
         using namespace sst::config;
-
-        return fmt::format_to(
-            ctx.out(),
-            "CalibrationCameraData{{\n"
-            "  id={},\n"
-            "  exposure={},\n"
-            "  gain={},\n"
-            "  white_balance={},\n"
-            "  focus={},\n"
-            "  width={},\n"
-            "  height={},\n"
-            "  format={},\n"
-            "  fps={},\n"
-            "  intrinsic_matrix={},\n"
-            "  distortion_coefficients={},\n"
-            "  last_calibration_date={}\n"
-            "}}",
-            NumOptToStr(data.id), NumOptToStr(data.exposure), NumOptToStr(data.gain),
-            StrOptToStr(data.white_balance), StrOptToStr(data.focus), NumOptToStr(data.width),
-            NumOptToStr(data.height), StrOptToStr(data.format), NumOptToStr(data.fps),
-            ArrOptToStr(data.intrinsic_matrix), ArrOptToStr(data.distortion_coefficients),
-            StrOptToStr(data.last_calibration_date));
+        return fmt::format_to(ctx.out(),
+                              "CalibrationCameraDeviceData{{\n"
+                              "  id={},\n"
+                              "  intrinsic_matrix={},\n"
+                              "  distortion_coefficients={},\n"
+                              "  last_calibration_date={}\n"
+                              "}}",
+                              NumOptToStr(data.id), ArrOptToStr(data.intrinsic_matrix),
+                              ArrOptToStr(data.distortion_coefficients),
+                              StrOptToStr(data.last_calibration_date));
     }
 };
 
 template <>
-struct fmt::formatter<sst::config::CalibrationMicrophoneData> {
+struct fmt::formatter<sst::config::CalibrationCamerasData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::CalibrationMicrophoneData& data, FormatContext& ctx) const {
+    auto format(const sst::config::CalibrationCamerasData& data, FormatContext& ctx) const {
         using namespace sst::config;
-
         return fmt::format_to(ctx.out(),
-                              "CalibrationMicrophoneData{{\n"
-                              "  last_calibration_date={},\n"
+                              "CalibrationCamerasData{{\n"
+                              "  exposure={},\n"
+                              "  gain={},\n"
+                              "  white_balance={},\n"
+                              "  focus={},\n"
+                              "  width={},\n"
+                              "  height={},\n"
+                              "  format={},\n"
+                              "  fps={},\n"
+                              "  device={}\n"
+                              "}}",
+                              NumOptToStr(data.exposure), NumOptToStr(data.gain),
+                              NumOptToStr(data.white_balance), NumOptToStr(data.focus),
+                              NumOptToStr(data.width), NumOptToStr(data.height),
+                              NumOptToStr(data.format), NumOptToStr(data.fps),
+                              VecOptToStr(data.device));
+    }
+};
+
+template <>
+struct fmt::formatter<sst::config::CalibrationMicrophoneDeviceData> {
+    static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const sst::config::CalibrationMicrophoneDeviceData& data,
+                FormatContext& ctx) const {
+        using namespace sst::config;
+        return fmt::format_to(ctx.out(),
+                              "CalibrationMicrophoneDeviceData{{\n"
                               "  id={},\n"
                               "  sensitivity={},\n"
-                              "  noise_reduction={}\n"
+                              "  last_calibration_date={}\n"
                               "}}",
-                              StrOptToStr(data.last_calibration_date), NumOptToStr(data.id),
-                              NumOptToStr(data.sensitivity), BoolOptToStr(data.noise_reduction));
+                              NumOptToStr(data.id), NumOptToStr(data.sensitivity),
+                              StrOptToStr(data.last_calibration_date));
     }
 };
 
 template <>
-struct fmt::formatter<sst::config::CalibrationDevicesData> {
+struct fmt::formatter<sst::config::CalibrationMicrophonesData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::CalibrationDevicesData& data, FormatContext& ctx) const {
+    auto format(const sst::config::CalibrationMicrophonesData& data, FormatContext& ctx) const {
         using namespace sst::config;
-
         return fmt::format_to(ctx.out(),
-                              "CalibrationDevicesData{{\n"
-                              "  camera={},\n"
-                              "  microphone={}\n"
+                              "CalibrationMicrophonesData{{\n"
+                              "  noise_reduction={},\n"
+                              "  device={}\n"
                               "}}",
-                              VecOptToStr(data.camera), VecOptToStr(data.microphone));
+                              BoolOptToStr(data.noise_reduction), VecOptToStr(data.device));
     }
 };
 
@@ -82,12 +95,11 @@ struct fmt::formatter<sst::config::CalibrationData> {
     template <typename FormatContext>
     auto format(const sst::config::CalibrationData& data, FormatContext& ctx) const {
         using namespace sst::config;
-
-        const auto devices = data.devices ? fmt::format("{}", *data.devices) : "null";
         return fmt::format_to(ctx.out(),
                               "CalibrationData{{\n"
-                              "  devices={}\n"
+                              "  cameras={},\n"
+                              "  microphones={}\n"
                               "}}",
-                              devices);
+                              ObjOptToStr(data.cameras), ObjOptToStr(data.microphones));
     }
 };
