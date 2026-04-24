@@ -46,6 +46,7 @@ class GStreamerAdapter final : public ICaptureFrame {
     GstElement* gst_sink_{nullptr};
     std::string gst_sink_name_{"sink"};
 
+    auto CleanupPipeline() -> void;
     auto HandleBusMessages() -> bool;
     auto CreateFrameFromSample(GstSample* gst_sample) -> std::optional<Frame>;
     auto CreatePipeline() -> std::string;

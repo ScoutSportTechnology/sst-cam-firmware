@@ -29,22 +29,22 @@ auto main() -> int {
     auto cfg = config.get();
 
     // Database
-    sst::db::DbManager db({
+    sst::db::DbManager database({
         .db_path = sst::paths::kDbFile,
         .schema_path = sst::paths::kDbSchema,
     });
 
     // Seed DB from config on first boot (idempotent)
-    sst::db::DbSeeder::seedIfEmpty(db, cfg);
+    sst::db::DbSeeder::seedIfEmpty(database, cfg);
 
     // Device model — stays in config module (device info)
-    sst::config::DeviceModel device_model = sst::config::DeviceModel::UNKNOWN;
+    [[maybe_unused]] sst::config::DeviceModel device_model = sst::config::DeviceModel::UNKNOWN;
     if (cfg.device.model) {
         device_model = sst::config::FromString(*cfg.device.model);
     }
 
     // Camera settings — from DB from here on
-    [[maybe_unused]] auto camera0_cfg = db.cameras().getConfig(kAdminUserId);
+    [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kAdminUserId);
     // sst::capture::GStreamerAdapter cam0(camera0_cfg.data, device_model, 0);
 
     spdlog::info("startup complete");

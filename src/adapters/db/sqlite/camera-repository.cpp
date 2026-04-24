@@ -5,10 +5,10 @@
 
 namespace sst::db {
 
-SqliteCameraRepository::SqliteCameraRepository(DbConnection& conn) : db_(conn.db()) {}
+SqliteCameraRepository::SqliteCameraRepository(DbConnection& conn) : SqliteRepositoryBase(conn) {}
 
 auto SqliteCameraRepository::getConfig(int64_t user_id) -> DbResult<CameraConfig> {
-    try {
+    return dbExecute<CameraConfig>("CameraRepository::getConfig", [&] {
         SQLite::Statement stmt(
             db_,
             "SELECT user_id, exposure, gain, white_balance, focus, width, height, format, fps "
@@ -17,47 +17,39 @@ auto SqliteCameraRepository::getConfig(int64_t user_id) -> DbResult<CameraConfig
         if (!stmt.executeStep()) {
             return DbResult<CameraConfig>::fail();
         }
-        CameraConfig cfg;
-        int col = 0;
-        cfg.user_id = stmt.getColumn(col++).getInt64();
-        cfg.exposure = stmt.getColumn(col++).getInt();
-        cfg.gain = static_cast<float>(stmt.getColumn(col++).getDouble());
-        cfg.white_balance = static_cast<CameraWhiteBalance>(stmt.getColumn(col++).getInt());
-        cfg.focus = static_cast<CameraFocus>(stmt.getColumn(col++).getInt());
-        cfg.width = stmt.getColumn(col++).getInt();
-        cfg.height = stmt.getColumn(col++).getInt();
-        cfg.format = static_cast<CameraFormat>(stmt.getColumn(col++).getInt());
-        cfg.fps = stmt.getColumn(col).getInt();
-        return DbResult<CameraConfig>::ok(cfg);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("CameraRepository::getConfig failed: {}", ex.what());
-        return DbResult<CameraConfig>::fail();
-    }
+        ColumnReader col(stmt);
+        return DbResult<CameraConfig>::ok({.user_id = col.nextI64(),
+                                          .exposure = col.nextI32(),
+                                          .gain = col.nextF32(),
+                                          .white_balance = col.nextEnum<CameraWhiteBalance>(),
+                                          .focus = col.nextEnum<CameraFocus>(),
+                                          .width = col.nextI32(),
+                                          .height = col.nextI32(),
+                                          .format = col.nextEnum<CameraFormat>(),
+                                          .fps = col.nextI32()});
+    });
 }
 
 auto SqliteCameraRepository::saveConfig(const CameraConfig& data) -> DbResult<CameraConfig> {
-    try {
+    return dbExecute<CameraConfig>("CameraRepository::saveConfig", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO camera_config "
             "(user_id, exposure, gain, white_balance, focus, width, height, format, fps) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        int param = 1;
-        stmt.bind(param++, data.user_id);
-        stmt.bind(param++, data.exposure);
-        stmt.bind(param++, static_cast<double>(data.gain));
-        stmt.bind(param++, static_cast<int>(data.white_balance));
-        stmt.bind(param++, static_cast<int>(data.focus));
-        stmt.bind(param++, data.width);
-        stmt.bind(param++, data.height);
-        stmt.bind(param++, static_cast<int>(data.format));
-        stmt.bind(param, data.fps);
+        ParamBinder(stmt)
+            .i64(data.user_id)
+            .i32(data.exposure)
+            .real(data.gain)
+            .asEnum(data.white_balance)
+            .asEnum(data.focus)
+            .i32(data.width)
+            .i32(data.height)
+            .asEnum(data.format)
+            .i32(data.fps);
         stmt.exec();
         return DbResult<CameraConfig>::ok(data);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("CameraRepository::saveConfig failed: {}", ex.what());
-        return DbResult<CameraConfig>::fail();
-    }
+    });
 }
 
 auto SqliteCameraRepository::getLatestCalibration(int32_t camera_id)
@@ -72,15 +64,17 @@ auto SqliteCameraRepository::getLatestCalibration(int32_t camera_id)
         if (!stmt.executeStep()) {
             return DbResult<CameraCalibration>::fail();
         }
+        ColumnReader col(stmt);
         CameraCalibration cal;
-        int col = 0;
-        cal.id = stmt.getColumn(col++).getInt64();
-        cal.camera_id = stmt.getColumn(col++).getInt();
-        auto intrinsicJson = nlohmann::json::parse(stmt.getColumn(col++).getText());
-        auto distortionJson = nlohmann::json::parse(stmt.getColumn(col++).getText());
-        cal.intrinsic_matrix = intrinsicJson.get<std::array<float, CameraCalibration::kIntrinsicMatrixSize>>();
-        cal.distortion_coefficients = distortionJson.get<std::array<float, CameraCalibration::kDistortionCoefficientsSize>>();
-        cal.calibrated_at = stmt.getColumn(col).getText();
+        cal.id = col.nextI64();
+        cal.camera_id = col.nextI32();
+        cal.intrinsic_matrix =
+            nlohmann::json::parse(col.nextText())
+                .get<std::array<float, CameraCalibration::kIntrinsicMatrixSize>>();
+        cal.distortion_coefficients =
+            nlohmann::json::parse(col.nextText())
+                .get<std::array<float, CameraCalibration::kDistortionCoefficientsSize>>();
+        cal.calibrated_at = col.nextText();
         return DbResult<CameraCalibration>::ok(std::move(cal));
     } catch (const SQLite::Exception& ex) {
         spdlog::error("CameraRepository::getLatestCalibration failed: {}", ex.what());
@@ -93,26 +87,21 @@ auto SqliteCameraRepository::getLatestCalibration(int32_t camera_id)
 
 auto SqliteCameraRepository::insertCalibration(const CameraCalibration& data)
     -> DbResult<CameraCalibration> {
-    try {
-        auto intrinsicJson = nlohmann::json(data.intrinsic_matrix).dump();
-        auto distortionJson = nlohmann::json(data.distortion_coefficients).dump();
+    return dbExecute<CameraCalibration>("CameraRepository::insertCalibration", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT INTO camera_calibration "
             "(camera_id, intrinsic_matrix, distortion_coefficients, calibrated_at) "
             "VALUES (?, ?, ?, datetime('now'))");
-        int param = 1;
-        stmt.bind(param++, data.camera_id);
-        stmt.bind(param++, intrinsicJson);
-        stmt.bind(param, distortionJson);
+        ParamBinder(stmt)
+            .i32(data.camera_id)
+            .text(nlohmann::json(data.intrinsic_matrix).dump())
+            .text(nlohmann::json(data.distortion_coefficients).dump());
         stmt.exec();
         CameraCalibration saved = data;
         saved.id = db_.getLastInsertRowid();
         return DbResult<CameraCalibration>::ok(std::move(saved));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("CameraRepository::insertCalibration failed: {}", ex.what());
-        return DbResult<CameraCalibration>::fail();
-    }
+    });
 }
 
 }  // namespace sst::db

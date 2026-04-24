@@ -1,25 +1,11 @@
 #include "adapters/db/sqlite/network-repository.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace sst::db {
 
+SqliteNetworkRepository::SqliteNetworkRepository(DbConnection& conn)
+    : SqliteRepositoryBase(conn) {}
+
 namespace {
-
-auto readOptionalText(const SQLite::Column& col) -> std::optional<std::string> {
-    if (col.isNull()) {
-        return std::nullopt;
-    }
-    return std::string{col.getText()};
-}
-
-void bindOptionalText(SQLite::Statement& stmt, int idx, const std::optional<std::string>& val) {
-    if (val) {
-        stmt.bind(idx, *val);
-    } else {
-        stmt.bind(idx);
-    }
-}
 
 constexpr const char* kSelectNetClientCols =
     "SELECT user_id, enabled, medium, ssid, wifi_password, static_ip, "
@@ -30,102 +16,86 @@ constexpr const char* kSelectNetApCols =
     "ip_address, subnet_mask, gateway FROM config_access_point WHERE user_id = ?";
 
 template <typename T>
-auto readNetworkNode(SQLite::Statement& stmt) -> T {
-    T out;
-    int col = 0;
-    out.user_id = stmt.getColumn(col++).getInt64();
-    out.enabled = static_cast<bool>(stmt.getColumn(col++).getInt());
-    out.medium = static_cast<NetworkMedium>(stmt.getColumn(col++).getInt());
-    out.ssid = readOptionalText(stmt.getColumn(col++));
-    out.wifi_password = readOptionalText(stmt.getColumn(col++));
-    out.static_ip = static_cast<bool>(stmt.getColumn(col++).getInt());
-    out.ip_address = readOptionalText(stmt.getColumn(col++));
-    out.subnet_mask = readOptionalText(stmt.getColumn(col++));
-    out.gateway = readOptionalText(stmt.getColumn(col));
-    return out;
+auto readWifiNode(SQLite::Statement& stmt) -> T {
+    ColumnReader col(stmt);
+    return {.user_id = col.nextI64(),
+            .enabled = col.nextBool(),
+            .medium = col.nextEnum<NetworkMedium>(),
+            .ssid = col.nextOptText(),
+            .wifi_password = col.nextOptText(),
+            .static_ip = col.nextBool(),
+            .ip_address = col.nextOptText(),
+            .subnet_mask = col.nextOptText(),
+            .gateway = col.nextOptText()};
 }
 
 template <typename T>
-void bindNetworkNode(SQLite::Statement& stmt, const T& data) {
-    int param = 1;
-    stmt.bind(param++, data.user_id);
-    stmt.bind(param++, static_cast<int>(data.enabled));
-    stmt.bind(param++, static_cast<int>(data.medium));
-    bindOptionalText(stmt, param++, data.ssid);
-    bindOptionalText(stmt, param++, data.wifi_password);
-    stmt.bind(param++, static_cast<int>(data.static_ip));
-    bindOptionalText(stmt, param++, data.ip_address);
-    bindOptionalText(stmt, param++, data.subnet_mask);
-    bindOptionalText(stmt, param, data.gateway);
+void bindWifiNode(SQLite::Statement& stmt, const T& data) {
+    ParamBinder(stmt)
+        .i64(data.user_id)
+        .boolean(data.enabled)
+        .asEnum(data.medium)
+        .optText(data.ssid)
+        .optText(data.wifi_password)
+        .boolean(data.static_ip)
+        .optText(data.ip_address)
+        .optText(data.subnet_mask)
+        .optText(data.gateway);
 }
 
 }  // namespace
 
-SqliteNetworkRepository::SqliteNetworkRepository(DbConnection& conn) : db_(conn.db()) {}
-
 auto SqliteNetworkRepository::getClient(int64_t user_id) -> DbResult<NetworkClient> {
-    try {
+    return dbExecute<NetworkClient>("NetworkRepository::getClient", [&] {
         SQLite::Statement stmt(db_, kSelectNetClientCols);
         stmt.bind(1, user_id);
         if (!stmt.executeStep()) {
             return DbResult<NetworkClient>::fail();
         }
-        return DbResult<NetworkClient>::ok(readNetworkNode<NetworkClient>(stmt));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::getClient failed: {}", ex.what());
-        return DbResult<NetworkClient>::fail();
-    }
+        return DbResult<NetworkClient>::ok(readWifiNode<NetworkClient>(stmt));
+    });
 }
 
 auto SqliteNetworkRepository::saveClient(const NetworkClient& data) -> DbResult<NetworkClient> {
-    try {
+    return dbExecute<NetworkClient>("NetworkRepository::saveClient", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO config_client "
             "(user_id, enabled, medium, ssid, wifi_password, static_ip, "
             "ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        bindNetworkNode(stmt, data);
+        bindWifiNode(stmt, data);
         stmt.exec();
         return DbResult<NetworkClient>::ok(data);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::saveClient failed: {}", ex.what());
-        return DbResult<NetworkClient>::fail();
-    }
+    });
 }
 
 auto SqliteNetworkRepository::getAccessPoint(int64_t user_id) -> DbResult<NetworkAccessPoint> {
-    try {
+    return dbExecute<NetworkAccessPoint>("NetworkRepository::getAccessPoint", [&] {
         SQLite::Statement stmt(db_, kSelectNetApCols);
         stmt.bind(1, user_id);
         if (!stmt.executeStep()) {
             return DbResult<NetworkAccessPoint>::fail();
         }
-        return DbResult<NetworkAccessPoint>::ok(readNetworkNode<NetworkAccessPoint>(stmt));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::getAccessPoint failed: {}", ex.what());
-        return DbResult<NetworkAccessPoint>::fail();
-    }
+        return DbResult<NetworkAccessPoint>::ok(readWifiNode<NetworkAccessPoint>(stmt));
+    });
 }
 
 auto SqliteNetworkRepository::saveAccessPoint(const NetworkAccessPoint& data)
     -> DbResult<NetworkAccessPoint> {
-    try {
+    return dbExecute<NetworkAccessPoint>("NetworkRepository::saveAccessPoint", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO config_access_point "
             "(user_id, enabled, medium, ssid, wifi_password, static_ip, "
             "ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        bindNetworkNode(stmt, data);
+        bindWifiNode(stmt, data);
         stmt.exec();
         return DbResult<NetworkAccessPoint>::ok(data);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::saveAccessPoint failed: {}", ex.what());
-        return DbResult<NetworkAccessPoint>::fail();
-    }
+    });
 }
 
 auto SqliteNetworkRepository::getBluetooth(int64_t user_id) -> DbResult<NetworkBluetooth> {
-    try {
+    return dbExecute<NetworkBluetooth>("NetworkRepository::getBluetooth", [&] {
         SQLite::Statement stmt(
             db_,
             "SELECT user_id, enabled, name, password FROM config_bluetooth WHERE user_id = ?");
@@ -133,36 +103,26 @@ auto SqliteNetworkRepository::getBluetooth(int64_t user_id) -> DbResult<NetworkB
         if (!stmt.executeStep()) {
             return DbResult<NetworkBluetooth>::fail();
         }
-        int col = 0;
-        return DbResult<NetworkBluetooth>::ok(
-            {.user_id = stmt.getColumn(col++).getInt64(),
-             .enabled = static_cast<bool>(stmt.getColumn(col++).getInt()),
-             .name = stmt.getColumn(col++).getText(),
-             .password = stmt.getColumn(col).getText()});
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::getBluetooth failed: {}", ex.what());
-        return DbResult<NetworkBluetooth>::fail();
-    }
+        ColumnReader col(stmt);
+        return DbResult<NetworkBluetooth>::ok({.user_id = col.nextI64(),
+                                              .enabled = col.nextBool(),
+                                              .name = col.nextText(),
+                                              .password = col.nextText()});
+    });
 }
 
 auto SqliteNetworkRepository::saveBluetooth(const NetworkBluetooth& data)
     -> DbResult<NetworkBluetooth> {
-    try {
+    return dbExecute<NetworkBluetooth>("NetworkRepository::saveBluetooth", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO config_bluetooth (user_id, enabled, name, password) "
             "VALUES (?, ?, ?, ?)");
-        int param = 1;
-        stmt.bind(param++, data.user_id);
-        stmt.bind(param++, static_cast<int>(data.enabled));
-        stmt.bind(param++, data.name);
-        stmt.bind(param, data.password);
+        ParamBinder(stmt).i64(data.user_id).boolean(data.enabled).text(data.name).text(
+            data.password);
         stmt.exec();
         return DbResult<NetworkBluetooth>::ok(data);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("NetworkRepository::saveBluetooth failed: {}", ex.what());
-        return DbResult<NetworkBluetooth>::fail();
-    }
+    });
 }
 
 }  // namespace sst::db

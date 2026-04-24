@@ -1,6 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
+#include "adapters/config/json-opt.hpp"
 #include "domain/config/models/device.hpp"
 
 namespace sst::config {
@@ -8,115 +9,56 @@ namespace sst::config {
 using nlohmann::json;
 
 inline void from_json(const json& jsonObject, DeviceStaticIpData& values) {
-    if (jsonObject.contains("enabled")) {
-        values.enabled = jsonObject.at("enabled").get<bool>();
-    }
-    if (jsonObject.contains("ip_address")) {
-        values.ip_address = jsonObject.at("ip_address").get<std::string>();
-    }
-    if (jsonObject.contains("subnet_mask")) {
-        values.subnet_mask = jsonObject.at("subnet_mask").get<std::string>();
-    }
-    if (jsonObject.contains("gateway")) {
-        values.gateway = jsonObject.at("gateway").get<std::string>();
-    }
+    json_get_opt(jsonObject, "enabled", values.enabled);
+    json_get_opt(jsonObject, "ip_address", values.ip_address);
+    json_get_opt(jsonObject, "subnet_mask", values.subnet_mask);
+    json_get_opt(jsonObject, "gateway", values.gateway);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityWifiClientData& values) {
-    if (jsonObject.contains("enabled")) {
-        values.enabled = jsonObject.at("enabled").get<bool>();
-    }
-    if (jsonObject.contains("wifi_ssid")) {
-        values.wifi_ssid = jsonObject.at("wifi_ssid").get<std::string>();
-    }
-    if (jsonObject.contains("wifi_password")) {
-        values.wifi_password = jsonObject.at("wifi_password").get<std::string>();
-    }
-    if (jsonObject.contains("static_ip")) {
-        values.static_ip = jsonObject.at("static_ip").get<DeviceStaticIpData>();
-    }
+    json_get_opt(jsonObject, "enabled", values.enabled);
+    json_get_opt(jsonObject, "wifi_ssid", values.wifi_ssid);
+    json_get_opt(jsonObject, "wifi_password", values.wifi_password);
+    json_get_opt(jsonObject, "static_ip", values.static_ip);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityWifiAccessPointData& values) {
-    if (jsonObject.contains("enabled")) {
-        values.enabled = jsonObject.at("enabled").get<bool>();
-    }
-    if (jsonObject.contains("ssid")) {
-        values.ssid = jsonObject.at("ssid").get<std::string>();
-    }
-    if (jsonObject.contains("password")) {
-        values.password = jsonObject.at("password").get<std::string>();
-    }
+    json_get_opt(jsonObject, "enabled", values.enabled);
+    json_get_opt(jsonObject, "ssid", values.ssid);
+    json_get_opt(jsonObject, "password", values.password);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityWifiData& values) {
-    if (jsonObject.contains("client")) {
-        values.client = jsonObject.at("client").get<DeviceConnectivityWifiClientData>();
-    }
-    if (jsonObject.contains("access_point")) {
-        values.access_point =
-            jsonObject.at("access_point").get<DeviceConnectivityWifiAccessPointData>();
-    }
+    json_get_opt(jsonObject, "client", values.client);
+    json_get_opt(jsonObject, "access_point", values.access_point);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityEthernetData& values) {
-    if (jsonObject.contains("enabled")) {
-        values.enabled = jsonObject.at("enabled").get<bool>();
-    }
-    if (jsonObject.contains("static_ip")) {
-        values.static_ip = jsonObject.at("static_ip").get<DeviceStaticIpData>();
-    }
+    json_get_opt(jsonObject, "enabled", values.enabled);
+    json_get_opt(jsonObject, "static_ip", values.static_ip);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityBluetoothData& values) {
-    if (jsonObject.contains("enabled")) {
-        values.enabled = jsonObject.at("enabled").get<bool>();
-    }
-    if (jsonObject.contains("name")) {
-        values.name = jsonObject.at("name").get<std::string>();
-    }
-    if (jsonObject.contains("password")) {
-        values.password = jsonObject.at("password").get<std::string>();
-    }
+    json_get_opt(jsonObject, "enabled", values.enabled);
+    json_get_opt(jsonObject, "name", values.name);
+    json_get_opt(jsonObject, "password", values.password);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityData& values) {
-    if (jsonObject.contains("wifi")) {
-        values.wifi = jsonObject.at("wifi").get<DeviceConnectivityWifiData>();
-    }
-    if (jsonObject.contains("ethernet")) {
-        values.ethernet = jsonObject.at("ethernet").get<DeviceConnectivityEthernetData>();
-    }
-    if (jsonObject.contains("bluetooth")) {
-        values.bluetooth = jsonObject.at("bluetooth").get<DeviceConnectivityBluetoothData>();
-    }
+    json_get_opt(jsonObject, "wifi", values.wifi);
+    json_get_opt(jsonObject, "ethernet", values.ethernet);
+    json_get_opt(jsonObject, "bluetooth", values.bluetooth);
 }
 
 inline void from_json(const json& jsonObject, DeviceData& values) {
-    if (jsonObject.contains("name")) {
-        values.name = jsonObject.at("name").get<std::string>();
-    }
-    if (jsonObject.contains("model")) {
-        values.model = jsonObject.at("model").get<std::string>();
-    }
-    if (jsonObject.contains("version")) {
-        values.version = jsonObject.at("version").get<std::string>();
-    }
-    if (jsonObject.contains("serial_number")) {
-        values.serial_number = jsonObject.at("serial_number").get<std::string>();
-    }
-    if (jsonObject.contains("manufacturer")) {
-        values.manufacturer = jsonObject.at("manufacturer").get<std::string>();
-    }
-    if (jsonObject.contains("timezone")) {
-        values.timezone = jsonObject.at("timezone").get<std::string>();
-    }
-    if (jsonObject.contains("timestamp")) {
-        values.timestamp = jsonObject.at("timestamp").get<std::string>();
-    }
-    if (jsonObject.contains("connectivity")) {
-        values.connectivity = jsonObject.at("connectivity").get<DeviceConnectivityData>();
-    }
+    json_get_opt(jsonObject, "name", values.name);
+    json_get_opt(jsonObject, "model", values.model);
+    json_get_opt(jsonObject, "version", values.version);
+    json_get_opt(jsonObject, "serial_number", values.serial_number);
+    json_get_opt(jsonObject, "manufacturer", values.manufacturer);
+    json_get_opt(jsonObject, "timezone", values.timezone);
+    json_get_opt(jsonObject, "timestamp", values.timestamp);
+    json_get_opt(jsonObject, "connectivity", values.connectivity);
 }
 
 }  // namespace sst::config

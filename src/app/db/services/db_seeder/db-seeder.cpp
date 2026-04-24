@@ -119,7 +119,10 @@ void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config
 
     spdlog::info("Seeding DB with initial data");
 
-    mgr.users().create("admin");
+    if (!mgr.users().create("admin").success) {
+        spdlog::error("DB seeding aborted: failed to create admin user");
+        return;
+    }
 
     if (config.calibration.cameras) {
         seedCameraConfig(mgr, *config.calibration.cameras);

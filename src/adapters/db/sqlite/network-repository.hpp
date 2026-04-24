@@ -1,13 +1,11 @@
 #pragma once
 
-#include <SQLiteCpp/SQLiteCpp.h>
-
-#include "adapters/db/sqlite/db-connection.hpp"
+#include "adapters/db/sqlite/db-helpers.hpp"
 #include "app/db/ports/network-repository.hpp"
 
 namespace sst::db {
 
-class SqliteNetworkRepository : public INetworkRepository {
+class SqliteNetworkRepository : public INetworkRepository, private SqliteRepositoryBase {
    public:
     explicit SqliteNetworkRepository(DbConnection& conn);
 
@@ -17,9 +15,6 @@ class SqliteNetworkRepository : public INetworkRepository {
     auto saveAccessPoint(const NetworkAccessPoint& data) -> DbResult<NetworkAccessPoint> override;
     auto getBluetooth(int64_t user_id) -> DbResult<NetworkBluetooth> override;
     auto saveBluetooth(const NetworkBluetooth& data) -> DbResult<NetworkBluetooth> override;
-
-   private:
-    SQLite::Database& db_;
 };
 
 }  // namespace sst::db

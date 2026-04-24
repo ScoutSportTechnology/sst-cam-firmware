@@ -100,6 +100,25 @@ auto GStreamerAdapter::CreatePipeline() -> std::string {
     return gst_pipeline;
 }
 
+auto GStreamerAdapter::CleanupPipeline() -> void {
+    if (gst_sink_ != nullptr) {
+        gst_object_unref(gst_sink_);
+        gst_sink_ = nullptr;
+    }
+    if (gst_bus_ != nullptr) {
+        gst_object_unref(gst_bus_);
+        gst_bus_ = nullptr;
+    }
+    if (gst_pipeline_ != nullptr) {
+        gst_object_unref(gst_pipeline_);
+        gst_pipeline_ = nullptr;
+    }
+    if (gst_err_ != nullptr) {
+        g_error_free(gst_err_);
+        gst_err_ = nullptr;
+    }
+}
+
 auto GStreamerAdapter::Start() -> void {
     if (is_running_) {
         return;
@@ -115,12 +134,7 @@ auto GStreamerAdapter::Start() -> void {
     gst_pipeline_ = gst_parse_launch(pipeline_str_.c_str(), &gst_err_);
     if (gst_err_ != nullptr) {
         spdlog::error("Failed to parse/link pipeline: {}", gst_err_->message);
-        g_error_free(gst_err_);
-        gst_err_ = nullptr;
-        if (gst_pipeline_ != nullptr) {
-            gst_object_unref(gst_pipeline_);
-            gst_pipeline_ = nullptr;
-        }
+        CleanupPipeline();
         return;
     }
 
@@ -132,18 +146,14 @@ auto GStreamerAdapter::Start() -> void {
     gst_bus_ = gst_element_get_bus(gst_pipeline_);
     if (gst_bus_ == nullptr) {
         g_printerr("Failed to get bus from pipeline\n");
-        gst_object_unref(gst_pipeline_);
-        gst_pipeline_ = nullptr;
+        CleanupPipeline();
         return;
     }
 
     gst_sink_ = gst_bin_get_by_name(GST_BIN(gst_pipeline_), gst_sink_name_.c_str());
     if (gst_sink_ == nullptr) {
         g_printerr("Failed to get appsink from pipeline\n");
-        gst_object_unref(gst_bus_);
-        gst_bus_ = nullptr;
-        gst_object_unref(gst_pipeline_);
-        gst_pipeline_ = nullptr;
+        CleanupPipeline();
         return;
     }
 
@@ -157,17 +167,7 @@ auto GStreamerAdapter::Start() -> void {
     if (ret == GST_STATE_CHANGE_FAILURE) {
         g_printerr("Failed to set pipeline to PLAYING state\n");
         gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
-
-        if (gst_sink_ != nullptr) {
-            gst_object_unref(gst_sink_);
-            gst_sink_ = nullptr;
-        }
-        if (gst_bus_ != nullptr) {
-            gst_object_unref(gst_bus_);
-            gst_bus_ = nullptr;
-        }
-        gst_object_unref(gst_pipeline_);
-        gst_pipeline_ = nullptr;
+        CleanupPipeline();
         return;
     }
 
@@ -195,26 +195,7 @@ auto GStreamerAdapter::Stop() -> void {
     if (gst_pipeline_ != nullptr) {
         gst_element_set_state(gst_pipeline_, GST_STATE_NULL);
     }
-
-    if (gst_sink_ != nullptr) {
-        gst_object_unref(gst_sink_);
-        gst_sink_ = nullptr;
-    }
-
-    if (gst_bus_ != nullptr) {
-        gst_object_unref(gst_bus_);
-        gst_bus_ = nullptr;
-    }
-
-    if (gst_pipeline_ != nullptr) {
-        gst_object_unref(gst_pipeline_);
-        gst_pipeline_ = nullptr;
-    }
-
-    if (gst_err_ != nullptr) {
-        g_error_free(gst_err_);
-        gst_err_ = nullptr;
-    }
+    CleanupPipeline();
 
     std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
     last_frame_.reset();

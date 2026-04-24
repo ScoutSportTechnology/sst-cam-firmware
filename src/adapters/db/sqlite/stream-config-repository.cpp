@@ -1,53 +1,49 @@
 #include "adapters/db/sqlite/stream-config-repository.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace sst::db {
 
-SqliteStreamConfigRepository::SqliteStreamConfigRepository(DbConnection& conn) : db_(conn.db()) {}
+SqliteStreamConfigRepository::SqliteStreamConfigRepository(DbConnection& conn)
+    : SqliteRepositoryBase(conn) {}
 
 namespace {
 
 auto readStreamConfig(SQLite::Statement& stmt) -> StreamConfig {
-    StreamConfig cfg;
-    int col = 0;
-    cfg.id = stmt.getColumn(col++).getInt64();
-    cfg.user_id = stmt.getColumn(col++).getInt64();
-    cfg.platform = static_cast<StreamPlatform>(stmt.getColumn(col++).getInt());
-    cfg.name = stmt.getColumn(col++).getText();
-    cfg.enabled = static_cast<bool>(stmt.getColumn(col++).getInt());
-    cfg.stream_key = stmt.getColumn(col++).getText();
-    cfg.stream_type = static_cast<StreamType>(stmt.getColumn(col++).getInt());
-    cfg.url = stmt.getColumn(col++).getText();
-    cfg.codec = static_cast<StreamCodec>(stmt.getColumn(col++).getInt());
-    cfg.width = stmt.getColumn(col++).getInt();
-    cfg.height = stmt.getColumn(col++).getInt();
-    cfg.framerate = stmt.getColumn(col++).getInt();
-    cfg.bitrate_kbps = stmt.getColumn(col).getInt();
-    return cfg;
+    ColumnReader col(stmt);
+    return {.id = col.nextI64(),
+            .user_id = col.nextI64(),
+            .platform = col.nextEnum<StreamPlatform>(),
+            .name = col.nextText(),
+            .enabled = col.nextBool(),
+            .stream_key = col.nextText(),
+            .stream_type = col.nextEnum<StreamType>(),
+            .url = col.nextText(),
+            .codec = col.nextEnum<StreamCodec>(),
+            .width = col.nextI32(),
+            .height = col.nextI32(),
+            .framerate = col.nextI32(),
+            .bitrate_kbps = col.nextI32()};
 }
 
-void bindStreamConfigFields(SQLite::Statement& stmt, int start_param, const StreamConfig& data) {
-    int param = start_param;
-    stmt.bind(param++, data.user_id);
-    stmt.bind(param++, static_cast<int>(data.platform));
-    stmt.bind(param++, data.name);
-    stmt.bind(param++, static_cast<int>(data.enabled));
-    stmt.bind(param++, data.stream_key);
-    stmt.bind(param++, static_cast<int>(data.stream_type));
-    stmt.bind(param++, data.url);
-    stmt.bind(param++, static_cast<int>(data.codec));
-    stmt.bind(param++, data.width);
-    stmt.bind(param++, data.height);
-    stmt.bind(param++, data.framerate);
-    stmt.bind(param, data.bitrate_kbps);
+void bindStreamFields(ParamBinder& binder, const StreamConfig& data) {
+    binder.i64(data.user_id)
+        .asEnum(data.platform)
+        .text(data.name)
+        .boolean(data.enabled)
+        .text(data.stream_key)
+        .asEnum(data.stream_type)
+        .text(data.url)
+        .asEnum(data.codec)
+        .i32(data.width)
+        .i32(data.height)
+        .i32(data.framerate)
+        .i32(data.bitrate_kbps);
 }
 
 }  // namespace
 
 auto SqliteStreamConfigRepository::getAll(int64_t user_id)
     -> DbResult<std::vector<StreamConfig>> {
-    try {
+    return dbExecute<std::vector<StreamConfig>>("StreamConfigRepository::getAll", [&] {
         SQLite::Statement stmt(
             db_,
             "SELECT id, user_id, platform, name, enabled, stream_key, stream_type, "
@@ -59,14 +55,11 @@ auto SqliteStreamConfigRepository::getAll(int64_t user_id)
             results.push_back(readStreamConfig(stmt));
         }
         return DbResult<std::vector<StreamConfig>>::ok(std::move(results));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("StreamConfigRepository::getAll failed: {}", ex.what());
-        return DbResult<std::vector<StreamConfig>>::fail();
-    }
+    });
 }
 
 auto SqliteStreamConfigRepository::save(const StreamConfig& data) -> DbResult<StreamConfig> {
-    try {
+    return dbExecute<StreamConfig>("StreamConfigRepository::save", [&] {
         StreamConfig saved = data;
         if (data.id == 0) {
             SQLite::Statement stmt(
@@ -75,7 +68,8 @@ auto SqliteStreamConfigRepository::save(const StreamConfig& data) -> DbResult<St
                 "(user_id, platform, name, enabled, stream_key, stream_type, "
                 "url, codec, width, height, framerate, bitrate_kbps) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            bindStreamConfigFields(stmt, 1, data);
+            ParamBinder binder(stmt);
+            bindStreamFields(binder, data);
             stmt.exec();
             saved.id = db_.getLastInsertRowid();
         } else {
@@ -85,27 +79,22 @@ auto SqliteStreamConfigRepository::save(const StreamConfig& data) -> DbResult<St
                 "(id, user_id, platform, name, enabled, stream_key, stream_type, "
                 "url, codec, width, height, framerate, bitrate_kbps) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            stmt.bind(1, data.id);
-            bindStreamConfigFields(stmt, 2, data);
+            ParamBinder binder(stmt);
+            binder.i64(data.id);
+            bindStreamFields(binder, data);
             stmt.exec();
         }
         return DbResult<StreamConfig>::ok(std::move(saved));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("StreamConfigRepository::save failed: {}", ex.what());
-        return DbResult<StreamConfig>::fail();
-    }
+    });
 }
 
-auto SqliteStreamConfigRepository::remove(int64_t stream_id) -> bool {
-    try {
+auto SqliteStreamConfigRepository::remove(int64_t stream_id) -> DbResult<bool> {
+    return dbExecute<bool>("StreamConfigRepository::remove", [&] {
         SQLite::Statement stmt(db_, "DELETE FROM stream_config WHERE id = ?");
         stmt.bind(1, stream_id);
         stmt.exec();
-        return db_.getChanges() > 0;
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("StreamConfigRepository::remove failed: {}", ex.what());
-        return false;
-    }
+        return DbResult<bool>::ok(db_.getChanges() > 0);
+    });
 }
 
 }  // namespace sst::db

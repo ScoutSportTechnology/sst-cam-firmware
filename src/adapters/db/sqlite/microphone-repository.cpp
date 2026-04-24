@@ -1,48 +1,39 @@
 #include "adapters/db/sqlite/microphone-repository.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace sst::db {
 
-SqliteMicrophoneRepository::SqliteMicrophoneRepository(DbConnection& conn) : db_(conn.db()) {}
+SqliteMicrophoneRepository::SqliteMicrophoneRepository(DbConnection& conn)
+    : SqliteRepositoryBase(conn) {}
 
 auto SqliteMicrophoneRepository::getConfig(int64_t user_id) -> DbResult<MicrophoneConfig> {
-    try {
+    return dbExecute<MicrophoneConfig>("MicrophoneRepository::getConfig", [&] {
         SQLite::Statement stmt(
-            db_,
-            "SELECT user_id, noise_reduction FROM microphone_config WHERE user_id = ?");
+            db_, "SELECT user_id, noise_reduction FROM microphone_config WHERE user_id = ?");
         stmt.bind(1, user_id);
         if (!stmt.executeStep()) {
             return DbResult<MicrophoneConfig>::fail();
         }
+        ColumnReader col(stmt);
         return DbResult<MicrophoneConfig>::ok(
-            {.user_id = stmt.getColumn(0).getInt64(),
-             .noise_reduction = static_cast<bool>(stmt.getColumn(1).getInt())});
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("MicrophoneRepository::getConfig failed: {}", ex.what());
-        return DbResult<MicrophoneConfig>::fail();
-    }
+            {.user_id = col.nextI64(), .noise_reduction = col.nextBool()});
+    });
 }
 
 auto SqliteMicrophoneRepository::saveConfig(const MicrophoneConfig& data)
     -> DbResult<MicrophoneConfig> {
-    try {
+    return dbExecute<MicrophoneConfig>("MicrophoneRepository::saveConfig", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO microphone_config (user_id, noise_reduction) VALUES (?, ?)");
-        stmt.bind(1, data.user_id);
-        stmt.bind(2, static_cast<int>(data.noise_reduction));
+        ParamBinder(stmt).i64(data.user_id).boolean(data.noise_reduction);
         stmt.exec();
         return DbResult<MicrophoneConfig>::ok(data);
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("MicrophoneRepository::saveConfig failed: {}", ex.what());
-        return DbResult<MicrophoneConfig>::fail();
-    }
+    });
 }
 
 auto SqliteMicrophoneRepository::getLatestCalibration(int32_t mic_id)
     -> DbResult<MicrophoneCalibration> {
-    try {
+    return dbExecute<MicrophoneCalibration>("MicrophoneRepository::getLatestCalibration", [&] {
         SQLite::Statement stmt(
             db_,
             "SELECT id, mic_id, sensitivity, calibrated_at "
@@ -52,35 +43,27 @@ auto SqliteMicrophoneRepository::getLatestCalibration(int32_t mic_id)
         if (!stmt.executeStep()) {
             return DbResult<MicrophoneCalibration>::fail();
         }
-        int col = 0;
-        return DbResult<MicrophoneCalibration>::ok(
-            {.id = stmt.getColumn(col++).getInt64(),
-             .mic_id = stmt.getColumn(col++).getInt(),
-             .sensitivity = static_cast<float>(stmt.getColumn(col++).getDouble()),
-             .calibrated_at = stmt.getColumn(col).getText()});
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("MicrophoneRepository::getLatestCalibration failed: {}", ex.what());
-        return DbResult<MicrophoneCalibration>::fail();
-    }
+        ColumnReader col(stmt);
+        return DbResult<MicrophoneCalibration>::ok({.id = col.nextI64(),
+                                                   .mic_id = col.nextI32(),
+                                                   .sensitivity = col.nextF32(),
+                                                   .calibrated_at = col.nextText()});
+    });
 }
 
 auto SqliteMicrophoneRepository::insertCalibration(const MicrophoneCalibration& data)
     -> DbResult<MicrophoneCalibration> {
-    try {
+    return dbExecute<MicrophoneCalibration>("MicrophoneRepository::insertCalibration", [&] {
         SQLite::Statement stmt(
             db_,
             "INSERT INTO microphone_calibration (mic_id, sensitivity, calibrated_at) "
             "VALUES (?, ?, datetime('now'))");
-        stmt.bind(1, data.mic_id);
-        stmt.bind(2, static_cast<double>(data.sensitivity));
+        ParamBinder(stmt).i32(data.mic_id).real(data.sensitivity);
         stmt.exec();
         MicrophoneCalibration saved = data;
         saved.id = db_.getLastInsertRowid();
         return DbResult<MicrophoneCalibration>::ok(std::move(saved));
-    } catch (const SQLite::Exception& ex) {
-        spdlog::error("MicrophoneRepository::insertCalibration failed: {}", ex.what());
-        return DbResult<MicrophoneCalibration>::fail();
-    }
+    });
 }
 
 }  // namespace sst::db
