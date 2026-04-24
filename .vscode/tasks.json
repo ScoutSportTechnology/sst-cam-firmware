@@ -34,6 +34,22 @@
       }
     },
     {
+      "label": "Bootstrap Toolchain: Ubuntu",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "scripts/bootstrap-toolchain/ubuntu.sh"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
       "label": "Bootstrap Target Rootfs: Jetson R36.5",
       "type": "shell",
       "command": "bash",

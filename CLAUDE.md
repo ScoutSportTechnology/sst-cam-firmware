@@ -22,7 +22,16 @@ cmake --preset native/release/jetson/r36.5
 cmake --build --preset native/release/jetson/r36.5
 ```
 
-**Cross-compile (from WSL/Ubuntu):**
+**Cross-compile (from native Ubuntu):**
+```bash
+bash scripts/bootstrap-toolchain/ubuntu.sh
+bash scripts/bootstrap-target-rootfs/jetson-r36.5.sh
+
+cmake --preset cross/debug/jetson/r36.5/ubuntu
+cmake --build --preset cross/debug/jetson/r36.5/ubuntu
+```
+
+**Cross-compile (from WSL Ubuntu):**
 ```bash
 bash scripts/bootstrap-toolchain/wsl-ubuntu.sh
 bash scripts/bootstrap-target-rootfs/jetson-r36.5.sh

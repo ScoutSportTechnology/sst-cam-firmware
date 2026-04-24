@@ -30,7 +30,7 @@
       }
     },
     {
-      "name": "base-jetson-r36.5-cross",
+      "name": "base-jetson-r36.5-cross-wsl-ubuntu",
       "hidden": true,
       "inherits": "base",
       "environment": {
@@ -38,6 +38,19 @@
       },
       "cacheVariables": {
         "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/wsl-ubuntu",
+        "CONAN_HOST_PROFILE": "${sourceDir}/conan/profiles/jetson-r36.5-cross",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/jetson-r36.5.cmake"
+      }
+    },
+    {
+      "name": "base-jetson-r36.5-cross-ubuntu",
+      "hidden": true,
+      "inherits": "base",
+      "environment": {
+        "PATH": "${sourceDir}/.cache/toolchains/bootlin-jetson-r36/bin:$env{HOME}/.local/bin:$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CONAN_BUILD_PROFILE": "${sourceDir}/conan/profiles/ubuntu",
         "CONAN_HOST_PROFILE": "${sourceDir}/conan/profiles/jetson-r36.5-cross",
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/jetson-r36.5.cmake"
       }
@@ -69,25 +82,51 @@
       }
     },
     {
-      "name": "cross/release/jetson/r36.5",
-      "displayName": "Cross Release Jetson R36.5",
-      "inherits": "base-jetson-r36.5-cross",
+      "name": "cross/release/jetson/r36.5/wsl-ubuntu",
+      "displayName": "Cross Release Jetson R36.5 (WSL Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-wsl-ubuntu",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "cross/debug/jetson/r36.5",
-      "displayName": "Cross Debug Jetson R36.5",
-      "inherits": "base-jetson-r36.5-cross",
+      "name": "cross/debug/jetson/r36.5/wsl-ubuntu",
+      "displayName": "Cross Debug Jetson R36.5 (WSL Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-wsl-ubuntu",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "cross/test/jetson/r36.5",
-      "displayName": "Cross Test Jetson R36.5",
-      "inherits": "base-jetson-r36.5-cross",
+      "name": "cross/test/jetson/r36.5/wsl-ubuntu",
+      "displayName": "Cross Test Jetson R36.5 (WSL Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-wsl-ubuntu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "SST_ENABLE_TESTS": "ON",
+        "CONAN_INSTALL_ARGS": "--build=missing;-o;with_tests=True"
+      }
+    },
+    {
+      "name": "cross/release/jetson/r36.5/ubuntu",
+      "displayName": "Cross Release Jetson R36.5 (Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-ubuntu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "cross/debug/jetson/r36.5/ubuntu",
+      "displayName": "Cross Debug Jetson R36.5 (Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-ubuntu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "cross/test/jetson/r36.5/ubuntu",
+      "displayName": "Cross Test Jetson R36.5 (Ubuntu)",
+      "inherits": "base-jetson-r36.5-cross-ubuntu",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "SST_ENABLE_TESTS": "ON",
@@ -109,16 +148,28 @@
       "configurePreset": "native/test/jetson/r36.5"
     },
     {
-      "name": "cross/release/jetson/r36.5",
-      "configurePreset": "cross/release/jetson/r36.5"
+      "name": "cross/release/jetson/r36.5/wsl-ubuntu",
+      "configurePreset": "cross/release/jetson/r36.5/wsl-ubuntu"
     },
     {
-      "name": "cross/debug/jetson/r36.5",
-      "configurePreset": "cross/debug/jetson/r36.5"
+      "name": "cross/debug/jetson/r36.5/wsl-ubuntu",
+      "configurePreset": "cross/debug/jetson/r36.5/wsl-ubuntu"
     },
     {
-      "name": "cross/test/jetson/r36.5",
-      "configurePreset": "cross/test/jetson/r36.5"
+      "name": "cross/test/jetson/r36.5/wsl-ubuntu",
+      "configurePreset": "cross/test/jetson/r36.5/wsl-ubuntu"
+    },
+    {
+      "name": "cross/release/jetson/r36.5/ubuntu",
+      "configurePreset": "cross/release/jetson/r36.5/ubuntu"
+    },
+    {
+      "name": "cross/debug/jetson/r36.5/ubuntu",
+      "configurePreset": "cross/debug/jetson/r36.5/ubuntu"
+    },
+    {
+      "name": "cross/test/jetson/r36.5/ubuntu",
+      "configurePreset": "cross/test/jetson/r36.5/ubuntu"
     }
   ],
   "testPresets": [
@@ -127,8 +178,12 @@
       "configurePreset": "native/test/jetson/r36.5"
     },
     {
-      "name": "cross/test/jetson/r36.5",
-      "configurePreset": "cross/test/jetson/r36.5"
+      "name": "cross/test/jetson/r36.5/wsl-ubuntu",
+      "configurePreset": "cross/test/jetson/r36.5/wsl-ubuntu"
+    },
+    {
+      "name": "cross/test/jetson/r36.5/ubuntu",
+      "configurePreset": "cross/test/jetson/r36.5/ubuntu"
     }
   ]
 }

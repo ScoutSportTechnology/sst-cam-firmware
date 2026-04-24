@@ -33,13 +33,13 @@ add_library(sst_cam_firmware_external_libs INTERFACE)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
-find_package(SQLiteCpp CONFIG REQUIRED)
+find_package(SQLiteCpp REQUIRED)
 
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     fmt::fmt
-    SQLiteCpp::SQLiteCpp
+    SQLiteCpp
 )
 
 # ============================================================

@@ -31,7 +31,8 @@ endif()
 if(NOT EXISTS "${_BOOTLIN_BIN}/aarch64-buildroot-linux-gnu-gcc")
   message(FATAL_ERROR
     "Bootlin cross compiler not found at:\n  ${_BOOTLIN_BIN}\n"
-    "Run: scripts/bootstrap-toolchain/wsl-ubuntu.sh")
+    "Run: scripts/bootstrap-toolchain/ubuntu.sh  (native Ubuntu)\n"
+    "  or scripts/bootstrap-toolchain/wsl-ubuntu.sh  (WSL)")
 endif()
 
 # ------------------------------------------------------------
