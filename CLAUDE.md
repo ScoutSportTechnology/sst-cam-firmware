@@ -8,42 +8,36 @@ ScoutCamera firmware — C++20 embedded runtime for NVIDIA Jetson Orin Nano (Jet
 
 ## Build
 
-**Native (on Jetson):**
-
-```bash
-# First time: install toolchain
-bash scripts/bootstrap-toolchain/jetson-r36.5.sh
-
-# Configure + build
-cmake --preset native/debug/jetson/r36.5
-cmake --build --preset native/debug/jetson/r36.5
-
-# Release
-cmake --preset native/release/jetson/r36.5
-cmake --build --preset native/release/jetson/r36.5
-```
-
-**Cross-compile (Dev Containers — only supported method):**
+The **only supported build method is cross-compilation from the Dev Container.** Native on-device builds are not supported.
 
 1. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
 2. Open this repo → **"Reopen in Container"** (or `Dev Containers: Reopen in Container`).
    VSCode builds the image automatically (~37 GB JetPack sysroot extraction, ~20 min first time).
-3. VSCode opens inside the container — cmake, clangd, and CMake Tools all work natively.
-4. Select preset `cross/debug/jetson/r36.5/cross` in the CMake Tools status bar and build.
+3. VSCode opens inside the container — cmake, clangd, and CMake Tools all work.
+4. Configure + build:
+
+```bash
+cmake --preset debug
+cmake --build --preset debug
+
+# Release
+cmake --preset release
+cmake --build --preset release
+```
 
 Binary lands in `build/<preset>/bin/sst_cam_firmware`.
 
 ## Tests
 
-Tests are off by default. Enable with the `test` presets (sets `SST_ENABLE_TESTS=ON` and pulls GTest via Conan):
+Tests are off by default. Use the `test` preset (sets `SST_ENABLE_TESTS=ON` and pulls GTest via Conan):
 
 ```bash
-cmake --preset native/test/jetson/r36.5
-cmake --build --preset native/test/jetson/r36.5
-ctest --preset native/test/jetson/r36.5
+cmake --preset test
+cmake --build --preset test
+ctest --preset test
 
 # Run single test binary directly for faster iteration
-./build/native/test/jetson/r36.5/bin/sst_cam_firmware_tests --gtest_filter="ConfigLoaderTest.*"
+./build/test/bin/sst_cam_firmware_tests --gtest_filter="ConfigLoaderTest.*"
 ```
 
 ## Linting & formatting
@@ -53,7 +47,7 @@ ctest --preset native/test/jetson/r36.5
 clang-format -i src/**/*.cpp src/**/*.hpp
 
 # Tidy (checks defined in .clang-tidy — bugprone, performance, modernize, readability, google-*)
-clang-tidy -p build/native/debug/jetson/r36.5 src/path/to/file.cpp
+clang-tidy -p build/debug src/path/to/file.cpp
 ```
 
 `compile_commands.json` is exported automatically to `build/<preset>/` and symlinked by clangd.

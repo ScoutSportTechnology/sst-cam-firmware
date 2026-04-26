@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.nvidia.com)",
+      "WebFetch(domain:nvidia-jetson.piveral.com)",
+      "WebFetch(domain:catalog.ngc.nvidia.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:strong-pointer.medium.com)",
+      "WebFetch(domain:forums.developer.nvidia.com)",
+      "WebFetch(domain:developer.ridgerun.com)",
+      "WebFetch(domain:developer.nvidia.com)",
+      "Bash(env)",
+      "Bash(git rm *)",
+      "Bash(git -C /workspace status --short)",
+      "Bash(qemu-aarch64-static -L /l4t/targetfs /workspace/build/test/bin/sst_cam_firmware_tests --gtest_list_tests)",
+      "Bash(cmake --preset test)",
+      "Bash(cmake --build --preset test)",
+      "Bash(ctest --preset test --output-on-failure)"
+    ]
+  }
+}

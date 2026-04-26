@@ -48,6 +48,25 @@ if(NOT EXISTS "${_BOOTLIN_BIN}/aarch64-buildroot-linux-gnu-gcc")
 endif()
 
 # ------------------------------------------------------------
+# qemu-user emulator (lets ctest and gtest_discover_tests run aarch64
+# binaries on the x86_64 build host by routing them through qemu-user
+# with -L pointing at the target sysroot's dynamic linker / libs).
+# ------------------------------------------------------------
+find_program(_QEMU_AARCH64
+  NAMES qemu-aarch64-static qemu-aarch64
+  DOC "qemu-user emulator for running aarch64 test binaries on the build host")
+
+if(_QEMU_AARCH64)
+  set(CMAKE_CROSSCOMPILING_EMULATOR "${_QEMU_AARCH64};-L;${_SYSROOT}"
+      CACHE STRING "Emulator used to run cross-compiled binaries (ctest, gtest_discover_tests)")
+  message(STATUS "  EMULATOR  : ${CMAKE_CROSSCOMPILING_EMULATOR}")
+else()
+  message(WARNING
+    "qemu-aarch64[-static] not found on PATH — ctest cannot run aarch64 binaries on the build host.\n"
+    "Install qemu-user-static or run tests on a real Jetson.")
+endif()
+
+# ------------------------------------------------------------
 # Compilers
 # ------------------------------------------------------------
 set(CMAKE_C_COMPILER   "${_BOOTLIN_BIN}/aarch64-buildroot-linux-gnu-gcc")

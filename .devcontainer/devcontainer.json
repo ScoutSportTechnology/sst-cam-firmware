@@ -24,7 +24,7 @@
         "cmake.useCMakePresets": "always",
         "cmake.configureOnOpen": false,
         "clangd.arguments": [
-          "--compile-commands-dir=${workspaceFolder}/build/cross/debug/jetson/r36.5/cross"
+          "--compile-commands-dir=${workspaceFolder}/build/debug"
         ]
       }
     }

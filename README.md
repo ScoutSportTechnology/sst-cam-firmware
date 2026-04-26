@@ -14,15 +14,11 @@ This project currently targets only one platform:
 - JetPack 6.2.2
 - L4T 36.5
 
-Development is done directly on the Jetson device.
+Development is done exclusively via the **Dev Container** in this repo, which cross-compiles for aarch64 from an x86_64 host. Native on-device builds are not supported.
 
-After flashing JetPack 6.2.2 (L4T 36.5), run:
-
-```bash
-scripts/bootstrap-toolchain/jetson-r36.5.sh
-```
-
-This installs all required toolchain dependencies and system packages required to build the firmware.
+1. Install the **Dev Containers** VSCode extension (`ms-vscode-remote.remote-containers`).
+2. Open the repo and run **Dev Containers: Reopen in Container**.
+3. Once inside the container, configure and build with the `debug` preset (see CLAUDE.md for the full preset list).
 
 Raspberry Pi 5 support has been dropped. All development efforts are focused entirely on Jetson.
 

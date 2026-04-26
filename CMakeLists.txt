@@ -119,5 +119,5 @@ if (SST_ENABLE_TESTS)
     )
 
     include(GoogleTest)
-    gtest_discover_tests(sst_cam_firmware_tests)
+    gtest_discover_tests(sst_cam_firmware_tests DISCOVERY_MODE PRE_TEST)
 endif()
