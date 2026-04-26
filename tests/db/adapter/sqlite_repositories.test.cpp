@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -15,13 +16,18 @@
 namespace {
 
 constexpr const char* kSchemaPath = SST_REPO_ROOT_DIR "/db/schema.sql";
+constexpr const char* kDbPath = SST_REPO_ROOT_DIR "/tests/db/data/test.db";
 constexpr int64_t kMissingId = 9999;
 
 class DbTest : public ::testing::Test {
    protected:
     void SetUp() override {
+        std::filesystem::path db_path{kDbPath};
+        std::filesystem::create_directories(db_path.parent_path());
+        std::filesystem::remove(db_path);
+
         mgr_ = std::make_unique<sst::db::DbManager>(
-            sst::db::DbManager::Config{.db_path = ":memory:", .schema_path = kSchemaPath});
+            sst::db::DbManager::Config{.db_path = kDbPath, .schema_path = kSchemaPath});
         auto res = mgr_->users().create("testuser");
         ASSERT_TRUE(res.success);
         user_id_ = res.data.id;

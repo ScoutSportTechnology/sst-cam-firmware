@@ -1,24 +1,27 @@
 {
   "name": "SST Cam Firmware — Cross-Compile (Jetson aarch64)",
-
   // Builds from docker/Dockerfile if image not present locally.
   "build": {
     "dockerfile": "../docker/Dockerfile",
     "context": ".."
   },
-
   // Mount repo at /workspace (matches Dockerfile WORKDIR) and reuse host Conan cache.
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
   "mounts": [
     "source=${localEnv:HOME}/.conan2,target=/root/.conan2,type=bind,consistency=cached"
   ],
-
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-vscode.cmake-tools",
-        "llvm-vs-code-extensions.vscode-clangd"
+        "ms-vscode.cpp-devtools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "anthropic.claude-code",
+        "llvm-vs-code-extensions.lldb-dap",
+        "matepek.vscode-catch2-test-adapter",
+        "aaron-bond.better-comments",
+        "dbcode.dbcode"
       ],
       "settings": {
         "cmake.useCMakePresets": "always",
