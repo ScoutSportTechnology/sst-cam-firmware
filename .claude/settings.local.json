@@ -16,7 +16,9 @@
       "Bash(qemu-aarch64-static -L /l4t/targetfs /workspace/build/test/bin/sst_cam_firmware_tests --gtest_list_tests)",
       "Bash(cmake --preset test)",
       "Bash(cmake --build --preset test)",
-      "Bash(ctest --preset test --output-on-failure)"
+      "Bash(ctest --preset test --output-on-failure)",
+      "Bash(ctest --preset test --output-on-failure -R \"DbTest.NetworkRead\")",
+      "Bash(ctest --preset test --output-on-failure -R \"DbTest\")"
     ]
   }
 }

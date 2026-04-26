@@ -23,9 +23,9 @@ auto main() -> int {
     spdlog::info("sst-cam-firmware starting");
 
     // Config module: static device info + initial calibration seeds only
-    constexpr std::uint32_t kAdminUserId = 1;
+    constexpr std::uint32_t kDefaultUserId = 1;
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat,
-                                          kAdminUserId);
+                                          kDefaultUserId);
     auto cfg = config.get();
 
     // Database
@@ -44,7 +44,7 @@ auto main() -> int {
     }
 
     // Camera settings — from DB from here on
-    [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kAdminUserId);
+    [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kDefaultUserId);
     // sst::capture::GStreamerAdapter cam0(camera0_cfg.data, device_model, 0);
 
     spdlog::info("startup complete");

@@ -12,11 +12,12 @@
 
 namespace sst::db {
 
-static constexpr int64_t kAdminUserId = 1;
+static constexpr int64_t kDefaultUserId = 1;
+static constexpr const char* kDefaultUsername = "Default";
 
 static void seedCameraConfig(DbManager& mgr, const sst::config::CalibrationCamerasData& src) {
     CameraConfig cfg;
-    cfg.user_id = kAdminUserId;
+    cfg.user_id = kDefaultUserId;
     cfg.exposure = static_cast<int32_t>(src.exposure.value_or(CameraConfig::kDefaultExposure));
     cfg.gain = src.gain.value_or(CameraConfig::kDefaultGain);
     cfg.white_balance = static_cast<CameraWhiteBalance>(src.white_balance.value_or(0));
@@ -48,7 +49,7 @@ static void seedCameraCalibrations(DbManager& mgr,
 static void seedMicrophoneConfig(DbManager& mgr,
                                  const sst::config::CalibrationMicrophonesData& src) {
     MicrophoneConfig cfg;
-    cfg.user_id = kAdminUserId;
+    cfg.user_id = kDefaultUserId;
     cfg.noise_reduction = src.noise_reduction.value_or(true);
     mgr.microphones().saveConfig(cfg);
 }
@@ -70,9 +71,11 @@ static void seedMicrophoneCalibrations(DbManager& mgr,
 }
 
 static void seedNetworkDefaults(DbManager& mgr) {
-    mgr.network().saveClient({.user_id = kAdminUserId,
+    // Default to ethernet — wifi requires ssid + password by schema CHECK, and we
+    // have no sensible defaults for those until the user configures a network.
+    mgr.network().saveClient({.user_id = kDefaultUserId,
                               .enabled = false,
-                              .medium = NetworkMedium::kWifi,
+                              .medium = NetworkMedium::kEthernet,
                               .ssid = std::nullopt,
                               .wifi_password = std::nullopt,
                               .static_ip = false,
@@ -80,7 +83,7 @@ static void seedNetworkDefaults(DbManager& mgr) {
                               .subnet_mask = std::nullopt,
                               .gateway = std::nullopt});
 
-    mgr.network().saveAccessPoint({.user_id = kAdminUserId,
+    mgr.network().saveAccessPoint({.user_id = kDefaultUserId,
                                    .enabled = false,
                                    .medium = NetworkMedium::kWifi,
                                    .ssid = "sst-cam",
@@ -91,18 +94,18 @@ static void seedNetworkDefaults(DbManager& mgr) {
                                    .gateway = std::nullopt});
 
     mgr.network().saveBluetooth(
-        {.user_id = kAdminUserId, .enabled = true, .name = "sst-cam", .password = "123456"});
+        {.user_id = kDefaultUserId, .enabled = true, .name = "sst-cam", .password = "123456"});
 }
 
 static void seedStorageDefaults(DbManager& mgr) {
     const std::array<StorageConfig, 4> configs = {{
-        {.user_id = kAdminUserId, .type = StorageType::kLogs, .enabled = true,
+        {.user_id = kDefaultUserId, .type = StorageType::kLogs, .enabled = true,
          .format = StorageFormat::kTxt, .path = "/var/log/sst/cam/"},
-        {.user_id = kAdminUserId, .type = StorageType::kRecording, .enabled = true,
+        {.user_id = kDefaultUserId, .type = StorageType::kRecording, .enabled = true,
          .format = StorageFormat::kMp4, .path = "/var/lib/sst/cam/videos/"},
-        {.user_id = kAdminUserId, .type = StorageType::kSnapshots, .enabled = true,
+        {.user_id = kDefaultUserId, .type = StorageType::kSnapshots, .enabled = true,
          .format = StorageFormat::kJpg, .path = "/var/lib/sst/cam/snapshots/"},
-        {.user_id = kAdminUserId, .type = StorageType::kThumbnails, .enabled = true,
+        {.user_id = kDefaultUserId, .type = StorageType::kThumbnails, .enabled = true,
          .format = StorageFormat::kJpg, .path = "/var/lib/sst/cam/thumbnails/"},
     }};
     for (const auto& cfg : configs) {
@@ -111,7 +114,7 @@ static void seedStorageDefaults(DbManager& mgr) {
 }
 
 void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config) {
-    auto existing = mgr.users().get(kAdminUserId);
+    auto existing = mgr.users().get(kDefaultUserId);
     if (existing.success) {
         spdlog::debug("DB already seeded, skipping");
         return;
@@ -119,19 +122,20 @@ void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config
 
     spdlog::info("Seeding DB with initial data");
 
-    if (!mgr.users().create("admin").success) {
-        spdlog::error("DB seeding aborted: failed to create admin user");
+    if (!mgr.users().create(kDefaultUsername).success) {
+        spdlog::error("DB seeding aborted: failed to create default user");
         return;
     }
 
-    if (config.calibration.cameras) {
-        seedCameraConfig(mgr, *config.calibration.cameras);
-        seedCameraCalibrations(mgr, *config.calibration.cameras);
-    }
-    if (config.calibration.microphones) {
-        seedMicrophoneConfig(mgr, *config.calibration.microphones);
-        seedMicrophoneCalibrations(mgr, *config.calibration.microphones);
-    }
+    const auto cams =
+        config.calibration.cameras.value_or(sst::config::CalibrationCamerasData{});
+    seedCameraConfig(mgr, cams);
+    seedCameraCalibrations(mgr, cams);
+
+    const auto mics =
+        config.calibration.microphones.value_or(sst::config::CalibrationMicrophonesData{});
+    seedMicrophoneConfig(mgr, mics);
+    seedMicrophoneCalibrations(mgr, mics);
 
     seedNetworkDefaults(mgr);
     seedStorageDefaults(mgr);
