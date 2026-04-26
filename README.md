@@ -19,7 +19,7 @@ Development is done directly on the Jetson device.
 After flashing JetPack 6.2.2 (L4T 36.5), run:
 
 ```bash
-scripts/bootstrap-jetson-r36.5-toolchain.sh
+scripts/bootstrap-toolchain/jetson-r36.5.sh
 ```
 
 This installs all required toolchain dependencies and system packages required to build the firmware.

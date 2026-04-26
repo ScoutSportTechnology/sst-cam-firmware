@@ -1,7 +1,7 @@
 # cmake/toolchains/jetson-r36.5.cmake
 #
 # Cross-compile toolchain for NVIDIA Jetson Linux r36.5 (JetPack 6.x)
-# Host: x86_64 (WSL/Ubuntu)
+# Host: x86_64 (Dev Container — nvcr.io/nvidia/jetpack-linux-aarch64-crosscompile-x86:6.1)
 # Target: aarch64 (ARM64)
 
 cmake_minimum_required(VERSION 3.20)
@@ -19,20 +19,32 @@ get_filename_component(_TOOLCHAIN_DIR "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
 get_filename_component(_CMAKE_DIR "${_TOOLCHAIN_DIR}" DIRECTORY)
 get_filename_component(_REPO_ROOT "${_CMAKE_DIR}" DIRECTORY)
 
-set(_SYSROOT "${_REPO_ROOT}/.cache/sysroot/jetson-r36.5")
-set(_BOOTLIN_BIN "${_REPO_ROOT}/.cache/toolchains/bootlin-jetson-r36/bin")
+# Allow env-var overrides so the Docker image can point to its baked-in paths.
+# Docker sets: CROSS_SYSROOT=/l4t/targetfs
+#              BOOTLIN_TOOLCHAIN_BIN=/l4t/toolchain/aarch64--glibc--stable-2022.08-1/bin
+# Host default: .cache/sysroot/jetson-r36.5 and .cache/toolchains/bootlin-jetson-r36/bin
+if(DEFINED ENV{CROSS_SYSROOT})
+  set(_SYSROOT "$ENV{CROSS_SYSROOT}")
+else()
+  set(_SYSROOT "${_REPO_ROOT}/.cache/sysroot/jetson-r36.5")
+endif()
+
+if(DEFINED ENV{BOOTLIN_TOOLCHAIN_BIN})
+  set(_BOOTLIN_BIN "$ENV{BOOTLIN_TOOLCHAIN_BIN}")
+else()
+  set(_BOOTLIN_BIN "${_REPO_ROOT}/.cache/toolchains/bootlin-jetson-r36/bin")
+endif()
 
 if(NOT EXISTS "${_SYSROOT}")
   message(FATAL_ERROR
     "Jetson sysroot not found at:\n  ${_SYSROOT}\n"
-    "Run: scripts/bootstrap-target-rootfs/jetson-r36.5.sh")
+    "Dev container: Command Palette → 'Dev Containers: Rebuild Container'\n")
 endif()
 
 if(NOT EXISTS "${_BOOTLIN_BIN}/aarch64-buildroot-linux-gnu-gcc")
   message(FATAL_ERROR
     "Bootlin cross compiler not found at:\n  ${_BOOTLIN_BIN}\n"
-    "Run: scripts/bootstrap-toolchain/ubuntu.sh  (native Ubuntu)\n"
-    "  or scripts/bootstrap-toolchain/wsl-ubuntu.sh  (WSL)")
+    "Dev container: Command Palette → 'Dev Containers: Rebuild Container'\n")
 endif()
 
 # ------------------------------------------------------------

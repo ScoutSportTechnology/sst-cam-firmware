@@ -9,6 +9,7 @@ ScoutCamera firmware — C++20 embedded runtime for NVIDIA Jetson Orin Nano (Jet
 ## Build
 
 **Native (on Jetson):**
+
 ```bash
 # First time: install toolchain
 bash scripts/bootstrap-toolchain/jetson-r36.5.sh
@@ -22,23 +23,13 @@ cmake --preset native/release/jetson/r36.5
 cmake --build --preset native/release/jetson/r36.5
 ```
 
-**Cross-compile (from native Ubuntu):**
-```bash
-bash scripts/bootstrap-toolchain/ubuntu.sh
-bash scripts/bootstrap-target-rootfs/jetson-r36.5.sh
+**Cross-compile (Dev Containers — only supported method):**
 
-cmake --preset cross/debug/jetson/r36.5/ubuntu
-cmake --build --preset cross/debug/jetson/r36.5/ubuntu
-```
-
-**Cross-compile (from WSL Ubuntu):**
-```bash
-bash scripts/bootstrap-toolchain/wsl-ubuntu.sh
-bash scripts/bootstrap-target-rootfs/jetson-r36.5.sh
-
-cmake --preset cross/debug/jetson/r36.5
-cmake --build --preset cross/debug/jetson/r36.5
-```
+1. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
+2. Open this repo → **"Reopen in Container"** (or `Dev Containers: Reopen in Container`).
+   VSCode builds the image automatically (~37 GB JetPack sysroot extraction, ~20 min first time).
+3. VSCode opens inside the container — cmake, clangd, and CMake Tools all work natively.
+4. Select preset `cross/debug/jetson/r36.5/cross` in the CMake Tools status bar and build.
 
 Binary lands in `build/<preset>/bin/sst_cam_firmware`.
 
@@ -99,7 +90,7 @@ Capture threads do minimal work and never block on downstream. Buffers are bound
 
 ## Database
 
-SQLite at `/var/lib/sst/cam/data.db`. Schema in `db/schema.sql`, migrations in `db/migrations/`, seeds in `db/seeds/`. WAL mode, foreign keys on. JSON blobs used for intrinsic matrices, event payloads, and camera arrays.
+SQLite at `/var/lib/sst/cam/data.db`. Schema in `db/schema.sql`, migrations in `db/migrations/`. WAL mode, foreign keys on. JSON blobs used for intrinsic matrices, event payloads, and camera arrays. Seeding done in C++ via `DbSeeder` (`src/app/db/services/db_seeder/`).
 
 ## Style
 
