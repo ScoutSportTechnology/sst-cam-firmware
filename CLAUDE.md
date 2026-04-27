@@ -86,6 +86,10 @@ Capture threads do minimal work and never block on downstream. Buffers are bound
 
 SQLite at `/var/lib/sst/cam/data.db`. Schema in `db/schema.sql`, migrations in `db/migrations/`. WAL mode, foreign keys on. JSON blobs used for intrinsic matrices, event payloads, and camera arrays. Seeding done in C++ via `DbSeeder` (`src/app/db/services/db_seeder/`).
 
+## Models
+
+Every domain model (struct/class in `src/domain/<module>/models/`) must ship a `fmt::formatter` specialization so it can be logged via `spdlog`/`fmt`. Place formatters in `src/domain/<module>/models/formatter/<model>-fmt.hpp` and re-export them from a sibling `_fmt.hpp` aggregator (see [src/domain/config/models/formatter/](src/domain/config/models/formatter/) and [src/domain/db/models/formatter/](src/domain/db/models/formatter/) for the pattern). When you add or rename a model, add/update its formatter in the same change.
+
 ## Style
 
 Google C++ Style Guide. C++20, `CMAKE_CXX_EXTENSIONS ON`. Headers and sources co-located (no separate `include/`). `SST_REPO_ROOT_DIR` macro available at compile time for resolving config paths in tests.
