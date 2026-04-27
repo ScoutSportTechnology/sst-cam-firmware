@@ -21,7 +21,7 @@ static void seedCameraConfig(DbManager& mgr, const sst::config::CalibrationCamer
     cfg.focus = static_cast<CameraFocus>(src.focus.value_or(0));
     cfg.width = static_cast<int32_t>(src.width.value_or(CameraConfig::kDefaultWidth));
     cfg.height = static_cast<int32_t>(src.height.value_or(CameraConfig::kDefaultHeight));
-    cfg.format = static_cast<CameraFormat>(src.format.value_or(0));
+    cfg.format = static_cast<sst::common::PixelFormat>(src.format.value_or(0));
     cfg.fps = static_cast<int32_t>(src.fps.value_or(CameraConfig::kDefaultFps));
     mgr.cameras().saveConfig(cfg);
 }

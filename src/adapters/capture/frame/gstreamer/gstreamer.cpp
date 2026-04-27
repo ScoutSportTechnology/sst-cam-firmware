@@ -11,13 +11,14 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app/capture/ports/frame-src.hpp"
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/utils/get-timestamp.hpp"
-#include "domain/config/models/device-model.hpp"
+#include "domain/config/utils/parse-model-version.hpp"
 #include "domain/db/models/camera.hpp"
 
 namespace sst::capture {
@@ -25,76 +26,47 @@ namespace sst::capture {
 using sst::common::MemoryType;
 using sst::common::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
-using sst::config::DeviceModel;
-using sst::config::ToString;
 using sst::db::CameraConfig;
-using sst::db::CameraFormat;
 
-namespace {
-
-auto cameraFormatToGstString(CameraFormat fmt) -> std::string {
-    switch (fmt) {
-        case CameraFormat::kYUV422:
-            return sst::common::ToString(PixelFormat::YUYV);
-        case CameraFormat::kNV12:
-            return sst::common::ToString(PixelFormat::NV12);
-        case CameraFormat::kI420:
-            return sst::common::ToString(PixelFormat::I420);
-        case CameraFormat::kRGB8:
-            return sst::common::ToString(PixelFormat::RGB8);
-        case CameraFormat::kBGR8:
-            return sst::common::ToString(PixelFormat::BGR8);
-        case CameraFormat::kRGBA8:
-            return sst::common::ToString(PixelFormat::RGBA8);
-        case CameraFormat::kBGRA8:
-            return sst::common::ToString(PixelFormat::BGRA8);
-        case CameraFormat::kGRAY8:
-            return sst::common::ToString(PixelFormat::GRAY8);
-        default:
-            return sst::common::ToString(PixelFormat::NV12);
-    }
-}
-
-}  // namespace
-
-GStreamerAdapter::GStreamerAdapter(const CameraConfig& camera_config, DeviceModel device_model,
+GStreamerAdapter::GStreamerAdapter(const CameraConfig& camera_config, std::string device_model,
                                    std::uint16_t camera_index)
     : camera_config_(camera_config),
-      device_model_(device_model),
+      device_model_(std::move(device_model)),
       camera_index_(camera_index) {
     gst_init(nullptr, nullptr);
 }
 
 auto GStreamerAdapter::CreatePipeline() -> std::string {
-    const std::string device_index = std::to_string(camera_index_);
+    const std::string sensor_id = std::to_string(camera_index_);
     const std::string width = std::to_string(camera_config_.width);
     const std::string height = std::to_string(camera_config_.height);
     const std::string fps = std::to_string(camera_config_.fps);
-    const std::string format = cameraFormatToGstString(camera_config_.format);
+    const std::string format = sst::common::ToString(camera_config_.format);
 
-    std::string gst_pipeline;
-
-    switch (device_model_) {
-        case DeviceModel::V1:
-            gst_pipeline = "sst_cam_v1";  // placeholder
-            break;
-        case DeviceModel::V2:
-            gst_pipeline = "sst_cam_v2";  // placeholder
-            break;
-        case DeviceModel::UNKNOWN:
-        default:
-            gst_pipeline = "mfvideosrc device-index=" + device_index +
-                           " ! video/x-raw,width=" + width + ",height=" + height +
-                           ",framerate=" + fps +
-                           "/1"
-                           " ! videoconvert"
-                           " ! video/x-raw,format=" +
-                           format + " ! appsink name=" + gst_sink_name_ + " sync=false ";
-            break;
+    const std::optional<int> model_version = sst::config::ParseModelVersion(device_model_);
+    if (!model_version) {
+        spdlog::error("GStreamerAdapter: cannot parse device model '{}'", device_model_);
+        return {};
     }
 
-    spdlog::info("GStreamerAdapter: camera={} model={} format={} {}x{}@{}fps", device_index,
-                 ToString(device_model_), format, width, height, fps);
+    std::string gst_pipeline;
+    switch (*model_version) {
+        case 1:
+            gst_pipeline = "nvarguscamerasrc sensor-id=" + sensor_id +
+                           " ! video/x-raw(memory:NVMM),width=" + width + ",height=" + height +
+                           ",framerate=" + fps + "/1,format=NV12" +
+                           " ! nvvidconv"
+                           " ! video/x-raw,format=" +
+                           format + " ! appsink name=" + gst_sink_name_ + " sync=false";
+            break;
+        default:
+            spdlog::error("GStreamerAdapter: unsupported device model '{}' (v{})", device_model_,
+                          *model_version);
+            return {};
+    }
+
+    spdlog::info("GStreamerAdapter: sensor={} model={} format={} {}x{}@{}fps", sensor_id,
+                 device_model_, format, width, height, fps);
     spdlog::info("GStreamerAdapter: pipeline: {}", gst_pipeline);
 
     return gst_pipeline;
@@ -354,7 +326,10 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
             frame.format = PixelFormat::GRAY8;
             break;
         default:
-            frame.format = PixelFormat::UNKNOWN;
+            spdlog::error("GStreamerAdapter: unsupported GstVideoFormat {}", static_cast<int>(fmt));
+            gst_buffer_unmap(buf_ref, map.get());
+            gst_buffer_unref(buf_ref);
+            return std::nullopt;
     }
 
     frame.memory = MemoryType::CPU;

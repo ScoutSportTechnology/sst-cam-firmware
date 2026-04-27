@@ -1,41 +1,48 @@
 #include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 
-#include <glib.h>
-#include <gst/gst.h>
 #include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
+#include <string>
 
 #include "app/config/services/config_loader/config-loader.hpp"
-#include "domain/config/models/device-model.hpp"
-#include "domain/db/models/camera.hpp"
+#include "app/db/services/db_manager/db-manager.hpp"
+#include "app/db/services/db_seeder/db-seeder.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
-constexpr const char* kRootRel = "tests/config/config_files";
 
-auto RootDir() -> fs::path { return fs::path{SST_REPO_ROOT_DIR} / kRootRel; }
+constexpr const char* kSchemaPath = SST_REPO_ROOT_DIR "/db/schema.sql";
+constexpr const char* kDbPath = SST_REPO_ROOT_DIR "/tests/db/data/test.db";
+constexpr const char* kConfigDir = SST_REPO_ROOT_DIR "/tests/config/config_files";
+constexpr int64_t kDefaultUserId = 1;
+
 }  // namespace
 
+// Capture test runs against real Jetson hardware (IMX477 via nvarguscamerasrc).
+// Build in dev container, scp the test binary to the Jetson, run with:
+//   ./sst_cam_firmware_tests --gtest_filter=GstreamerAdapter.*
 TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
-    // Device model comes from config module (device info)
-    const fs::path root = RootDir();
-    sst::config::app::ConfigLoader loader(root.string(), "json");
+    sst::config::app::ConfigLoader loader(kConfigDir, "json");
     sst::config::ConfigData cfg = loader.get();
-    sst::config::DeviceModel model = sst::config::DeviceModel::UNKNOWN;
-    if (cfg.device.model) {
-        model = sst::config::FromString(*cfg.device.model);
-    }
+    const std::string device_model = cfg.device.model.value_or("");
 
-    // Camera settings come from DB (use defaults for test)
-    sst::db::CameraConfig camera_cfg;
+    const fs::path db_path{kDbPath};
+    fs::create_directories(db_path.parent_path());
+    fs::remove(db_path);
 
-    constexpr std::uint16_t camera_index = 0;
+    sst::db::DbManager database({.db_path = kDbPath, .schema_path = kSchemaPath});
+    sst::db::DbSeeder::seedIfEmpty(database, cfg);
 
-    sst::capture::GStreamerAdapter adapter(camera_cfg, model, camera_index);
+    auto camera_cfg = database.cameras().getConfig(kDefaultUserId);
+    ASSERT_TRUE(camera_cfg.success) << "Failed to load CameraConfig from DB";
+
+    constexpr std::uint16_t kCameraIndex = 0;
+    sst::capture::GStreamerAdapter adapter(camera_cfg.data, device_model, kCameraIndex);
     adapter.Start();
     ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 
@@ -43,31 +50,27 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     std::optional<sst::capture::Frame> prev;
 
     constexpr int kMaxSeconds = 5;
-
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kMaxSeconds);
 
     spdlog::info("Starting frame capture loop...");
 
     while (std::chrono::steady_clock::now() < deadline) {
-        auto capturedFrame = adapter.Capture();
-        if (!capturedFrame) {
+        auto captured = adapter.Capture();
+        if (!captured) {
             std::this_thread::yield();
             continue;
         }
 
-        frame = *capturedFrame;
-
-        spdlog::debug("Capture frame");
+        frame = *captured;
 
         if (prev) {
-            auto captureInterval = frame->captured_at - prev->captured_at;
-            auto millisecondsCount =
-                std::chrono::duration_cast<std::chrono::milliseconds>(captureInterval).count();
-            if (millisecondsCount > 0) {
+            auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          frame->captured_at - prev->captured_at)
+                          .count();
+            if (dt > 0) {
                 constexpr double kMillisecondsPerSecond = 1000.0;
-                double fps = kMillisecondsPerSecond / static_cast<double>(millisecondsCount);
-                spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", frame->frame_id,
-                             millisecondsCount, fps);
+                double fps = kMillisecondsPerSecond / static_cast<double>(dt);
+                spdlog::info("frame_id={} dt={} ms (~{:.1f} fps)", frame->frame_id, dt, fps);
             }
         }
 

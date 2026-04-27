@@ -5,6 +5,7 @@
 
 #include <cstdint>
 
+#include "domain/common/models/formatter/pixel-format-fmt.hpp"  // IWYU pragma: keep
 #include "domain/db/models/camera.hpp"
 
 template <>
@@ -23,16 +24,6 @@ struct fmt::formatter<sst::db::CameraFocus> {
 
     template <typename FormatContext>
     auto format(sst::db::CameraFocus data, FormatContext& ctx) const {
-        return fmt::format_to(ctx.out(), "{}", static_cast<std::uint8_t>(data));
-    }
-};
-
-template <>
-struct fmt::formatter<sst::db::CameraFormat> {
-    static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    auto format(sst::db::CameraFormat data, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}", static_cast<std::uint8_t>(data));
     }
 };

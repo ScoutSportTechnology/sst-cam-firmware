@@ -25,7 +25,7 @@ struct FrameGeometry {
 
 struct Frame {
     std::uint64_t frame_id{0};
-    PixelFormat format{PixelFormat::UNKNOWN};
+    PixelFormat format{PixelFormat::NV12};
     MemoryType memory{MemoryType::CPU};
     FrameGeometry geometry{};
     std::vector<FramePlane> planes;

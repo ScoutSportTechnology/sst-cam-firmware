@@ -25,7 +25,7 @@ auto SqliteCameraRepository::getConfig(int64_t user_id) -> DbResult<CameraConfig
                                           .focus = col.nextEnum<CameraFocus>(),
                                           .width = col.nextI32(),
                                           .height = col.nextI32(),
-                                          .format = col.nextEnum<CameraFormat>(),
+                                          .format = col.nextEnum<sst::common::PixelFormat>(),
                                           .fps = col.nextI32()});
     });
 }

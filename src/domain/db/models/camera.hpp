@@ -4,22 +4,12 @@
 #include <cstdint>
 #include <string>
 
+#include "domain/common/models/pixel-format.hpp"
+
 namespace sst::db {
 
 enum class CameraWhiteBalance : uint8_t { kAuto = 0, kManual = 1 };
 enum class CameraFocus : uint8_t { kAuto = 0, kManual = 1 };
-
-// Integer values match pixel-format.hpp PixelFormat enum order for direct cast
-enum class CameraFormat : uint8_t {
-    kYUV422 = 0,
-    kNV12 = 1,
-    kI420 = 2,
-    kRGB8 = 3,
-    kBGR8 = 4,
-    kRGBA8 = 5,
-    kBGRA8 = 6,
-    kGRAY8 = 7,
-};
 
 struct CameraConfig {
     static constexpr int32_t kDefaultExposure = 100;
@@ -35,7 +25,7 @@ struct CameraConfig {
     CameraFocus focus{CameraFocus::kAuto};
     int32_t width{kDefaultWidth};
     int32_t height{kDefaultHeight};
-    CameraFormat format{CameraFormat::kYUV422};
+    sst::common::PixelFormat format{sst::common::PixelFormat::NV12};
     int32_t fps{kDefaultFps};
 };
 
