@@ -3,7 +3,6 @@
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "app/db/services/db_manager/db-manager.hpp"
 #include "app/db/services/db_seeder/db-seeder.hpp"
-#include "domain/config/models/device-model.hpp"
 
 // ============================================================
 // Runtime paths — adjust per deployment environment
@@ -37,10 +36,7 @@ auto main() -> int {
     sst::db::DbSeeder::seedIfEmpty(database, cfg);
 
     // Device model — stays in config module (device info)
-    [[maybe_unused]] sst::config::DeviceModel device_model = sst::config::DeviceModel::UNKNOWN;
-    if (cfg.device.model) {
-        device_model = sst::config::FromString(*cfg.device.model);
-    }
+    [[maybe_unused]] const std::string device_model = cfg.device.model.value_or("");
 
     // Camera settings — from DB from here on
     [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kDefaultUserId);

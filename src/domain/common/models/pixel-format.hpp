@@ -2,12 +2,11 @@
 
 #include <cstdint>
 #include <string>
-#include <string_view>
 
 namespace sst::common {
+
 enum class PixelFormat : std::uint8_t {
-    UNKNOWN,
-    NV12,
+    NV12 = 0,
     I420,
     YUYV,
     RGB8,
@@ -16,36 +15,7 @@ enum class PixelFormat : std::uint8_t {
     BGRA8,
     GRAY8,
 };
-inline auto FromString(std::string_view format_str) -> PixelFormat {
-    if (format_str == "NV12") {
-        return PixelFormat::NV12;
-    }
-    if (format_str == "I420") {
-        return PixelFormat::I420;
-    }
-    if (format_str == "YUYV") {
-        return PixelFormat::YUYV;
-    }
-    if (format_str == "YUY2") {
-        return PixelFormat::YUYV;
-    }
-    if (format_str == "RGB8") {
-        return PixelFormat::RGB8;
-    }
-    if (format_str == "BGR8") {
-        return PixelFormat::BGR8;
-    }
-    if (format_str == "RGBA8") {
-        return PixelFormat::RGBA8;
-    }
-    if (format_str == "BGRA8") {
-        return PixelFormat::BGRA8;
-    }
-    if (format_str == "GRAY8") {
-        return PixelFormat::GRAY8;
-    }
-    return PixelFormat::UNKNOWN;
-}
+
 inline auto ToString(PixelFormat format) -> std::string {
     switch (format) {
         case PixelFormat::NV12:
@@ -64,8 +34,8 @@ inline auto ToString(PixelFormat format) -> std::string {
             return "BGRA8";
         case PixelFormat::GRAY8:
             return "GRAY8";
-        default:
-            return "UNKNOWN";
     }
+    return "";
 }
+
 }  // namespace sst::common
