@@ -3,8 +3,6 @@
 #include <optional>
 #include <string>
 
-#include "domain/config/models/config-files.hpp"
-
 namespace sst::config {
 
 struct DeviceStaticIpData {
@@ -59,7 +57,5 @@ struct DeviceData {
     std::optional<std::string> timestamp{std::nullopt};
     std::optional<DeviceConnectivityData> connectivity{std::nullopt};
 };
-
-using DeviceConfig = ConfigFiles<DeviceData, DeviceData>;
 
 }  // namespace sst::config

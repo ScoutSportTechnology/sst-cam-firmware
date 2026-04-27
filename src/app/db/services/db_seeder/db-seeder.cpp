@@ -2,13 +2,10 @@
 
 #include <spdlog/spdlog.h>
 
-#include <array>
-
 #include "domain/config/models/calibration.hpp"
 #include "domain/db/models/camera.hpp"
 #include "domain/db/models/microphone.hpp"
 #include "domain/db/models/network.hpp"
-#include "domain/db/models/storage-config.hpp"
 
 namespace sst::db {
 
@@ -97,22 +94,6 @@ static void seedNetworkDefaults(DbManager& mgr) {
         {.user_id = kDefaultUserId, .enabled = true, .name = "sst-cam", .password = "123456"});
 }
 
-static void seedStorageDefaults(DbManager& mgr) {
-    const std::array<StorageConfig, 4> configs = {{
-        {.user_id = kDefaultUserId, .type = StorageType::kLogs, .enabled = true,
-         .format = StorageFormat::kTxt, .path = "/var/log/sst/cam/"},
-        {.user_id = kDefaultUserId, .type = StorageType::kRecording, .enabled = true,
-         .format = StorageFormat::kMp4, .path = "/var/lib/sst/cam/videos/"},
-        {.user_id = kDefaultUserId, .type = StorageType::kSnapshots, .enabled = true,
-         .format = StorageFormat::kJpg, .path = "/var/lib/sst/cam/snapshots/"},
-        {.user_id = kDefaultUserId, .type = StorageType::kThumbnails, .enabled = true,
-         .format = StorageFormat::kJpg, .path = "/var/lib/sst/cam/thumbnails/"},
-    }};
-    for (const auto& cfg : configs) {
-        mgr.storage().save(cfg);
-    }
-}
-
 void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config) {
     auto existing = mgr.users().get(kDefaultUserId);
     if (existing.success) {
@@ -138,7 +119,6 @@ void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config
     seedMicrophoneCalibrations(mgr, mics);
 
     seedNetworkDefaults(mgr);
-    seedStorageDefaults(mgr);
 
     spdlog::info("DB seeding complete");
 }

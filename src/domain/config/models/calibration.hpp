@@ -6,8 +6,6 @@
 #include <string>
 #include <vector>
 
-#include "domain/config/models/config-files.hpp"
-
 namespace sst::config {
 
 struct CalibrationCameraDeviceData {
@@ -44,7 +42,5 @@ struct CalibrationData {
     std::optional<CalibrationCamerasData> cameras{std::nullopt};
     std::optional<CalibrationMicrophonesData> microphones{std::nullopt};
 };
-
-using CalibrationConfig = ConfigFiles<CalibrationData, CalibrationData>;
 
 }  // namespace sst::config

@@ -1,7 +1,9 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
-#include "adapters/config/json-opt.hpp"
+#include <vector>
+
+#include "adapters/config/json/json-opt.hpp"
 #include "domain/config/models/calibration.hpp"
 
 namespace sst::config {

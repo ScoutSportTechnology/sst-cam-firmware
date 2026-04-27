@@ -6,7 +6,6 @@
 #include "app/db/ports/camera-repository.hpp"
 #include "app/db/ports/microphone-repository.hpp"
 #include "app/db/ports/network-repository.hpp"
-#include "app/db/ports/storage-config-repository.hpp"
 #include "app/db/ports/stream-config-repository.hpp"
 #include "app/db/ports/user-repository.hpp"
 
@@ -27,7 +26,6 @@ class DbManager {
     auto users() -> IUserRepository&;
     auto network() -> INetworkRepository&;
     auto streams() -> IStreamConfigRepository&;
-    auto storage() -> IStorageConfigRepository&;
     auto cameras() -> ICameraRepository&;
     auto microphones() -> IMicrophoneRepository&;
 
@@ -38,7 +36,6 @@ class DbManager {
     std::unique_ptr<IUserRepository> users_;
     std::unique_ptr<INetworkRepository> network_;
     std::unique_ptr<IStreamConfigRepository> streams_;
-    std::unique_ptr<IStorageConfigRepository> storage_;
     std::unique_ptr<ICameraRepository> cameras_;
     std::unique_ptr<IMicrophoneRepository> microphones_;
 };

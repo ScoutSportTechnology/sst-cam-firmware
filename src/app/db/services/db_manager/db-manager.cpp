@@ -10,7 +10,6 @@
 #include "adapters/db/sqlite/db-connection.hpp"
 #include "adapters/db/sqlite/microphone-repository.hpp"
 #include "adapters/db/sqlite/network-repository.hpp"
-#include "adapters/db/sqlite/storage-config-repository.hpp"
 #include "adapters/db/sqlite/stream-config-repository.hpp"
 #include "adapters/db/sqlite/user-repository.hpp"
 
@@ -24,7 +23,6 @@ DbManager::DbManager(const Config& config)
     users_ = std::make_unique<SqliteUserRepository>(*conn_);
     network_ = std::make_unique<SqliteNetworkRepository>(*conn_);
     streams_ = std::make_unique<SqliteStreamConfigRepository>(*conn_);
-    storage_ = std::make_unique<SqliteStorageConfigRepository>(*conn_);
     cameras_ = std::make_unique<SqliteCameraRepository>(*conn_);
     microphones_ = std::make_unique<SqliteMicrophoneRepository>(*conn_);
 }
@@ -45,7 +43,6 @@ void DbManager::initSchema(const std::string& schema_path) {
 auto DbManager::users() -> IUserRepository& { return *users_; }
 auto DbManager::network() -> INetworkRepository& { return *network_; }
 auto DbManager::streams() -> IStreamConfigRepository& { return *streams_; }
-auto DbManager::storage() -> IStorageConfigRepository& { return *storage_; }
 auto DbManager::cameras() -> ICameraRepository& { return *cameras_; }
 auto DbManager::microphones() -> IMicrophoneRepository& { return *microphones_; }
 

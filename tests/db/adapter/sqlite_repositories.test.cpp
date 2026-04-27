@@ -10,6 +10,7 @@
 #include "app/db/services/db_seeder/db-seeder.hpp"
 #include "domain/config/models/calibration.hpp"
 #include "domain/config/models/config-data.hpp"
+#include "domain/db/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
 namespace {
 
@@ -63,47 +64,54 @@ class DbTest : public ::testing::Test {
 
 TEST_F(DbTest, UserRead) {
     spdlog::info("UserRead: known admin user + missing user");
-    EXPECT_TRUE(mgr_->users().get(kDefaultUserId).success);
+    auto known = mgr_->users().get(kDefaultUserId);
+    ASSERT_TRUE(known.success);
+    spdlog::info("User:\n{}", known.data);
     EXPECT_FALSE(mgr_->users().get(kMissingUserId).success);
 }
 
 TEST_F(DbTest, CameraRead) {
     spdlog::info("CameraRead: known config/calibration + missing ids");
-    EXPECT_TRUE(mgr_->cameras().getConfig(kDefaultUserId).success);
+    auto cfg = mgr_->cameras().getConfig(kDefaultUserId);
+    ASSERT_TRUE(cfg.success);
+    spdlog::info("CameraConfig:\n{}", cfg.data);
     EXPECT_FALSE(mgr_->cameras().getConfig(kMissingUserId).success);
-    EXPECT_TRUE(mgr_->cameras().getLatestCalibration(kSeededDeviceId).success);
+
+    auto cal = mgr_->cameras().getLatestCalibration(kSeededDeviceId);
+    ASSERT_TRUE(cal.success);
+    spdlog::info("CameraCalibration:\n{}", cal.data);
     EXPECT_FALSE(mgr_->cameras().getLatestCalibration(kMissingDeviceId).success);
 }
 
 TEST_F(DbTest, MicrophoneRead) {
     spdlog::info("MicrophoneRead: known config/calibration + missing ids");
-    EXPECT_TRUE(mgr_->microphones().getConfig(kDefaultUserId).success);
+    auto cfg = mgr_->microphones().getConfig(kDefaultUserId);
+    ASSERT_TRUE(cfg.success);
+    spdlog::info("MicrophoneConfig:\n{}", cfg.data);
     EXPECT_FALSE(mgr_->microphones().getConfig(kMissingUserId).success);
-    EXPECT_TRUE(mgr_->microphones().getLatestCalibration(kSeededDeviceId).success);
+
+    auto cal = mgr_->microphones().getLatestCalibration(kSeededDeviceId);
+    ASSERT_TRUE(cal.success);
+    spdlog::info("MicrophoneCalibration:\n{}", cal.data);
     EXPECT_FALSE(mgr_->microphones().getLatestCalibration(kMissingDeviceId).success);
 }
 
 TEST_F(DbTest, NetworkRead) {
     spdlog::info("NetworkRead: known client/ap/bluetooth + missing user");
-    EXPECT_TRUE(mgr_->network().getClient(kDefaultUserId).success);
+    auto client = mgr_->network().getClient(kDefaultUserId);
+    ASSERT_TRUE(client.success);
+    spdlog::info("NetworkClient:\n{}", client.data);
     EXPECT_FALSE(mgr_->network().getClient(kMissingUserId).success);
-    EXPECT_TRUE(mgr_->network().getAccessPoint(kDefaultUserId).success);
+
+    auto access_point = mgr_->network().getAccessPoint(kDefaultUserId);
+    ASSERT_TRUE(access_point.success);
+    spdlog::info("NetworkAccessPoint:\n{}", access_point.data);
     EXPECT_FALSE(mgr_->network().getAccessPoint(kMissingUserId).success);
-    EXPECT_TRUE(mgr_->network().getBluetooth(kDefaultUserId).success);
+
+    auto bluetooth = mgr_->network().getBluetooth(kDefaultUserId);
+    ASSERT_TRUE(bluetooth.success);
+    spdlog::info("NetworkBluetooth:\n{}", bluetooth.data);
     EXPECT_FALSE(mgr_->network().getBluetooth(kMissingUserId).success);
-}
-
-TEST_F(DbTest, StorageRead) {
-    spdlog::info("StorageRead: 4 seeded rows for admin, empty for missing user");
-    constexpr std::size_t kSeededStorageCount = 4U;
-
-    auto seeded = mgr_->storage().getAll(kDefaultUserId);
-    ASSERT_TRUE(seeded.success);
-    EXPECT_EQ(seeded.data.size(), kSeededStorageCount);
-
-    auto missing = mgr_->storage().getAll(kMissingUserId);
-    ASSERT_TRUE(missing.success);
-    EXPECT_TRUE(missing.data.empty());
 }
 
 TEST_F(DbTest, StreamRead) {

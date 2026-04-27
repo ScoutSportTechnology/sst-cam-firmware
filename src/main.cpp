@@ -22,10 +22,9 @@ auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
-    // Config module: static device info + initial calibration seeds only
+    // Config module: static device info + initial calibration seeds + storage paths
     constexpr std::uint32_t kDefaultUserId = 1;
-    sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat,
-                                          kDefaultUserId);
+    sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
     auto cfg = config.get();
 
     // Database

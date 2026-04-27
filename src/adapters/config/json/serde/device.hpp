@@ -1,7 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
-#include "adapters/config/json-opt.hpp"
+#include "adapters/config/json/json-opt.hpp"
 #include "domain/config/models/device.hpp"
 
 namespace sst::config {

@@ -2,14 +2,14 @@
 
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <utility>
 
-#include "adapters/config/reader/json/serde/_serde.hpp"  // IWYU pragma: keep
-#include "adapters/config/writer/json/serde/_serde.hpp"  // IWYU pragma: keep
+#include "adapters/config/json/serde/calibration.hpp"  // IWYU pragma: keep
+#include "adapters/config/json/serde/device.hpp"       // IWYU pragma: keep
+#include "adapters/config/json/serde/storage.hpp"      // IWYU pragma: keep
 #include "app/config/ports/config-reader.hpp"
 
 namespace sst::config {
@@ -17,6 +17,7 @@ namespace sst::config {
 using nlohmann::json;
 using sst::config::ConfigReturn;
 using sst::config::IConfigFileReaderAdapter;
+
 template <typename T>
 class JsonReaderAdapter : public IConfigFileReaderAdapter<T> {
    public:

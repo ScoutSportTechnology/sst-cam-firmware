@@ -124,26 +124,6 @@ CREATE TABLE IF NOT EXISTS "stream_config" (
 -- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "stream_config_idx_stream_config_user_id_platform_name" ON "stream_config" ("user_id", "platform", "name");
 
-CREATE TABLE IF NOT EXISTS "storage_config" (
-    "user_id" INTEGER NOT NULL,
-    -- 0=logs | 1=recording | 2=snapshots | 3=thumbnails
-    "type" INTEGER NOT NULL,
-    "enabled" BOOLEAN NOT NULL DEFAULT true,
-    -- 0=txt | 1=mp4 | 2=jpg
-    "format" INTEGER NOT NULL,
-    "path" TEXT NOT NULL,
-    PRIMARY KEY ("user_id", "type"),
-    CHECK (
-        type >= 0
-        AND type <= 3
-    ),
-    CHECK (
-        format >= 0
-        AND format <= 2
-    ),
-    FOREIGN KEY ("user_id") REFERENCES "users" ("id")
-);
-
 CREATE TABLE IF NOT EXISTS "camera_config" (
     "user_id" INTEGER PRIMARY KEY NOT NULL,
     "exposure" INTEGER NOT NULL DEFAULT 100,

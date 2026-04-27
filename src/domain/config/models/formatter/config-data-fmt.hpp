@@ -5,6 +5,7 @@
 #include "calibration-fmt.hpp"  // IWYU pragma: keep
 #include "device-fmt.hpp"       // IWYU pragma: keep
 #include "domain/config/models/config-data.hpp"
+#include "storage-fmt.hpp"  // IWYU pragma: keep
 
 template <>
 struct fmt::formatter<sst::config::ConfigData> {
@@ -15,8 +16,9 @@ struct fmt::formatter<sst::config::ConfigData> {
         return fmt::format_to(ctx.out(),
                               "ConfigData{{\n"
                               "  calibration={},\n"
-                              "  device={}\n"
+                              "  device={},\n"
+                              "  storage={}\n"
                               "}}",
-                              data.calibration, data.device);
+                              data.calibration, data.device, data.storage);
     }
 };
