@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /workspace log --oneline --all)",
+      "Bash(xargs ls *)",
+      "Bash(grep -E \"\\\\.\\(hpp|cpp|h|c\\)$\")",
+      "Bash(grep -E \"\\\\.\\(hpp|cpp\\)$\")",
+      "Read(//l4t/targetfs/usr/lib/aarch64-linux-gnu/**)",
+      "Read(//l4t/targetfs/**)"
+    ]
+  }
+}
