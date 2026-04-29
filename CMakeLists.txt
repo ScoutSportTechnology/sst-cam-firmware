@@ -60,10 +60,29 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     PkgConfig::GSTREAMER_VIDEO
 )
 
-pkg_search_module(OPENCV REQUIRED IMPORTED_TARGET opencv4)
+pkg_search_module(OPENCV REQUIRED opencv4)
+
+# OpenCV in the JetPack sysroot is mixed: the plain `libopencv_core.so` symlink
+# in /usr/lib/aarch64-linux-gnu points at 4.5d, but the imgproc/etc modules
+# only exist as 4.8 (SONAME-versioned, no plain `.so`). Linking the plain
+# symlinks would pull in two ABI-incompatible cores at runtime. Pin both core
+# and imgproc to the matching 4.8 SONAME files explicitly.
+find_library(SST_OPENCV_CORE
+    NAMES libopencv_core.so.408
+    REQUIRED
+)
+find_library(SST_OPENCV_IMGPROC
+    NAMES libopencv_imgproc.so.408
+    REQUIRED
+)
+
+target_include_directories(sst_cam_firmware_external_libs INTERFACE
+    ${OPENCV_INCLUDE_DIRS}
+)
 
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
-    PkgConfig::OPENCV
+    ${SST_OPENCV_CORE}
+    ${SST_OPENCV_IMGPROC}
 )
 
 # ============================================================
