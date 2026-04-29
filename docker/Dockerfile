@@ -26,6 +26,14 @@ ENV PATH="/root/.local/bin:${PATH}"
 COPY docker/scripts/001_unpack_l4t.sh /tmp/001_unpack_l4t.sh
 RUN bash /tmp/001_unpack_l4t.sh /l4t && rm /tmp/001_unpack_l4t.sh
 
+# ── 003: Install Ubuntu jammy arm64 packages missing from L4T (sdbus-c++,
+#         gst-rtsp-server). Runs BEFORE fix-sysroot so the new .so files are
+#         picked up by the symlink-fix pass. wget + dpkg-deb are already
+#         installed in step 1 above.
+COPY docker/scripts/003_install_extra_pkgs.sh /tmp/003_install_extra_pkgs.sh
+RUN bash /tmp/003_install_extra_pkgs.sh /l4t/targetfs \
+    && rm /tmp/003_install_extra_pkgs.sh
+
 # ── 002: Fix sysroot pkg-config, symlinks, crt stubs ─────────────────────────
 COPY docker/scripts/002_fix_sysroot.sh /tmp/002_fix_sysroot.sh
 RUN bash /tmp/002_fix_sysroot.sh /l4t/targetfs && rm /tmp/002_fix_sysroot.sh

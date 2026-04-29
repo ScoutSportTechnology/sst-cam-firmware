@@ -85,6 +85,18 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     ${SST_OPENCV_IMGPROC}
 )
 
+# Control plane + live preview: BlueZ over D-Bus (sdbus-c++) and the GStreamer
+# RTSP server library. Both .debs are extracted into the sysroot by
+# docker/scripts/003_install_extra_pkgs.sh.
+pkg_search_module(SDBUSCPP REQUIRED IMPORTED_TARGET sdbus-c++)
+pkg_search_module(GST_RTSP_SERVER REQUIRED IMPORTED_TARGET
+                  gstreamer-rtsp-server-1.0>=1.4)
+
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    PkgConfig::SDBUSCPP
+    PkgConfig::GST_RTSP_SERVER
+)
+
 # ============================================================
 # Internal library
 # ============================================================

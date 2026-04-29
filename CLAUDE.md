@@ -93,3 +93,11 @@ Every domain model (struct/class in `src/domain/<module>/models/`) must ship a `
 ## Style
 
 Google C++ Style Guide. C++20, `CMAKE_CXX_EXTENSIONS ON`. Headers and sources co-located (no separate `include/`). `SST_REPO_ROOT_DIR` macro available at compile time for resolving config paths in tests.
+
+## No TODOs / no stubs
+
+Ship final, working code. Do not commit `// TODO`, `// FIXME`, or stubbed adapter implementations that log "not yet implemented" — implement the real behavior, or do not add the file. If a piece of work has to be deferred, do not leave a placeholder in the tree; track it outside the codebase. Same rule for commented-out CMake blocks and "uncomment when ready" markers — wire dependencies in for real, install them in the sysroot via `docker/scripts/`, and link them.
+
+## Adding system dependencies to the JetPack sysroot
+
+The JetPack `targetfs` tarball does not include every Ubuntu package — when a new system dep is needed (e.g. `sdbus-c++`, `gst-rtsp-server`), add the matching Ubuntu jammy `arm64` `.deb` URLs to [docker/scripts/003_install_extra_pkgs.sh](docker/scripts/003_install_extra_pkgs.sh). The Dockerfile runs `003_install_extra_pkgs.sh` *before* `002_fix_sysroot.sh`, so newly extracted libraries are picked up by the symlink-fix and `.so` linker-stub passes automatically.

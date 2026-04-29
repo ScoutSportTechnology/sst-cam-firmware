@@ -6,7 +6,10 @@
       "Bash(grep -E \"\\\\.\\(hpp|cpp|h|c\\)$\")",
       "Bash(grep -E \"\\\\.\\(hpp|cpp\\)$\")",
       "Read(//l4t/targetfs/usr/lib/aarch64-linux-gnu/**)",
-      "Read(//l4t/targetfs/**)"
+      "Read(//l4t/targetfs/**)",
+      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && ls -1 {}')",
+      "Bash(chmod +x /workspace/docker/scripts/003_install_extra_pkgs.sh)",
+      "Bash(bash /workspace/docker/scripts/003_install_extra_pkgs.sh /l4t/targetfs)"
     ]
   }
 }
