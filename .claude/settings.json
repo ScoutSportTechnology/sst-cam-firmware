@@ -15,7 +15,10 @@
       "Bash(cmake --preset debug)",
       "Bash(cmake --build --preset debug)",
       "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|CaptureSingleFrameAndLog')",
-      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|JsonAdapter|ConfigLoader|DbTest|UserRead|CameraRead|MicrophoneRead|StreamRead')"
+      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|JsonAdapter|ConfigLoader|DbTest|UserRead|CameraRead|MicrophoneRead|StreamRead')",
+      "Bash(ctest --preset test --output-on-failure -R 'RecordingServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'StorageE2ETest')",
+      "Bash(ctest --preset test)"
     ]
   }
 }
