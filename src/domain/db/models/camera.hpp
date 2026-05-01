@@ -17,6 +17,8 @@ struct CameraConfig {
     static constexpr int32_t kDefaultWidth = 1920;
     static constexpr int32_t kDefaultHeight = 1080;
     static constexpr int32_t kDefaultFps = 60;
+    static constexpr int32_t kDefaultEventClipPreSeconds = 60;
+    static constexpr int32_t kDefaultEventClipPostSeconds = 60;
 
     int64_t user_id{0};
     int32_t exposure{kDefaultExposure};
@@ -27,6 +29,8 @@ struct CameraConfig {
     int32_t height{kDefaultHeight};
     sst::common::PixelFormat format{sst::common::PixelFormat::NV12};
     int32_t fps{kDefaultFps};
+    int32_t event_clip_pre_seconds{kDefaultEventClipPreSeconds};
+    int32_t event_clip_post_seconds{kDefaultEventClipPostSeconds};
 };
 
 struct CameraCalibration {

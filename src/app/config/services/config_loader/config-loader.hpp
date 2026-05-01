@@ -8,6 +8,7 @@
 #include "domain/config/models/config-data.hpp"
 #include "domain/config/models/device.hpp"
 #include "domain/config/models/storage.hpp"
+#include "domain/config/models/wifi-direct.hpp"
 
 namespace sst::config::app {
 
@@ -16,6 +17,7 @@ using sst::config::ConfigData;
 using sst::config::DeviceData;
 using sst::config::IConfigFileReaderAdapter;
 using sst::config::StorageData;
+using sst::config::WifiDirectData;
 
 class ConfigLoader {
    public:
@@ -29,6 +31,7 @@ class ConfigLoader {
     std::unique_ptr<IConfigFileReaderAdapter<DeviceData>> deviceAdapter_;
     std::unique_ptr<IConfigFileReaderAdapter<CalibrationData>> calibrationAdapter_;
     std::unique_ptr<IConfigFileReaderAdapter<StorageData>> storageAdapter_;
+    std::unique_ptr<IConfigFileReaderAdapter<WifiDirectData>> wifiDirectAdapter_;
 };
 
 }  // namespace sst::config::app

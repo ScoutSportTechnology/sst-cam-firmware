@@ -9,10 +9,8 @@ class SqliteNetworkRepository : public INetworkRepository, private SqliteReposit
    public:
     explicit SqliteNetworkRepository(DbConnection& conn);
 
-    auto getClient(int64_t user_id) -> DbResult<NetworkClient> override;
-    auto saveClient(const NetworkClient& data) -> DbResult<NetworkClient> override;
-    auto getAccessPoint(int64_t user_id) -> DbResult<NetworkAccessPoint> override;
-    auto saveAccessPoint(const NetworkAccessPoint& data) -> DbResult<NetworkAccessPoint> override;
+    auto getWifiDirect(int64_t user_id) -> DbResult<NetworkWifiDirect> override;
+    auto saveWifiDirect(const NetworkWifiDirect& data) -> DbResult<NetworkWifiDirect> override;
     auto getBluetooth(int64_t user_id) -> DbResult<NetworkBluetooth> override;
     auto saveBluetooth(const NetworkBluetooth& data) -> DbResult<NetworkBluetooth> override;
 };

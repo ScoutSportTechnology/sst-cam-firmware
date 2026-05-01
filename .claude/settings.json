@@ -9,7 +9,13 @@
       "Read(//l4t/targetfs/**)",
       "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && ls -1 {}')",
       "Bash(chmod +x /workspace/docker/scripts/003_install_extra_pkgs.sh)",
-      "Bash(bash /workspace/docker/scripts/003_install_extra_pkgs.sh /l4t/targetfs)"
+      "Bash(bash /workspace/docker/scripts/003_install_extra_pkgs.sh /l4t/targetfs)",
+      "Bash(grep -E \"\\\\.hpp$\")",
+      "Bash(grep -v \".cpp$\")",
+      "Bash(cmake --preset debug)",
+      "Bash(cmake --build --preset debug)",
+      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|CaptureSingleFrameAndLog')",
+      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|JsonAdapter|ConfigLoader|DbTest|UserRead|CameraRead|MicrophoneRead|StreamRead')"
     ]
   }
 }

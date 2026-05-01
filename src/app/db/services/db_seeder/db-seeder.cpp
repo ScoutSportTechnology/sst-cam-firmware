@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include "domain/config/models/calibration.hpp"
+#include "domain/config/models/wifi-direct.hpp"
 #include "domain/db/models/camera.hpp"
 #include "domain/db/models/microphone.hpp"
 #include "domain/db/models/network.hpp"
@@ -11,6 +12,7 @@ namespace sst::db {
 
 static constexpr int64_t kDefaultUserId = 1;
 static constexpr const char* kDefaultUsername = "Default";
+static constexpr int32_t kDefaultWifiDirectChannel = 6;
 
 static void seedCameraConfig(DbManager& mgr, const sst::config::CalibrationCamerasData& src) {
     CameraConfig cfg;
@@ -67,29 +69,24 @@ static void seedMicrophoneCalibrations(DbManager& mgr,
     }
 }
 
-static void seedNetworkDefaults(DbManager& mgr) {
-    // Default to ethernet — wifi requires ssid + password by schema CHECK, and we
-    // have no sensible defaults for those until the user configures a network.
-    mgr.network().saveClient({.user_id = kDefaultUserId,
-                              .enabled = false,
-                              .medium = NetworkMedium::kEthernet,
-                              .ssid = std::nullopt,
-                              .wifi_password = std::nullopt,
-                              .static_ip = false,
-                              .ip_address = std::nullopt,
-                              .subnet_mask = std::nullopt,
-                              .gateway = std::nullopt});
+static void seedWifiDirect(DbManager& mgr, const sst::config::WifiDirectData& src) {
+    if (!src.ssid || !src.passphrase) {
+        spdlog::error(
+            "DbSeeder: wifi-direct.json missing required ssid/passphrase — "
+            "the BLE bootstrap_p2p flow will fail until this is fixed");
+        return;
+    }
+    NetworkWifiDirect row;
+    row.user_id = kDefaultUserId;
+    row.enabled = src.enabled.value_or(true);
+    row.ssid = *src.ssid;
+    row.passphrase = *src.passphrase;
+    row.channel = static_cast<int32_t>(src.channel.value_or(kDefaultWifiDirectChannel));
+    row.ip_address = src.ip_address;
+    mgr.network().saveWifiDirect(row);
+}
 
-    mgr.network().saveAccessPoint({.user_id = kDefaultUserId,
-                                   .enabled = false,
-                                   .medium = NetworkMedium::kWifi,
-                                   .ssid = "sst-cam",
-                                   .wifi_password = "123456",
-                                   .static_ip = false,
-                                   .ip_address = std::nullopt,
-                                   .subnet_mask = std::nullopt,
-                                   .gateway = std::nullopt});
-
+static void seedBluetoothDefaults(DbManager& mgr) {
     mgr.network().saveBluetooth(
         {.user_id = kDefaultUserId, .enabled = true, .name = "sst-cam", .password = "123456"});
 }
@@ -118,7 +115,8 @@ void DbSeeder::seedIfEmpty(DbManager& mgr, const sst::config::ConfigData& config
     seedMicrophoneConfig(mgr, mics);
     seedMicrophoneCalibrations(mgr, mics);
 
-    seedNetworkDefaults(mgr);
+    seedWifiDirect(mgr, config.wifi_direct);
+    seedBluetoothDefaults(mgr);
 
     spdlog::info("DB seeding complete");
 }

@@ -4,16 +4,14 @@
 
 namespace sst::control {
 
-// Defaults used to bootstrap the WiFi-Direct link from a fresh BLE connection.
-// The phone learns the actual SSID/passphrase by sending a "network.bootstrap_p2p"
-// command over BLE and reading them back from the response payload, so changing
-// these values here does not require an app rebuild — but the *fallback* (used
-// when neither side has stored creds) MUST match the companion app's hardcoded
-// fallback. Keep these in sync with the app repo.
+// Bootstrap constants for the BLE control plane. The phone uses these to find
+// the device and look up the GATT characteristics it talks to.
+//
+// WiFi-Direct credentials live in DB (table config_wifi_direct, seeded from
+// config/wifi-direct.json on first boot) — the phone fetches them by sending
+// a "network.bootstrap_p2p" BLE command and reading them back from the
+// response payload.
 struct BootstrapDefaults {
-    static constexpr std::string_view kP2pSsid = "DIRECT-SST-CAM";
-    static constexpr std::string_view kP2pPassphrase = "scoutcam1234";
-
     static constexpr std::string_view kBleAdvertisedName = "SST-CAM";
 
     // GATT service + characteristics the companion app will look up.

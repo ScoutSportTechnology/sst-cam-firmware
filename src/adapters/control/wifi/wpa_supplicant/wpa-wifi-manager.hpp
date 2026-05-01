@@ -11,13 +11,13 @@ namespace sst::adapters::control {
 
 // wpa_supplicant ctrl_iface adapter. Talks to the running wpa_supplicant
 // daemon over a UNIX datagram socket at <ctrl_dir>/<iface>, sending plain-text
-// commands like ADD_NETWORK / SET_NETWORK / SELECT_NETWORK / P2P_GROUP_ADD and
-// reading back the OK/FAIL/<id> responses.
+// commands like ADD_NETWORK / SET_NETWORK / SELECT_NETWORK and reading back
+// the OK/FAIL/<id> responses.
 //
-// Both AP mode and "WiFi-Direct GO" use the same network-block path here:
-// mode=2 + WPA2-PSK with the supplied SSID/passphrase. From the phone's
-// perspective this is indistinguishable from a regular WiFi AP, which is what
-// the companion app needs (auto-join with hardcoded credentials).
+// The device only ever runs as a WiFi-Direct Group Owner. From the companion
+// app's perspective, a WPA2-PSK AP with a known SSID/passphrase is functionally
+// equivalent to a WiFi-Direct GO and is far simpler/more reliable to bring up
+// via wpa_supplicant ctrl_iface, so we configure mode=2 here.
 class WpaWifiManager final : public sst::control::IWifiManager {
    public:
     explicit WpaWifiManager(std::string iface = "wlan0",
@@ -29,8 +29,6 @@ class WpaWifiManager final : public sst::control::IWifiManager {
     WpaWifiManager(WpaWifiManager&&) = delete;
     auto operator=(WpaWifiManager&&) -> WpaWifiManager& = delete;
 
-    auto StartClient(const sst::control::WifiCredentials& creds) -> bool override;
-    auto StartAccessPoint(const sst::control::WifiCredentials& creds) -> bool override;
     auto StartP2pGroupOwner(const sst::control::WifiCredentials& creds) -> bool override;
     auto Stop() -> void override;
     [[nodiscard]] auto State() const -> sst::control::WifiState override;
@@ -39,8 +37,7 @@ class WpaWifiManager final : public sst::control::IWifiManager {
     [[nodiscard]] auto OpenCtrlSocket() -> bool;
     auto CloseCtrlSocket() -> void;
     auto SendCommand(std::string_view cmd) -> std::optional<std::string>;
-    auto ConfigureNetwork(const sst::control::WifiCredentials& creds, int mode)
-        -> std::optional<int>;
+    auto ConfigureNetwork(const sst::control::WifiCredentials& creds) -> std::optional<int>;
     auto RemoveAllNetworks() -> void;
 
     std::string iface_;

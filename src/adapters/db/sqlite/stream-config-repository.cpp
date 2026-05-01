@@ -14,9 +14,9 @@ auto readStreamConfig(SQLite::Statement& stmt) -> StreamConfig {
             .platform = col.nextEnum<StreamPlatform>(),
             .name = col.nextText(),
             .enabled = col.nextBool(),
-            .stream_key = col.nextText(),
+            .stream_key = col.nextOptText(),
             .stream_type = col.nextEnum<StreamType>(),
-            .url = col.nextText(),
+            .url = col.nextOptText(),
             .codec = col.nextEnum<StreamCodec>(),
             .width = col.nextI32(),
             .height = col.nextI32(),
@@ -29,9 +29,9 @@ void bindStreamFields(ParamBinder& binder, const StreamConfig& data) {
         .asEnum(data.platform)
         .text(data.name)
         .boolean(data.enabled)
-        .text(data.stream_key)
+        .optText(data.stream_key)
         .asEnum(data.stream_type)
-        .text(data.url)
+        .optText(data.url)
         .asEnum(data.codec)
         .i32(data.width)
         .i32(data.height)

@@ -7,10 +7,7 @@ namespace sst::control {
 
 enum class WifiMode : std::uint8_t {
     kOff = 0,
-    kClient = 1,        // Jetson joins an existing AP
-    kAccessPoint = 2,   // Jetson hosts an AP
-    kP2pGroupOwner = 3, // Jetson is WiFi-Direct GO
-    kP2pClient = 4,     // Jetson is WiFi-Direct client
+    kP2pGroupOwner = 1,  // Jetson is WiFi-Direct GO (the only supported role)
 };
 
 struct WifiCredentials {
@@ -25,19 +22,17 @@ struct WifiState {
     std::string ip_address;
 };
 
-// Abstraction over wpa_supplicant (or NetworkManager / nmcli). Lets controllers
-// bring up an AP, join a network, or stand up a WiFi-Direct group on demand
-// without depending on the underlying ctrl_iface protocol.
+// Abstraction over wpa_supplicant. The device only ever runs as a WiFi-Direct
+// Group Owner — the companion app joins us, never the other way around — so
+// the port surface is just bring-up + tear-down with the seeded credentials.
 class IWifiManager {
    public:
     virtual ~IWifiManager() = default;
 
-    virtual auto StartClient(const WifiCredentials& creds) -> bool = 0;
-    virtual auto StartAccessPoint(const WifiCredentials& creds) -> bool = 0;
     virtual auto StartP2pGroupOwner(const WifiCredentials& creds) -> bool = 0;
     virtual auto Stop() -> void = 0;
 
-    virtual auto State() const -> WifiState = 0;
+    [[nodiscard]] virtual auto State() const -> WifiState = 0;
 };
 
 }  // namespace sst::control

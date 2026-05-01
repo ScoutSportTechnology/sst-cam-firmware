@@ -5,92 +5,43 @@ namespace sst::db {
 SqliteNetworkRepository::SqliteNetworkRepository(DbConnection& conn)
     : SqliteRepositoryBase(conn) {}
 
-namespace {
-
-constexpr const char* kSelectNetClientCols =
-    "SELECT user_id, enabled, medium, ssid, wifi_password, static_ip, "
-    "ip_address, subnet_mask, gateway FROM config_client WHERE user_id = ?";
-
-constexpr const char* kSelectNetApCols =
-    "SELECT user_id, enabled, medium, ssid, wifi_password, static_ip, "
-    "ip_address, subnet_mask, gateway FROM config_access_point WHERE user_id = ?";
-
-template <typename T>
-auto readWifiNode(SQLite::Statement& stmt) -> T {
-    ColumnReader col(stmt);
-    return {.user_id = col.nextI64(),
-            .enabled = col.nextBool(),
-            .medium = col.nextEnum<NetworkMedium>(),
-            .ssid = col.nextOptText(),
-            .wifi_password = col.nextOptText(),
-            .static_ip = col.nextBool(),
-            .ip_address = col.nextOptText(),
-            .subnet_mask = col.nextOptText(),
-            .gateway = col.nextOptText()};
-}
-
-template <typename T>
-void bindWifiNode(SQLite::Statement& stmt, const T& data) {
-    ParamBinder(stmt)
-        .i64(data.user_id)
-        .boolean(data.enabled)
-        .asEnum(data.medium)
-        .optText(data.ssid)
-        .optText(data.wifi_password)
-        .boolean(data.static_ip)
-        .optText(data.ip_address)
-        .optText(data.subnet_mask)
-        .optText(data.gateway);
-}
-
-}  // namespace
-
-auto SqliteNetworkRepository::getClient(int64_t user_id) -> DbResult<NetworkClient> {
-    return dbExecute<NetworkClient>("NetworkRepository::getClient", [&] {
-        SQLite::Statement stmt(db_, kSelectNetClientCols);
-        stmt.bind(1, user_id);
-        if (!stmt.executeStep()) {
-            return DbResult<NetworkClient>::fail();
-        }
-        return DbResult<NetworkClient>::ok(readWifiNode<NetworkClient>(stmt));
-    });
-}
-
-auto SqliteNetworkRepository::saveClient(const NetworkClient& data) -> DbResult<NetworkClient> {
-    return dbExecute<NetworkClient>("NetworkRepository::saveClient", [&] {
+auto SqliteNetworkRepository::getWifiDirect(int64_t user_id) -> DbResult<NetworkWifiDirect> {
+    return dbExecute<NetworkWifiDirect>("NetworkRepository::getWifiDirect", [&] {
         SQLite::Statement stmt(
             db_,
-            "INSERT OR REPLACE INTO config_client "
-            "(user_id, enabled, medium, ssid, wifi_password, static_ip, "
-            "ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        bindWifiNode(stmt, data);
-        stmt.exec();
-        return DbResult<NetworkClient>::ok(data);
-    });
-}
-
-auto SqliteNetworkRepository::getAccessPoint(int64_t user_id) -> DbResult<NetworkAccessPoint> {
-    return dbExecute<NetworkAccessPoint>("NetworkRepository::getAccessPoint", [&] {
-        SQLite::Statement stmt(db_, kSelectNetApCols);
+            "SELECT user_id, enabled, ssid, passphrase, channel, ip_address "
+            "FROM config_wifi_direct WHERE user_id = ?");
         stmt.bind(1, user_id);
         if (!stmt.executeStep()) {
-            return DbResult<NetworkAccessPoint>::fail();
+            return DbResult<NetworkWifiDirect>::fail();
         }
-        return DbResult<NetworkAccessPoint>::ok(readWifiNode<NetworkAccessPoint>(stmt));
+        ColumnReader col(stmt);
+        return DbResult<NetworkWifiDirect>::ok({.user_id = col.nextI64(),
+                                                .enabled = col.nextBool(),
+                                                .ssid = col.nextText(),
+                                                .passphrase = col.nextText(),
+                                                .channel = col.nextI32(),
+                                                .ip_address = col.nextOptText()});
     });
 }
 
-auto SqliteNetworkRepository::saveAccessPoint(const NetworkAccessPoint& data)
-    -> DbResult<NetworkAccessPoint> {
-    return dbExecute<NetworkAccessPoint>("NetworkRepository::saveAccessPoint", [&] {
+auto SqliteNetworkRepository::saveWifiDirect(const NetworkWifiDirect& data)
+    -> DbResult<NetworkWifiDirect> {
+    return dbExecute<NetworkWifiDirect>("NetworkRepository::saveWifiDirect", [&] {
         SQLite::Statement stmt(
             db_,
-            "INSERT OR REPLACE INTO config_access_point "
-            "(user_id, enabled, medium, ssid, wifi_password, static_ip, "
-            "ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        bindWifiNode(stmt, data);
+            "INSERT OR REPLACE INTO config_wifi_direct "
+            "(user_id, enabled, ssid, passphrase, channel, ip_address) "
+            "VALUES (?, ?, ?, ?, ?, ?)");
+        ParamBinder(stmt)
+            .i64(data.user_id)
+            .boolean(data.enabled)
+            .text(data.ssid)
+            .text(data.passphrase)
+            .i32(data.channel)
+            .optText(data.ip_address);
         stmt.exec();
-        return DbResult<NetworkAccessPoint>::ok(data);
+        return DbResult<NetworkWifiDirect>::ok(data);
     });
 }
 

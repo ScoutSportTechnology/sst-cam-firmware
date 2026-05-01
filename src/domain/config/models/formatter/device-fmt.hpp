@@ -26,60 +26,26 @@ struct fmt::formatter<sst::config::DeviceStaticIpData> {
 };
 
 template <>
-struct fmt::formatter<sst::config::DeviceConnectivityWifiClientData> {
+struct fmt::formatter<sst::config::DeviceConnectivityWifiDirectData> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(const sst::config::DeviceConnectivityWifiClientData& data,
+    auto format(const sst::config::DeviceConnectivityWifiDirectData& data,
                 FormatContext& ctx) const {
         using namespace sst::config;
 
         return fmt::format_to(ctx.out(),
-                              "DeviceConnectivityWifiClientData{{\n"
-                              "  enabled={},\n"
-                              "  wifi_ssid={},\n"
-                              "  wifi_password={},\n"
-                              "  static_ip={}\n"
-                              "}}",
-                              BoolOptToStr(data.enabled), StrOptToStr(data.wifi_ssid),
-                              StrOptToStr(data.wifi_password), ObjOptToStr(data.static_ip));
-    }
-};
-
-template <>
-struct fmt::formatter<sst::config::DeviceConnectivityWifiAccessPointData> {
-    static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    auto format(const sst::config::DeviceConnectivityWifiAccessPointData& data,
-                FormatContext& ctx) const {
-        using namespace sst::config;
-
-        return fmt::format_to(ctx.out(),
-                              "DeviceConnectivityWifiAccessPointData{{\n"
+                              "DeviceConnectivityWifiDirectData{{\n"
                               "  enabled={},\n"
                               "  ssid={},\n"
-                              "  password={}\n"
+                              "  passphrase={},\n"
+                              "  channel={},\n"
+                              "  ip_address={}\n"
                               "}}",
                               BoolOptToStr(data.enabled), StrOptToStr(data.ssid),
-                              StrOptToStr(data.password));
-    }
-};
-
-template <>
-struct fmt::formatter<sst::config::DeviceConnectivityWifiData> {
-    static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
-
-    template <typename FormatContext>
-    auto format(const sst::config::DeviceConnectivityWifiData& data, FormatContext& ctx) const {
-        using namespace sst::config;
-
-        return fmt::format_to(ctx.out(),
-                              "DeviceConnectivityWifiData{{\n"
-                              "  client={},\n"
-                              "  access_point={}\n"
-                              "}}",
-                              ObjOptToStr(data.client), ObjOptToStr(data.access_point));
+                              StrOptToStr(data.passphrase),
+                              data.channel.has_value() ? std::to_string(*data.channel) : "null",
+                              StrOptToStr(data.ip_address));
     }
 };
 
@@ -130,11 +96,11 @@ struct fmt::formatter<sst::config::DeviceConnectivityData> {
 
         return fmt::format_to(ctx.out(),
                               "DeviceConnectivityData{{\n"
-                              "  wifi={},\n"
+                              "  wifi_direct={},\n"
                               "  ethernet={},\n"
                               "  bluetooth={}\n"
                               "}}",
-                              ObjOptToStr(data.wifi), ObjOptToStr(data.ethernet),
+                              ObjOptToStr(data.wifi_direct), ObjOptToStr(data.ethernet),
                               ObjOptToStr(data.bluetooth));
     }
 };

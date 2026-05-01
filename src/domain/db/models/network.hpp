@@ -6,30 +6,16 @@
 
 namespace sst::db {
 
-enum class NetworkMedium : uint8_t { kWifi = 0, kEthernet = 1 };
+struct NetworkWifiDirect {
+    static constexpr int32_t kDefaultChannel = 6;
 
-namespace detail {
-struct NetworkClientTag {};
-struct NetworkAccessPointTag {};
-}  // namespace detail
-
-// NetworkClient and NetworkAccessPoint share identical fields.
-// Template tag keeps them distinct types while allowing designated initializers.
-template <typename Tag>
-struct NetworkWifiNode {
     int64_t user_id{0};
-    bool enabled{false};
-    NetworkMedium medium{NetworkMedium::kWifi};
-    std::optional<std::string> ssid;
-    std::optional<std::string> wifi_password;
-    bool static_ip{false};
+    bool enabled{true};
+    std::string ssid;
+    std::string passphrase;
+    int32_t channel{kDefaultChannel};
     std::optional<std::string> ip_address;
-    std::optional<std::string> subnet_mask;
-    std::optional<std::string> gateway;
 };
-
-using NetworkClient = NetworkWifiNode<detail::NetworkClientTag>;
-using NetworkAccessPoint = NetworkWifiNode<detail::NetworkAccessPointTag>;
 
 struct NetworkBluetooth {
     int64_t user_id{0};

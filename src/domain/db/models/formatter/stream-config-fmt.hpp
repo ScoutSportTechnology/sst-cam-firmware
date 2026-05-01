@@ -50,9 +50,9 @@ struct fmt::formatter<sst::db::StreamConfig> {
                               "  platform={},\n"
                               "  name=\"{}\",\n"
                               "  enabled={},\n"
-                              "  stream_key=\"{}\",\n"
+                              "  stream_key={},\n"
                               "  stream_type={},\n"
-                              "  url=\"{}\",\n"
+                              "  url={},\n"
                               "  codec={},\n"
                               "  width={},\n"
                               "  height={},\n"
@@ -60,8 +60,9 @@ struct fmt::formatter<sst::db::StreamConfig> {
                               "  bitrate_kbps={}\n"
                               "}}",
                               data.id, data.user_id, data.platform, data.name,
-                              sst::db::BoolToStr(data.enabled), data.stream_key, data.stream_type,
-                              data.url, data.codec, data.width, data.height, data.framerate,
-                              data.bitrate_kbps);
+                              sst::db::BoolToStr(data.enabled),
+                              sst::db::StrOptToStr(data.stream_key), data.stream_type,
+                              sst::db::StrOptToStr(data.url), data.codec, data.width, data.height,
+                              data.framerate, data.bitrate_kbps);
     }
 };

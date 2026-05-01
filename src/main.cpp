@@ -68,7 +68,8 @@ auto main() -> int {
 
     // ★ Extensibility point — register one IController per concern.
     //   Add a new controllers/<thing>.controller.{hpp,cpp} and Register() it here.
-    control.ble().Register(std::make_shared<sst::control::NetworkController>(control.wifi()));
+    control.ble().Register(std::make_shared<sst::control::NetworkController>(
+        control.wifi(), database.network(), kDefaultUserId));
     control.ble().Register(std::make_shared<sst::control::StreamingController>(*preview_server));
     control.ble().Register(std::make_shared<sst::control::CameraController>());
     control.ble().Register(std::make_shared<sst::control::RecordingController>());

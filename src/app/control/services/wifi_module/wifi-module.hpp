@@ -14,11 +14,9 @@ class WifiModule {
    public:
     explicit WifiModule(std::unique_ptr<IWifiManager> manager);
 
-    auto StartClient(const WifiCredentials& creds) -> bool;
-    auto StartAccessPoint(const WifiCredentials& creds) -> bool;
     auto StartP2pGroupOwner(const WifiCredentials& creds) -> bool;
     auto Stop() -> void;
-    auto State() const -> WifiState;
+    [[nodiscard]] auto State() const -> WifiState;
 
     auto manager() -> IWifiManager& { return *manager_; }
 

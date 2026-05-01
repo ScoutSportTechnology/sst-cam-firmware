@@ -11,7 +11,8 @@ auto SqliteCameraRepository::getConfig(int64_t user_id) -> DbResult<CameraConfig
     return dbExecute<CameraConfig>("CameraRepository::getConfig", [&] {
         SQLite::Statement stmt(
             db_,
-            "SELECT user_id, exposure, gain, white_balance, focus, width, height, format, fps "
+            "SELECT user_id, exposure, gain, white_balance, focus, width, height, format, fps, "
+            "event_clip_pre_seconds, event_clip_post_seconds "
             "FROM camera_config WHERE user_id = ?");
         stmt.bind(1, user_id);
         if (!stmt.executeStep()) {
@@ -26,7 +27,9 @@ auto SqliteCameraRepository::getConfig(int64_t user_id) -> DbResult<CameraConfig
                                           .width = col.nextI32(),
                                           .height = col.nextI32(),
                                           .format = col.nextEnum<sst::common::PixelFormat>(),
-                                          .fps = col.nextI32()});
+                                          .fps = col.nextI32(),
+                                          .event_clip_pre_seconds = col.nextI32(),
+                                          .event_clip_post_seconds = col.nextI32()});
     });
 }
 
@@ -35,8 +38,9 @@ auto SqliteCameraRepository::saveConfig(const CameraConfig& data) -> DbResult<Ca
         SQLite::Statement stmt(
             db_,
             "INSERT OR REPLACE INTO camera_config "
-            "(user_id, exposure, gain, white_balance, focus, width, height, format, fps) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            "(user_id, exposure, gain, white_balance, focus, width, height, format, fps, "
+            " event_clip_pre_seconds, event_clip_post_seconds) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         ParamBinder(stmt)
             .i64(data.user_id)
             .i32(data.exposure)
@@ -46,7 +50,9 @@ auto SqliteCameraRepository::saveConfig(const CameraConfig& data) -> DbResult<Ca
             .i32(data.width)
             .i32(data.height)
             .asEnum(data.format)
-            .i32(data.fps);
+            .i32(data.fps)
+            .i32(data.event_clip_pre_seconds)
+            .i32(data.event_clip_post_seconds);
         stmt.exec();
         return DbResult<CameraConfig>::ok(data);
     });

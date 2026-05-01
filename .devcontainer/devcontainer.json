@@ -1,5 +1,6 @@
 {
   "name": "SST Cam Firmware — Cross-Compile (Jetson aarch64)",
+  
   // Builds from docker/Dockerfile if image not present locally.
   "build": {
     "dockerfile": "../docker/Dockerfile",

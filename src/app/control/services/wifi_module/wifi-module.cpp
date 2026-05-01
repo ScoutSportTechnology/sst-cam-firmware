@@ -7,14 +7,6 @@ namespace sst::control {
 WifiModule::WifiModule(std::unique_ptr<IWifiManager> manager)
     : manager_(std::move(manager)) {}
 
-auto WifiModule::StartClient(const WifiCredentials& creds) -> bool {
-    return manager_->StartClient(creds);
-}
-
-auto WifiModule::StartAccessPoint(const WifiCredentials& creds) -> bool {
-    return manager_->StartAccessPoint(creds);
-}
-
 auto WifiModule::StartP2pGroupOwner(const WifiCredentials& creds) -> bool {
     return manager_->StartP2pGroupOwner(creds);
 }

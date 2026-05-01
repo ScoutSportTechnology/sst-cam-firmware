@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -12,22 +13,12 @@ struct DeviceStaticIpData {
     std::optional<std::string> gateway{std::nullopt};
 };
 
-struct DeviceConnectivityWifiClientData {
-    std::optional<bool> enabled{std::nullopt};
-    std::optional<std::string> wifi_ssid{std::nullopt};
-    std::optional<std::string> wifi_password{std::nullopt};
-    std::optional<DeviceStaticIpData> static_ip{std::nullopt};
-};
-
-struct DeviceConnectivityWifiAccessPointData {
+struct DeviceConnectivityWifiDirectData {
     std::optional<bool> enabled{std::nullopt};
     std::optional<std::string> ssid{std::nullopt};
-    std::optional<std::string> password{std::nullopt};
-};
-
-struct DeviceConnectivityWifiData {
-    std::optional<DeviceConnectivityWifiClientData> client{std::nullopt};
-    std::optional<DeviceConnectivityWifiAccessPointData> access_point{std::nullopt};
+    std::optional<std::string> passphrase{std::nullopt};
+    std::optional<std::uint32_t> channel{std::nullopt};
+    std::optional<std::string> ip_address{std::nullopt};
 };
 
 struct DeviceConnectivityEthernetData {
@@ -42,7 +33,7 @@ struct DeviceConnectivityBluetoothData {
 };
 
 struct DeviceConnectivityData {
-    std::optional<DeviceConnectivityWifiData> wifi{std::nullopt};
+    std::optional<DeviceConnectivityWifiDirectData> wifi_direct{std::nullopt};
     std::optional<DeviceConnectivityEthernetData> ethernet{std::nullopt};
     std::optional<DeviceConnectivityBluetoothData> bluetooth{std::nullopt};
 };

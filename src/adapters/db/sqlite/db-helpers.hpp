@@ -51,6 +51,16 @@ class ColumnReader {
         return std::string{col.getText()};
     }
 
+    auto nextOptI32() -> std::optional<int> {
+        const auto& col = stmt_.getColumn(col_++);
+        if (col.isNull()) {
+            return std::nullopt;
+        }
+        return col.getInt();
+    }
+
+    auto nextDouble() -> double { return stmt_.getColumn(col_++).getDouble(); }
+
     template <typename E>
     auto nextEnum() -> E {
         return static_cast<E>(nextI32());
@@ -93,6 +103,18 @@ class ParamBinder {
         } else {
             stmt_.bind(idx_++);
         }
+        return *this;
+    }
+    auto optI32(const std::optional<int>& val) -> ParamBinder& {
+        if (val) {
+            stmt_.bind(idx_++, *val);
+        } else {
+            stmt_.bind(idx_++);
+        }
+        return *this;
+    }
+    auto dbl(double val) -> ParamBinder& {
+        stmt_.bind(idx_++, val);
         return *this;
     }
     template <typename E>

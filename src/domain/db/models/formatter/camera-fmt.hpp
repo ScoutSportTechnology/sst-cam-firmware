@@ -44,10 +44,13 @@ struct fmt::formatter<sst::db::CameraConfig> {
                               "  width={},\n"
                               "  height={},\n"
                               "  format={},\n"
-                              "  fps={}\n"
+                              "  fps={},\n"
+                              "  event_clip_pre_seconds={},\n"
+                              "  event_clip_post_seconds={}\n"
                               "}}",
                               data.user_id, data.exposure, data.gain, data.white_balance,
-                              data.focus, data.width, data.height, data.format, data.fps);
+                              data.focus, data.width, data.height, data.format, data.fps,
+                              data.event_clip_pre_seconds, data.event_clip_post_seconds);
     }
 };
 

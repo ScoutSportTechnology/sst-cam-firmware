@@ -22,6 +22,8 @@ namespace {
 
 constexpr std::size_t kRecvBufSize = 4096;
 constexpr auto kRecvTimeout = std::chrono::seconds{2};
+constexpr int kModeAp = 2;
+constexpr const char* kGoIpAddress = "192.168.49.1";
 
 auto StartsWith(const std::string& s, std::string_view prefix) -> bool {
     return s.size() >= prefix.size() &&
@@ -114,7 +116,7 @@ auto WpaWifiManager::RemoveAllNetworks() -> void {
     SendCommand("REMOVE_NETWORK all");
 }
 
-auto WpaWifiManager::ConfigureNetwork(const sst::control::WifiCredentials& creds, int mode)
+auto WpaWifiManager::ConfigureNetwork(const sst::control::WifiCredentials& creds)
     -> std::optional<int> {
     auto add = SendCommand("ADD_NETWORK");
     if (!add) {
@@ -142,11 +144,9 @@ auto WpaWifiManager::ConfigureNetwork(const sst::control::WifiCredentials& creds
     if (!set("proto", "RSN")) return std::nullopt;
     if (!set("pairwise", "CCMP")) return std::nullopt;
     if (!set("group", "CCMP")) return std::nullopt;
-    if (!set("mode", std::to_string(mode))) return std::nullopt;
-    if (mode == 2) {
-        // AP / GO on 2.4GHz channel 1 — broadest device support.
-        if (!set("frequency", "2412")) return std::nullopt;
-    }
+    if (!set("mode", std::to_string(kModeAp))) return std::nullopt;
+    // 2.4 GHz channel 1 — broadest device support.
+    if (!set("frequency", "2412")) return std::nullopt;
 
     auto enable = SendCommand(fmt::format("ENABLE_NETWORK {}", net_id));
     if (!enable || !StartsWith(*enable, "OK")) {
@@ -160,48 +160,16 @@ auto WpaWifiManager::ConfigureNetwork(const sst::control::WifiCredentials& creds
     return net_id;
 }
 
-auto WpaWifiManager::StartClient(const sst::control::WifiCredentials& creds) -> bool {
-    std::lock_guard lock(mtx_);
-    if (!OpenCtrlSocket()) return false;
-    RemoveAllNetworks();
-    auto net_id = ConfigureNetwork(creds, /*mode=*/0);
-    if (!net_id) return false;
-    state_ = {.mode = sst::control::WifiMode::kClient,
-              .connected = true,
-              .ssid = creds.ssid,
-              .ip_address = ""};
-    spdlog::info("WpaWifiManager::StartClient ssid=\"{}\" net_id={}", creds.ssid, *net_id);
-    return true;
-}
-
-auto WpaWifiManager::StartAccessPoint(const sst::control::WifiCredentials& creds) -> bool {
-    std::lock_guard lock(mtx_);
-    if (!OpenCtrlSocket()) return false;
-    RemoveAllNetworks();
-    auto net_id = ConfigureNetwork(creds, /*mode=*/2);
-    if (!net_id) return false;
-    state_ = {.mode = sst::control::WifiMode::kAccessPoint,
-              .connected = true,
-              .ssid = creds.ssid,
-              .ip_address = "192.168.49.1"};
-    spdlog::info("WpaWifiManager::StartAccessPoint ssid=\"{}\" net_id={}", creds.ssid,
-                 *net_id);
-    return true;
-}
-
 auto WpaWifiManager::StartP2pGroupOwner(const sst::control::WifiCredentials& creds) -> bool {
-    // From the companion app's perspective, a WPA2-PSK AP with a known
-    // SSID/passphrase is functionally equivalent to a WiFi-Direct GO and is
-    // far simpler/more reliable to bring up via wpa_supplicant ctrl_iface.
     std::lock_guard lock(mtx_);
     if (!OpenCtrlSocket()) return false;
     RemoveAllNetworks();
-    auto net_id = ConfigureNetwork(creds, /*mode=*/2);
+    auto net_id = ConfigureNetwork(creds);
     if (!net_id) return false;
     state_ = {.mode = sst::control::WifiMode::kP2pGroupOwner,
               .connected = true,
               .ssid = creds.ssid,
-              .ip_address = "192.168.49.1"};
+              .ip_address = kGoIpAddress};
     spdlog::info("WpaWifiManager::StartP2pGroupOwner ssid=\"{}\" net_id={}", creds.ssid,
                  *net_id);
     return true;

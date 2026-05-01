@@ -9,6 +9,7 @@
 #include "domain/config/models/device.hpp"
 #include "domain/config/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 #include "domain/config/models/storage.hpp"
+#include "domain/config/models/wifi-direct.hpp"
 
 namespace fs = std::filesystem;
 
@@ -40,4 +41,8 @@ TEST(JsonAdapter, LoadCalibration) {
 
 TEST(JsonAdapter, LoadStorage) {
     EXPECT_TRUE(LoadAndLog<sst::config::StorageData>("storage.json", "StorageData"));
+}
+
+TEST(JsonAdapter, LoadWifiDirect) {
+    EXPECT_TRUE(LoadAndLog<sst::config::WifiDirectData>("wifi-direct.json", "WifiDirectData"));
 }
