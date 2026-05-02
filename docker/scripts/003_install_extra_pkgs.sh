@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install Ubuntu jammy aarch64 packages into the JetPack sysroot that are not
-# part of the base L4T tarball: BlueZ peripheral support via sdbus-c++ (BLE
-# control plane) and gst-rtsp-server (live preview RTSP data plane).
+# part of the base L4T tarball:
+#   - BlueZ peripheral support via sdbus-c++ (BLE control plane)
+#   - gst-rtsp-server (companion-app RTSP stream)
+#   - gstreamer1.0-plugins-bad (rtmpsink for platform RTMP/RTMPS push)
 #
 # Runs BEFORE 002_fix_sysroot.sh so the symlink-fix and .so linker-stub passes
 # pick up everything that was just extracted.
@@ -20,9 +22,14 @@ PKGS=(
   # sdbus-c++: BLE peripheral via BlueZ over D-Bus
   "pool/universe/s/sdbus-cpp/libsdbus-c++1_1.1.0-3_arm64.deb"
   "pool/universe/s/sdbus-cpp/libsdbus-c++-dev_1.1.0-3_arm64.deb"
-  # gst-rtsp-server: live preview RTSP server library
+  # gst-rtsp-server: companion-app RTSP server library
   "pool/universe/g/gst-rtsp-server1.0/libgstrtspserver-1.0-0_1.20.1-1_arm64.deb"
   "pool/universe/g/gst-rtsp-server1.0/libgstrtspserver-1.0-dev_1.20.1-1_arm64.deb"
+  # gst-plugins-bad: ships rtmpsink (needed for YouTube/Twitch/Facebook/Instagram/
+  # custom RTMP+RTMPS push). flvmux/h264parse/mp4mux/qtdemux/concat/splitmuxsink
+  # are in plugins-good which is already part of the base sysroot.
+  "pool/universe/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.20.1-1ubuntu1_arm64.deb"
+  "pool/universe/g/gst-plugins-bad1.0/libgstreamer-plugins-bad1.0-0_1.20.1-1ubuntu1_arm64.deb"
 )
 
 TMP=$(mktemp -d)

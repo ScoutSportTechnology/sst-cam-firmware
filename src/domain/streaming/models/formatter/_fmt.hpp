@@ -1,3 +1,4 @@
 #pragma once
 
-#include "preview-config-fmt.hpp"  // IWYU pragma: keep
+#include "app-stream-config-fmt.hpp"       // IWYU pragma: keep
+#include "platform-stream-config-fmt.hpp"  // IWYU pragma: keep

@@ -11,6 +11,7 @@ class SqliteStreamConfigRepository : public IStreamConfigRepository,
                                      private SqliteRepositoryBase {
    public:
     explicit SqliteStreamConfigRepository(DbConnection& conn);
+    auto get(int64_t stream_id) -> DbResult<StreamConfig> override;
     auto getAll(int64_t user_id) -> DbResult<std::vector<StreamConfig>> override;
     auto save(const StreamConfig& data) -> DbResult<StreamConfig> override;
     auto remove(int64_t stream_id) -> DbResult<bool> override;

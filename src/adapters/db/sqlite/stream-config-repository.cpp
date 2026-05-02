@@ -41,6 +41,21 @@ void bindStreamFields(ParamBinder& binder, const StreamConfig& data) {
 
 }  // namespace
 
+auto SqliteStreamConfigRepository::get(int64_t stream_id) -> DbResult<StreamConfig> {
+    return dbExecute<StreamConfig>("StreamConfigRepository::get", [&] {
+        SQLite::Statement stmt(
+            db_,
+            "SELECT id, user_id, platform, name, enabled, stream_key, stream_type, "
+            "url, codec, width, height, framerate, bitrate_kbps "
+            "FROM stream_config WHERE id = ?");
+        stmt.bind(1, stream_id);
+        if (!stmt.executeStep()) {
+            return DbResult<StreamConfig>::fail();
+        }
+        return DbResult<StreamConfig>::ok(readStreamConfig(stmt));
+    });
+}
+
 auto SqliteStreamConfigRepository::getAll(int64_t user_id)
     -> DbResult<std::vector<StreamConfig>> {
     return dbExecute<std::vector<StreamConfig>>("StreamConfigRepository::getAll", [&] {
