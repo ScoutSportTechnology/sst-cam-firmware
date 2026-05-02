@@ -161,7 +161,7 @@ auto main() -> int {
         match_service, database.matches(), database.recordings(), kDefaultUserId));
     control.ble().Register(std::make_shared<sst::control::SportController>(database.sports()));
     control.ble().Register(std::make_shared<sst::control::TeamController>(database.teams()));
-    control.ble().Register(std::make_shared<sst::control::SystemController>());
+    control.ble().Register(std::make_shared<sst::control::SystemController>(cfg.device));
 
     pipeline.Start();
     control.Start();

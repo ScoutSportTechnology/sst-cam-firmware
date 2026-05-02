@@ -79,6 +79,15 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
     const std::string started_at = NowIso8601();
     const auto merged_path = dir / "full_game.mp4";
 
+    // Filesystem cleanup on any post-mkdir rollback path. Removes the full_game
+    // subdir we just created, and the parent <match_uuid> dir too if it ended
+    // up empty (it will, since this is a fresh UUID).
+    auto cleanup_dirs = [&] {
+        std::error_code rec;
+        std::filesystem::remove_all(dir, rec);
+        std::filesystem::remove(MatchDir(video_root_, match_id), rec);
+    };
+
     sst::db::Recording row;
     row.id = recording_id;
     row.match_id = match_id;
@@ -88,12 +97,14 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
     if (!recording_repo_.save(row).success) {
         spdlog::error("RecordingService::StartFullGame: DB insert failed for recording {}",
                       recording_id);
+        cleanup_dirs();
         return {.success = false, .recording_id = {}};
     }
 
     if (!encoder_->Start()) {
         spdlog::error("RecordingService::StartFullGame: encoder failed to start");
         recording_repo_.remove(recording_id);
+        cleanup_dirs();
         return {.success = false, .recording_id = {}};
     }
 
@@ -101,6 +112,7 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
         spdlog::error("RecordingService::StartFullGame: segment recorder failed to start");
         encoder_->Stop();
         recording_repo_.remove(recording_id);
+        cleanup_dirs();
         return {.success = false, .recording_id = {}};
     }
 
@@ -212,6 +224,14 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
     const auto file_path = dir / kEventClipFile;
     const std::string started_at = NowIso8601();
 
+    // Removes the event_<uuid> dir we just created. The parent <match_uuid>
+    // is left alone here — the active full-game recording is still writing
+    // into it.
+    auto cleanup_dir = [&] {
+        std::error_code rec;
+        std::filesystem::remove_all(dir, rec);
+    };
+
     sst::db::Recording rec_row;
     rec_row.id = clip_recording_id;
     rec_row.match_id = active_match_id_;
@@ -220,6 +240,7 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
     rec_row.started_at = started_at;
     if (!recording_repo_.save(rec_row).success) {
         spdlog::error("RecordingService::TriggerEventClip: DB insert (recording) failed");
+        cleanup_dir();
         return {};
     }
 
@@ -233,12 +254,14 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
     if (!recording_repo_.saveEventClip(clip_row).success) {
         spdlog::error("RecordingService::TriggerEventClip: DB insert (event_clip) failed");
         recording_repo_.remove(clip_recording_id);
+        cleanup_dir();
         return {};
     }
 
     if (!event_clip_recorder_->Trigger(file_path, window)) {
         spdlog::error("RecordingService::TriggerEventClip: recorder rejected trigger");
         recording_repo_.remove(clip_recording_id);  // cascade deletes event_clip row
+        cleanup_dir();
         return {};
     }
 

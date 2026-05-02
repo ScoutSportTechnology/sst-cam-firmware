@@ -50,6 +50,9 @@ class FakeEncoderPipeline final : public IEncoderPipeline {
 
     auto Start() -> bool override {
         ++start_calls;
+        if (!accept_start) {
+            return false;
+        }
         running_ = true;
         return true;
     }
@@ -66,6 +69,7 @@ class FakeEncoderPipeline final : public IEncoderPipeline {
     int start_calls{0};
     int stop_calls{0};
     int push_calls{0};
+    bool accept_start{true};
 
    private:
     bool running_{false};
@@ -78,6 +82,9 @@ class FakeSegmentRecorder final : public ISegmentRecorder {
     auto Start(const std::filesystem::path& output_dir) -> bool override {
         ++start_calls;
         last_output_dir = output_dir;
+        if (!accept_start) {
+            return false;
+        }
         running_ = true;
         paused_ = false;
         emitted_segments_.clear();
@@ -116,6 +123,7 @@ class FakeSegmentRecorder final : public ISegmentRecorder {
     int resume_calls{0};
     int stop_calls{0};
     int on_encoded_calls{0};
+    bool accept_start{true};
     std::filesystem::path last_output_dir;
 
    private:
@@ -476,6 +484,76 @@ TEST_F(RecordingServiceTest, TriggerEventClipRejectedWhenDiskGuardRefusesMidGame
     EXPECT_EQ(event_clip_recorder_->trigger_calls, 0);
 
     // The full-game recording is unaffected — still active, no rollback.
+    EXPECT_EQ(service_->CurrentState(), RecordingState::kRecording);
+}
+
+// ── Filesystem rollback ───────────────────────────────────────────────
+
+TEST_F(RecordingServiceTest, StartFullGameCleansUpFilesystemWhenEncoderRefuses) {
+    const std::string match_id = "00000000-0000-4000-8000-aaaaaaaaaabb";
+    SeedMatch(match_id);
+    encoder_->accept_start = false;
+
+    auto res = service_->StartFullGame(match_id);
+    EXPECT_FALSE(res.success);
+
+    // No directories left behind from the failed attempt — neither the
+    // full_game subdir nor the parent <match_uuid> dir.
+    const auto match_dir = video_root_ / match_id;
+    EXPECT_FALSE(std::filesystem::exists(match_dir));
+
+    // No DB row either.
+    auto rows = mgr_->recordings().listByMatch(match_id);
+    ASSERT_TRUE(rows.success);
+    EXPECT_TRUE(rows.data.empty());
+}
+
+TEST_F(RecordingServiceTest, StartFullGameCleansUpFilesystemWhenSegmentRecorderRefuses) {
+    const std::string match_id = "00000000-0000-4000-8000-aaaaaaaaaabc";
+    SeedMatch(match_id);
+    segment_recorder_->accept_start = false;
+
+    auto res = service_->StartFullGame(match_id);
+    EXPECT_FALSE(res.success);
+
+    EXPECT_FALSE(std::filesystem::exists(video_root_ / match_id));
+    // Encoder was started then stopped because segment recorder refused.
+    EXPECT_EQ(encoder_->start_calls, 1);
+    EXPECT_EQ(encoder_->stop_calls, 1);
+    auto rows = mgr_->recordings().listByMatch(match_id);
+    ASSERT_TRUE(rows.success);
+    EXPECT_TRUE(rows.data.empty());
+}
+
+TEST_F(RecordingServiceTest, TriggerEventClipCleansUpFilesystemWhenRecorderRefuses) {
+    const std::string match_id = "00000000-0000-4000-8000-aaaaaaaaaabd";
+    SeedMatch(match_id);
+    const std::string match_event_id = "00000000-0000-4000-8000-bbbbbbbbbbb4";
+    SeedMatchEvent(match_id, match_event_id, "goal");
+
+    auto start = service_->StartFullGame(match_id);
+    ASSERT_TRUE(start.success);
+
+    // The full-game recording is in progress, so the match dir must exist.
+    ASSERT_TRUE(std::filesystem::exists(video_root_ / match_id / "full_game"));
+
+    event_clip_recorder_->accept_next_trigger = false;
+    auto res = service_->TriggerEventClip(match_event_id,
+                                          {.pre_seconds = 60, .post_seconds = 60});
+    EXPECT_FALSE(res.success);
+
+    // No event_<uuid> dir survived the rollback. The full_game dir is
+    // untouched — the in-progress recording owns it.
+    EXPECT_TRUE(std::filesystem::exists(video_root_ / match_id / "full_game"));
+    int event_dirs = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(video_root_ / match_id)) {
+        if (entry.path().filename().string().rfind("event_", 0) == 0) {
+            ++event_dirs;
+        }
+    }
+    EXPECT_EQ(event_dirs, 0);
+
+    // The active full-game recording is unaffected.
     EXPECT_EQ(service_->CurrentState(), RecordingState::kRecording);
 }
 
