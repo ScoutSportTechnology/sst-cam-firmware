@@ -21,7 +21,8 @@
       "Bash(ctest --preset test)",
       "Bash(nm /workspace/build/debug/CMakeFiles/sst_cam_firmware_internal_libs.dir/src/app/streaming/services/streaming_service/streaming-service.cpp.o)",
       "Bash(ctest --preset test --output-on-failure -R 'StreamingServiceTest')",
-      "Bash(ctest --preset test --output-on-failure -R 'MatchServiceTest')"
+      "Bash(ctest --preset test --output-on-failure -R 'MatchServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'FanOutSinkTest|PipelineOrchestratorTest')"
     ]
   }
 }

@@ -1,16 +1,21 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
+#include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
+#include "adapters/processing/opencv/opencv-postprocessor.hpp"
+#include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "adapters/storage/gstreamer/gst-encoder-pipeline.hpp"
 #include "adapters/storage/gstreamer/gst-event-clip-recorder.hpp"
 #include "adapters/storage/gstreamer/gst-segment-recorder.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
+#include "app/buffer/services/fan_out_sink/fan-out-sink.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "app/control/services/control_module/control-module.hpp"
 #include "app/control/services/controllers/camera.controller.hpp"
@@ -22,6 +27,7 @@
 #include "app/db/services/db_manager/db-manager.hpp"
 #include "app/db/services/db_seeder/db-seeder.hpp"
 #include "app/match/services/match_service/match-service.hpp"
+#include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 #include "app/storage/services/recording_service/recording-service.hpp"
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
 
@@ -53,6 +59,16 @@ constexpr int kEncoderBitrateBps = 4'000'000;
 constexpr std::int64_t kEventClipMaxPreSeconds = 120;
 
 }  // namespace sst::storage_defaults
+
+// Camera 0 is the only camera wired into the pipeline today. The second
+// IMX477 + the AI/physics/decision modules will land in follow-up changes;
+// when they do, the orchestrator constructor grows to accept the second
+// capture + a decision step that picks which camera to postprocess.
+namespace sst::pipeline_defaults {
+
+constexpr std::uint16_t kCamera0Index = 0;
+
+}  // namespace sst::pipeline_defaults
 
 auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
@@ -107,6 +123,21 @@ auto main() -> int {
         std::move(app_stream_server),
         [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
 
+    // ── Pipeline orchestration ────────────────────────────────────────
+    // Capture (sensor 0) → preprocess → buffer → postprocess → fan-out into
+    // both the storage RecordingService and the streaming StreamingService.
+    sst::buffer::FanOutSink final_frame_sink(
+        std::vector<sst::buffer::IFrameSink*>{&recording_service, &streaming_service});
+
+    const auto camera_cfg = database.cameras().getConfig(kDefaultUserId);
+    auto capture = std::make_unique<sst::capture::GStreamerAdapter>(
+        camera_cfg.data, cfg.device.model.value_or(""),
+        sst::pipeline_defaults::kCamera0Index);
+    auto preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>();
+    auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
+    sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
+                                                 std::move(postprocessor), final_frame_sink);
+
     // ── Control plane (BLE + WiFi-Direct) ──────────────────────────────
     auto ble_transport = std::make_unique<sst::adapters::control::BluezBleTransport>();
     auto wifi_manager = std::make_unique<sst::adapters::control::WpaWifiManager>("wlan0");
@@ -124,6 +155,7 @@ auto main() -> int {
     control.ble().Register(std::make_shared<sst::control::MatchController>(match_service));
     control.ble().Register(std::make_shared<sst::control::SystemController>());
 
+    pipeline.Start();
     control.Start();
 
     spdlog::info("startup complete");
