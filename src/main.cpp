@@ -22,8 +22,10 @@
 #include "app/control/services/controllers/match.controller.hpp"
 #include "app/control/services/controllers/network.controller.hpp"
 #include "app/control/services/controllers/recording.controller.hpp"
+#include "app/control/services/controllers/sport.controller.hpp"
 #include "app/control/services/controllers/streaming.controller.hpp"
 #include "app/control/services/controllers/system.controller.hpp"
+#include "app/control/services/controllers/team.controller.hpp"
 #include "app/db/services/db_manager/db-manager.hpp"
 #include "app/db/services/db_seeder/db-seeder.hpp"
 #include "app/match/services/match_service/match-service.hpp"
@@ -153,6 +155,8 @@ auto main() -> int {
     control.ble().Register(
         std::make_shared<sst::control::RecordingController>(recording_service));
     control.ble().Register(std::make_shared<sst::control::MatchController>(match_service));
+    control.ble().Register(std::make_shared<sst::control::SportController>(database.sports()));
+    control.ble().Register(std::make_shared<sst::control::TeamController>(database.teams()));
     control.ble().Register(std::make_shared<sst::control::SystemController>());
 
     pipeline.Start();
