@@ -1,20 +1,28 @@
+#include <filesystem>
 #include <memory>
+#include <string>
 
 #include <spdlog/spdlog.h>
 
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
+#include "adapters/storage/gstreamer/gst-encoder-pipeline.hpp"
+#include "adapters/storage/gstreamer/gst-event-clip-recorder.hpp"
+#include "adapters/storage/gstreamer/gst-segment-recorder.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "app/control/services/control_module/control-module.hpp"
 #include "app/control/services/controllers/camera.controller.hpp"
+#include "app/control/services/controllers/match.controller.hpp"
 #include "app/control/services/controllers/network.controller.hpp"
 #include "app/control/services/controllers/recording.controller.hpp"
 #include "app/control/services/controllers/streaming.controller.hpp"
 #include "app/control/services/controllers/system.controller.hpp"
 #include "app/db/services/db_manager/db-manager.hpp"
 #include "app/db/services/db_seeder/db-seeder.hpp"
+#include "app/match/services/match_service/match-service.hpp"
+#include "app/storage/services/recording_service/recording-service.hpp"
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
 
 // ============================================================
@@ -27,61 +35,93 @@ constexpr const char* kDbSchema = "/usr/share/sst/cam/schema.sql";
 
 constexpr const char* kConfigDir = "/etc/sst/cam/config";
 constexpr const char* kConfigFormat = "json";
+constexpr const char* kVideoRootFallback = "/var/lib/sst/cam/videos";
 
 }  // namespace sst::paths
+
+// ============================================================
+// Storage encoder defaults — match what postprocess emits today (BGR8 1280x720
+// @ 30fps). Bitrate sized for NVENC budget on Orin Nano alongside the app +
+// platform streams.
+// ============================================================
+namespace sst::storage_defaults {
+
+constexpr int kEncoderWidth = 1280;
+constexpr int kEncoderHeight = 720;
+constexpr int kEncoderFramerate = 30;
+constexpr int kEncoderBitrateBps = 4'000'000;
+constexpr std::int64_t kEventClipMaxPreSeconds = 120;
+
+}  // namespace sst::storage_defaults
 
 auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
-    // Config module: static device info + initial calibration seeds + storage paths
-    constexpr std::uint32_t kDefaultUserId = 1;
+    constexpr std::int64_t kDefaultUserId = 1;
+
+    // ── Config ─────────────────────────────────────────────────────────
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
     auto cfg = config.get();
 
-    // Database
+    // ── Database ───────────────────────────────────────────────────────
     sst::db::DbManager database({
         .db_path = sst::paths::kDbFile,
         .schema_path = sst::paths::kDbSchema,
     });
-
-    // Seed DB from config on first boot (idempotent)
     sst::db::DbSeeder::seedIfEmpty(database, cfg);
 
-    // Device model — stays in config module (device info)
-    [[maybe_unused]] const std::string device_model = cfg.device.model.value_or("");
+    // ── Storage module ────────────────────────────────────────────────
+    // Single shared NVENC encoder feeds the segment recorder (full-game
+    // splitmuxsink) and the event-clip ring (rolling pre-event NAL deque).
+    auto encoder = std::make_unique<sst::adapters::storage::GstEncoderPipeline>(
+        sst::adapters::storage::GstEncoderPipeline::Config{
+            .width = sst::storage_defaults::kEncoderWidth,
+            .height = sst::storage_defaults::kEncoderHeight,
+            .framerate = sst::storage_defaults::kEncoderFramerate,
+            .raw_format = "BGR",
+            .bitrate_bps = sst::storage_defaults::kEncoderBitrateBps,
+            .iframe_interval_frames = sst::storage_defaults::kEncoderFramerate,
+        });
+    auto segment_recorder = std::make_unique<sst::adapters::storage::GstSegmentRecorder>();
+    auto event_clip_recorder = std::make_unique<sst::adapters::storage::GstEventClipRecorder>(
+        sst::adapters::storage::GstEventClipRecorder::Config{
+            .max_pre_seconds = sst::storage_defaults::kEventClipMaxPreSeconds,
+        });
 
-    // Camera settings — from DB from here on
-    [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kDefaultUserId);
+    const std::filesystem::path video_root =
+        cfg.storage.video.value_or(sst::paths::kVideoRootFallback);
+    sst::storage::RecordingService recording_service(
+        std::move(encoder), std::move(segment_recorder), std::move(event_clip_recorder),
+        database.recordings(), video_root);
 
-    // ============================================================
-    // Control plane (BLE commands + WiFi-Direct bring-up).
-    // ============================================================
+    // ── Match module ───────────────────────────────────────────────────
+    sst::match::MatchService match_service(database.matches(), database.sports(),
+                                           database.cameras(), recording_service,
+                                           kDefaultUserId);
+
+    // ── Streaming module ───────────────────────────────────────────────
+    auto app_stream_server =
+        std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
+    sst::streaming::StreamingService streaming_service(
+        std::move(app_stream_server),
+        [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
+
+    // ── Control plane (BLE + WiFi-Direct) ──────────────────────────────
     auto ble_transport = std::make_unique<sst::adapters::control::BluezBleTransport>();
     auto wifi_manager = std::make_unique<sst::adapters::control::WpaWifiManager>("wlan0");
 
     sst::control::ControlModule control(std::move(ble_transport), std::move(wifi_manager));
 
-    // ============================================================
-    // Streaming module: always-on RTSP for the companion app + a per-platform
-    // RTMP streamer factory (one NVENC session per active destination).
-    // The IFrameSink the orchestration thread will eventually push frames to
-    // is the StreamingService instance itself.
-    // ============================================================
-    auto app_stream_server =
-        std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
-    auto streaming_service = std::make_unique<sst::streaming::StreamingService>(
-        std::move(app_stream_server),
-        [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
-
     // ★ Extensibility point — register one IController per concern.
-    //   Add a new controllers/<thing>.controller.{hpp,cpp} and Register() it here.
     control.ble().Register(std::make_shared<sst::control::NetworkController>(
         control.wifi(), database.network(), kDefaultUserId));
-    control.ble().Register(
-        std::make_shared<sst::control::StreamingController>(*streaming_service, database.streams()));
+    control.ble().Register(std::make_shared<sst::control::StreamingController>(
+        streaming_service, database.streams()));
     control.ble().Register(std::make_shared<sst::control::CameraController>());
-    control.ble().Register(std::make_shared<sst::control::RecordingController>());
+    control.ble().Register(
+        std::make_shared<sst::control::RecordingController>(recording_service));
+    control.ble().Register(std::make_shared<sst::control::MatchController>(match_service));
     control.ble().Register(std::make_shared<sst::control::SystemController>());
 
     control.Start();
