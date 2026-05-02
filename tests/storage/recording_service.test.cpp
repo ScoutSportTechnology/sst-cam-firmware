@@ -12,6 +12,7 @@
 #include "adapters/db/sqlite/db-connection.hpp"
 #include "adapters/db/sqlite/recording-repository.hpp"
 #include "app/db/services/db_manager/db-manager.hpp"
+#include "app/storage/ports/disk-guard.hpp"
 #include "app/storage/ports/encoder-pipeline.hpp"
 #include "app/storage/ports/event-clip-recorder.hpp"
 #include "app/storage/ports/segment-recorder.hpp"
@@ -23,6 +24,7 @@ namespace {
 
 using sst::storage::EncodedNal;
 using sst::storage::EventClipWindow;
+using sst::storage::IDiskGuard;
 using sst::storage::IEncoderPipeline;
 using sst::storage::IEventClipRecorder;
 using sst::storage::ISegmentRecorder;
@@ -143,6 +145,15 @@ class FakeEventClipRecorder final : public IEventClipRecorder {
     bool accept_next_trigger{true};
 };
 
+class FakeDiskGuard final : public IDiskGuard {
+   public:
+    [[nodiscard]] auto HasEnoughFreeSpace() const -> bool override { return has_space; }
+    [[nodiscard]] auto FreeBytes() const -> std::uint64_t override { return free_bytes; }
+
+    bool has_space{true};
+    std::uint64_t free_bytes{1ULL << 40};  // 1 TiB
+};
+
 // ── Fixture ───────────────────────────────────────────────────────────────
 
 class RecordingServiceTest : public ::testing::Test {
@@ -178,10 +189,9 @@ class RecordingServiceTest : public ::testing::Test {
         segment_recorder_ = segment_owner_.get();
         event_clip_recorder_ = event_clip_owner_.get();
 
-        service_ = std::make_unique<RecordingService>(std::move(encoder_owner_),
-                                                      std::move(segment_owner_),
-                                                      std::move(event_clip_owner_),
-                                                      mgr_->recordings(), video_root_);
+        service_ = std::make_unique<RecordingService>(
+            std::move(encoder_owner_), std::move(segment_owner_), std::move(event_clip_owner_),
+            mgr_->recordings(), disk_guard_, video_root_);
     }
 
     auto TearDown() -> void override {
@@ -246,6 +256,7 @@ class RecordingServiceTest : public ::testing::Test {
     FakeEncoderPipeline* encoder_{nullptr};
     FakeSegmentRecorder* segment_recorder_{nullptr};
     FakeEventClipRecorder* event_clip_recorder_{nullptr};
+    FakeDiskGuard disk_guard_;
     std::unique_ptr<RecordingService> service_;
     int64_t seeded_sport_id_{0};
 };
@@ -425,6 +436,47 @@ TEST_F(RecordingServiceTest, PushDelegatesToEncoderWhileNonIdle) {
     ASSERT_TRUE(service_->StopFullGame().success);
     service_->Push(frame);
     EXPECT_EQ(encoder_->push_calls, 2);  // not pushed after stop
+}
+
+// ── Disk guard ─────────────────────────────────────────────────────────
+
+TEST_F(RecordingServiceTest, StartFullGameRejectedWhenDiskGuardRefuses) {
+    const std::string match_id = "00000000-0000-4000-8000-aaaaaaaaaaa9";
+    SeedMatch(match_id);
+
+    disk_guard_.has_space = false;
+    disk_guard_.free_bytes = 100;
+
+    auto res = service_->StartFullGame(match_id);
+    EXPECT_FALSE(res.success);
+    EXPECT_TRUE(res.recording_id.empty());
+
+    // No side effects: encoder stays off, no DB row inserted.
+    EXPECT_EQ(encoder_->start_calls, 0);
+    EXPECT_EQ(segment_recorder_->start_calls, 0);
+    auto persisted = mgr_->recordings().listByMatch(match_id);
+    ASSERT_TRUE(persisted.success);
+    EXPECT_TRUE(persisted.data.empty());
+    EXPECT_EQ(service_->CurrentState(), RecordingState::kIdle);
+}
+
+TEST_F(RecordingServiceTest, TriggerEventClipRejectedWhenDiskGuardRefusesMidGame) {
+    const std::string match_id = "00000000-0000-4000-8000-aaaaaaaaaaba";
+    SeedMatch(match_id);
+    const std::string match_event_id = "00000000-0000-4000-8000-bbbbbbbbbbb3";
+    SeedMatchEvent(match_id, match_event_id, "goal");
+
+    // Start with the disk fine, then simulate the SSD filling up mid-game.
+    ASSERT_TRUE(service_->StartFullGame(match_id).success);
+    disk_guard_.has_space = false;
+
+    auto res = service_->TriggerEventClip(match_event_id,
+                                          {.pre_seconds = 60, .post_seconds = 60});
+    EXPECT_FALSE(res.success);
+    EXPECT_EQ(event_clip_recorder_->trigger_calls, 0);
+
+    // The full-game recording is unaffected — still active, no rollback.
+    EXPECT_EQ(service_->CurrentState(), RecordingState::kRecording);
 }
 
 }  // namespace

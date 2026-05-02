@@ -23,7 +23,10 @@
       "Bash(ctest --preset test --output-on-failure -R 'StreamingServiceTest')",
       "Bash(ctest --preset test --output-on-failure -R 'MatchServiceTest')",
       "Bash(ctest --preset test --output-on-failure -R 'FanOutSinkTest|PipelineOrchestratorTest')",
-      "Bash(ctest --preset test --output-on-failure -R 'SportControllerTest|TeamControllerTest')"
+      "Bash(ctest --preset test --output-on-failure -R 'SportControllerTest|TeamControllerTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'CameraControllerTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'MatchControllerBrowseTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'FilesystemDiskGuardTest|RecordingServiceTest')"
     ]
   }
 }

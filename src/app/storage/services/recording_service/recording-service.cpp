@@ -27,11 +27,13 @@ RecordingService::RecordingService(std::unique_ptr<IEncoderPipeline> encoder,
                                    std::unique_ptr<ISegmentRecorder> segment_recorder,
                                    std::unique_ptr<IEventClipRecorder> event_clip_recorder,
                                    sst::db::IRecordingRepository& recording_repo,
+                                   IDiskGuard& disk_guard,
                                    std::filesystem::path video_root)
     : encoder_(std::move(encoder)),
       segment_recorder_(std::move(segment_recorder)),
       event_clip_recorder_(std::move(event_clip_recorder)),
       recording_repo_(recording_repo),
+      disk_guard_(disk_guard),
       video_root_(std::move(video_root)) {
     ConnectEncoderSinks();
 }
@@ -55,6 +57,12 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
     if (state_ != RecordingState::kIdle) {
         spdlog::warn("RecordingService::StartFullGame rejected: state={} active_match={}", state_,
                      active_match_id_);
+        return {.success = false, .recording_id = {}};
+    }
+    if (!disk_guard_.HasEnoughFreeSpace()) {
+        spdlog::warn(
+            "RecordingService::StartFullGame rejected: disk guard refused (free={} bytes)",
+            disk_guard_.FreeBytes());
         return {.success = false, .recording_id = {}};
     }
 
@@ -180,6 +188,12 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
     }
     if (window.pre_seconds <= 0 || window.post_seconds <= 0) {
         spdlog::error("RecordingService::TriggerEventClip rejected: invalid window {}", window);
+        return {};
+    }
+    if (!disk_guard_.HasEnoughFreeSpace()) {
+        spdlog::warn(
+            "RecordingService::TriggerEventClip rejected: disk guard refused (free={} bytes)",
+            disk_guard_.FreeBytes());
         return {};
     }
 

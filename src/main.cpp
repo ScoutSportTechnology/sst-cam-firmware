@@ -10,6 +10,7 @@
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
+#include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
 #include "adapters/storage/gstreamer/gst-encoder-pipeline.hpp"
 #include "adapters/storage/gstreamer/gst-event-clip-recorder.hpp"
 #include "adapters/storage/gstreamer/gst-segment-recorder.hpp"
@@ -109,9 +110,10 @@ auto main() -> int {
 
     const std::filesystem::path video_root =
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback);
+    sst::adapters::storage::FilesystemDiskGuard disk_guard(video_root, cfg.storage.min_free_bytes);
     sst::storage::RecordingService recording_service(
         std::move(encoder), std::move(segment_recorder), std::move(event_clip_recorder),
-        database.recordings(), video_root);
+        database.recordings(), disk_guard, video_root);
 
     // ── Match module ───────────────────────────────────────────────────
     sst::match::MatchService match_service(database.matches(), database.sports(),
@@ -151,10 +153,12 @@ auto main() -> int {
         control.wifi(), database.network(), kDefaultUserId));
     control.ble().Register(std::make_shared<sst::control::StreamingController>(
         streaming_service, database.streams()));
-    control.ble().Register(std::make_shared<sst::control::CameraController>());
+    control.ble().Register(
+        std::make_shared<sst::control::CameraController>(database.cameras(), kDefaultUserId));
     control.ble().Register(
         std::make_shared<sst::control::RecordingController>(recording_service));
-    control.ble().Register(std::make_shared<sst::control::MatchController>(match_service));
+    control.ble().Register(std::make_shared<sst::control::MatchController>(
+        match_service, database.matches(), database.recordings(), kDefaultUserId));
     control.ble().Register(std::make_shared<sst::control::SportController>(database.sports()));
     control.ble().Register(std::make_shared<sst::control::TeamController>(database.teams()));
     control.ble().Register(std::make_shared<sst::control::SystemController>());
