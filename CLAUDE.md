@@ -163,8 +163,8 @@ Ship final, working code. **No skeletons.** A class whose method body is `log("n
 
 The same rule applies to: `// TODO`, `// FIXME`, commented-out CMake blocks, "uncomment when ready" markers, adapter classes whose only contents are `// TODO: bluez wiring`, and ports with no concrete implementation behind them. If a piece of work has to be deferred, do not leave a placeholder in the tree — track it outside the codebase.
 
-If a new feature needs a new system dep, install it in the sysroot via `docker/scripts/003_install_extra_pkgs.sh`, link it in `CMakeLists.txt` as `REQUIRED`, and use it. Do not add a header that includes the not-yet-installed library "to be filled in later."
+If a new feature needs a new system dep, install it in the sysroot via `.devcontainer/sysroot/003_install_extra_pkgs.sh`, link it in `CMakeLists.txt` as `REQUIRED`, and use it. Do not add a header that includes the not-yet-installed library "to be filled in later."
 
 ## Adding system dependencies to the JetPack sysroot
 
-The JetPack `targetfs` tarball does not include every Ubuntu package — when a new system dep is needed (e.g. `sdbus-c++`, `gst-rtsp-server`), add the matching Ubuntu jammy `arm64` `.deb` URLs to [docker/scripts/003_install_extra_pkgs.sh](docker/scripts/003_install_extra_pkgs.sh). The Dockerfile runs `003_install_extra_pkgs.sh` *before* `002_fix_sysroot.sh`, so newly extracted libraries are picked up by the symlink-fix and `.so` linker-stub passes automatically.
+The JetPack `targetfs` tarball does not include every Ubuntu package — when a new system dep is needed (e.g. `sdbus-c++`, `gst-rtsp-server`), add the matching Ubuntu jammy `arm64` `.deb` URLs to [.devcontainer/sysroot/003_install_extra_pkgs.sh](.devcontainer/sysroot/003_install_extra_pkgs.sh). The Dockerfile runs `003_install_extra_pkgs.sh` *before* `002_fix_sysroot.sh`, so newly extracted libraries are picked up by the symlink-fix and `.so` linker-stub passes automatically.

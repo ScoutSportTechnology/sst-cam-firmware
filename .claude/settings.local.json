@@ -18,7 +18,14 @@
       "Bash(cmake --build --preset test)",
       "Bash(ctest --preset test --output-on-failure)",
       "Bash(ctest --preset test --output-on-failure -R \"DbTest.NetworkRead\")",
-      "Bash(ctest --preset test --output-on-failure -R \"DbTest\")"
+      "Bash(ctest --preset test --output-on-failure -R \"DbTest\")",
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('YAML OK'\\)\")",
+      "Bash(docker compose *)",
+      "Bash(python3 -)",
+      "Bash(git mv *)",
+      "Bash(grep -rn 'docker/scripts\\\\|docker/Dockerfile\\\\|`docker/`\\\\|docker/003' . --exclude-dir=.git)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
