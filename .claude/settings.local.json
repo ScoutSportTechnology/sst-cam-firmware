@@ -25,7 +25,14 @@
       "Bash(git mv *)",
       "Bash(grep -rn 'docker/scripts\\\\|docker/Dockerfile\\\\|`docker/`\\\\|docker/003' . --exclude-dir=.git)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(echo \"=== size/lines ===\")",
+      "Bash(wc -l /home/rs/.config/Code/logs/20260603T234346/window2/exthost/ms-vscode-remote.remote-containers/remoteContainers-2026-06-04T05-25-06.424Z.log)",
+      "Bash(echo \"=== tail 120 ===\")",
+      "Bash(tail -120 /home/rs/.config/Code/logs/20260603T234346/window2/exthost/ms-vscode-remote.remote-containers/remoteContainers-2026-06-04T05-25-06.424Z.log)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' --head http://ports.ubuntu.com/ubuntu-ports/__TRACKED_VAR__)",
+      "Bash(curl -s http://ports.ubuntu.com/ubuntu-ports/pool/universe/g/gst-plugins-bad1.0/)",
+      "Bash(curl -s http://ports.ubuntu.com/ubuntu-ports/pool/universe/g/gst-rtsp-server1.0/)"
     ]
   }
 }
