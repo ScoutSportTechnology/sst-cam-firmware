@@ -28,8 +28,8 @@ PKGS=(
   # gst-plugins-bad: ships rtmpsink (needed for YouTube/Twitch/Facebook/Instagram/
   # custom RTMP+RTMPS push). flvmux/h264parse/mp4mux/qtdemux/concat/splitmuxsink
   # are in plugins-good which is already part of the base sysroot.
-  "pool/universe/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.20.1-1ubuntu1_arm64.deb"
-  "pool/universe/g/gst-plugins-bad1.0/libgstreamer-plugins-bad1.0-0_1.20.1-1ubuntu1_arm64.deb"
+  "pool/universe/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.20.3-0ubuntu1.1_arm64.deb"
+  "pool/universe/g/gst-plugins-bad1.0/libgstreamer-plugins-bad1.0-0_1.20.3-0ubuntu1.1_arm64.deb"
 )
 
 TMP=$(mktemp -d)
