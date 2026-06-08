@@ -4,6 +4,10 @@
 #   - BlueZ peripheral support via sdbus-c++ (BLE control plane)
 #   - gst-rtsp-server (companion-app RTSP stream)
 #   - gstreamer1.0-plugins-bad (rtmpsink for platform RTMP/RTMPS push)
+#   - libprotobuf (runtime + dev) for the sst-cam-proto BLE/WiFi contract.
+#     Host protoc is installed separately in the Dockerfile; the target
+#     libprotobuf MUST be the SAME upstream protobuf version (jammy ships
+#     3.12.4 for both) so generated .pb.cc ABI matches the runtime.
 #
 # Runs BEFORE 002_fix_sysroot.sh so the symlink-fix and .so linker-stub passes
 # pick up everything that was just extracted.
@@ -30,6 +34,12 @@ PKGS=(
   # are in plugins-good which is already part of the base sysroot.
   "pool/universe/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.20.3-0ubuntu1.1_arm64.deb"
   "pool/universe/g/gst-plugins-bad1.0/libgstreamer-plugins-bad1.0-0_1.20.3-0ubuntu1.1_arm64.deb"
+  # protobuf 3.12.4 runtime + dev headers for the sst-cam-proto contract.
+  # Pinned to jammy 3.12.4 to match the host protoc installed in the Dockerfile
+  # (generated-code ABI is keyed on the upstream protobuf version, 3012004).
+  "pool/main/p/protobuf/libprotobuf23_3.12.4-1ubuntu7_arm64.deb"
+  "pool/main/p/protobuf/libprotobuf-lite23_3.12.4-1ubuntu7_arm64.deb"
+  "pool/main/p/protobuf/libprotobuf-dev_3.12.4-1ubuntu7_arm64.deb"
 )
 
 TMP=$(mktemp -d)

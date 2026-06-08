@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pipx \
         pkg-config \
         clangd \
+        protobuf-compiler \
     && wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc \
        | gpg --dearmor - > /usr/share/keyrings/kitware-archive-keyring.gpg \
     && echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' \

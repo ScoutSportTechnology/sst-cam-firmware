@@ -98,6 +98,81 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
 )
 
 # ============================================================
+# Proto codegen (sst-cam-proto BLE/WiFi wire contract)
+# ============================================================
+# Cross-compile split (KTD1): protoc runs on the x86_64 build HOST while
+# libprotobuf links against the arm64 sysroot. Pin protoc to the host binary
+# BEFORE find_package so FindProtobuf does not try to use a target-arch protoc.
+# The toolchain sets CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER, so find_program
+# resolves protoc on the host PATH; the library/headers resolve in the sysroot.
+find_program(SST_HOST_PROTOC NAMES protoc REQUIRED)
+set(Protobuf_PROTOC_EXECUTABLE "${SST_HOST_PROTOC}"
+    CACHE FILEPATH "Host protoc for cross-compile codegen" FORCE)
+
+find_package(Protobuf MODULE REQUIRED)
+
+# The imported target advertises the sysroot's /usr/include as an -isystem dir.
+# Adding it explicitly shadows GCC's implicit multiarch search and breaks
+# <bits/wordsize.h> resolution when cross-compiling. The sysroot already
+# provides /usr/include (and google/protobuf/* within it) by default, so drop
+# the redundant interface include and keep only the link.
+if(TARGET protobuf::libprotobuf)
+  set_target_properties(protobuf::libprotobuf PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "")
+endif()
+
+set(SST_PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/proto")
+if(NOT EXISTS "${SST_PROTO_DIR}/bluetooth.proto")
+  message(FATAL_ERROR
+    "proto/ submodule is missing its schema.\n"
+    "Run: git submodule update --init --recursive")
+endif()
+
+set(SST_PROTO_GEN_DIR "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${SST_PROTO_GEN_DIR}")
+
+# Generated .pb.{h,cc} live OUTSIDE src/ so the GLOB_RECURSE src/*.cpp below
+# never picks them up. Hand-roll codegen (rather than protobuf_generate) so we
+# can pass --experimental_allow_proto3_optional — proto3 `optional` fields
+# require it on protoc 3.12.x, and CMake 3.24's protobuf_generate has no option
+# to forward extra protoc flags.
+set(SST_PROTO_SRCS)
+foreach(_proto bluetooth wifi)
+  set(_src "${SST_PROTO_GEN_DIR}/${_proto}.pb.cc")
+  set(_hdr "${SST_PROTO_GEN_DIR}/${_proto}.pb.h")
+  add_custom_command(
+      OUTPUT "${_src}" "${_hdr}"
+      COMMAND "${Protobuf_PROTOC_EXECUTABLE}"
+              --experimental_allow_proto3_optional
+              --cpp_out "${SST_PROTO_GEN_DIR}"
+              -I "${SST_PROTO_DIR}"
+              "${SST_PROTO_DIR}/${_proto}.proto"
+      DEPENDS "${SST_PROTO_DIR}/${_proto}.proto"
+      COMMENT "protoc (cpp) ${_proto}.proto"
+      VERBATIM
+  )
+  list(APPEND SST_PROTO_SRCS "${_src}")
+endforeach()
+
+add_library(sst_proto OBJECT ${SST_PROTO_SRCS})
+set_target_properties(sst_proto PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(sst_proto PUBLIC protobuf::libprotobuf)
+target_include_directories(sst_proto PUBLIC
+    "$<BUILD_INTERFACE:${SST_PROTO_GEN_DIR}>"
+)
+# The buildroot cross-gcc does not auto-search the Debian multiarch include dir,
+# where libc puts arch-specific headers (e.g. <bits/wordsize.h>). Other targets
+# get it transitively via pkg-config Cflags; sst_proto has no pkg-config dep, so
+# add it explicitly (PRIVATE: only needed to compile the generated code).
+target_include_directories(sst_proto SYSTEM PRIVATE
+    "${CMAKE_SYSROOT}/usr/include/aarch64-linux-gnu"
+)
+
+# Generated protobuf code is not ours — silence the repo's strict warning flags
+# (-Wconversion/-Wshadow/-Wpedantic) so it never breaks the build.
+target_compile_options(sst_proto PRIVATE -w)
+
+# ============================================================
 # Internal library
 # ============================================================
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
@@ -110,6 +185,7 @@ add_library(sst_cam_firmware_internal_libs STATIC ${CORE_SOURCES})
 
 target_link_libraries(sst_cam_firmware_internal_libs PUBLIC
     sst_cam_firmware_external_libs
+    sst_proto
 )
 
 target_include_directories(sst_cam_firmware_internal_libs PUBLIC
