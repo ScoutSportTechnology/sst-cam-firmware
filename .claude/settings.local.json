@@ -74,7 +74,8 @@
       "Bash(timeout 150 ctest --preset test -R \"BleAdvertisementTest\" -E \"AdvertisesOnRealBluez\" --output-on-failure)",
       "Bash(sed -n '1,60p')",
       "Bash(sed -n '1,50p' src/app/streaming/ports/*.hpp)",
-      "Bash(timeout 150 ctest --preset test -R \"SessionManagerTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"SessionManagerTest\" --output-on-failure)",
+      "Bash(timeout 150 ctest --preset test -R \"DeviceHandlerTest\" --output-on-failure)"
     ]
   }
 }
