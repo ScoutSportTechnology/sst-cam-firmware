@@ -1,0 +1,27 @@
+#pragma once
+
+#include <string_view>
+
+#include <fmt/format.h>
+
+#include "domain/session/models/session-phase.hpp"
+
+template <>
+struct fmt::formatter<sst::session::SessionPhase> {
+    static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(sst::session::SessionPhase phase, FormatContext& ctx) const {
+        using sst::session::SessionPhase;
+        std::string_view name = "Unknown";
+        switch (phase) {
+            case SessionPhase::kIdle: name = "Idle"; break;
+            case SessionPhase::kConnected: name = "Connected"; break;
+            case SessionPhase::kWifiReady: name = "WifiReady"; break;
+            case SessionPhase::kConfigured: name = "Configured"; break;
+            case SessionPhase::kReady: name = "Ready"; break;
+            case SessionPhase::kRecording: name = "Recording"; break;
+        }
+        return fmt::format_to(ctx.out(), "{}", name);
+    }
+};
