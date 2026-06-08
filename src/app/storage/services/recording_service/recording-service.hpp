@@ -6,7 +6,6 @@
 #include <string>
 
 #include "app/buffer/ports/frame-sink.hpp"
-#include "app/db/ports/recording-repository.hpp"
 #include "app/storage/ports/disk-guard.hpp"
 #include "app/storage/ports/encoder-pipeline.hpp"
 #include "app/storage/ports/event-clip-recorder.hpp"
@@ -31,8 +30,7 @@ class RecordingService final : public IRecordingService, public sst::buffer::IFr
     RecordingService(std::unique_ptr<IEncoderPipeline> encoder,
                      std::unique_ptr<ISegmentRecorder> segment_recorder,
                      std::unique_ptr<IEventClipRecorder> event_clip_recorder,
-                     sst::db::IRecordingRepository& recording_repo, IDiskGuard& disk_guard,
-                     std::filesystem::path video_root);
+                     IDiskGuard& disk_guard, std::filesystem::path video_root);
 
     ~RecordingService() override;
 
@@ -69,7 +67,6 @@ class RecordingService final : public IRecordingService, public sst::buffer::IFr
     std::unique_ptr<IEncoderPipeline> encoder_;
     std::unique_ptr<ISegmentRecorder> segment_recorder_;
     std::unique_ptr<IEventClipRecorder> event_clip_recorder_;
-    sst::db::IRecordingRepository& recording_repo_;
     IDiskGuard& disk_guard_;
     std::filesystem::path video_root_;
 

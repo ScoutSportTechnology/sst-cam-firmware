@@ -43,7 +43,29 @@
       "Bash(sed -n '1,70p' /workspace/src/adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp)",
       "WebFetch(domain:android.googlesource.com)",
       "WebFetch(domain:packages.ubuntu.com)",
-      "WebFetch(domain:gstreamer.freedesktop.org)"
+      "WebFetch(domain:gstreamer.freedesktop.org)",
+      "Bash(conan --version)",
+      "Read(//etc/**)",
+      "Bash(ls /.dockerenv)",
+      "Bash(sudo -n apt-get --version)",
+      "Bash(apt-get --version)",
+      "Bash(timeout 8 bash -c 'curl -sI http://ports.ubuntu.com/ 2>&1 | head -3')",
+      "Bash(timeout 120 conan profile detect)",
+      "Bash(conan list *)",
+      "Bash(sudo chown -R vscode:vscode /home/vscode/.conan2)",
+      "Bash(sudo apt-get update -qq)",
+      "Bash(apt-cache policy *)",
+      "Bash(curl -sI http://ports.ubuntu.com/ubuntu-ports/__TRACKED_VAR__)",
+      "Bash(sudo bash .devcontainer/sysroot/002_fix_sysroot.sh /l4t/targetfs)",
+      "Bash(python3 -c ' *)",
+      "Bash(timeout 200 ./build/test/bin/sst_cam_firmware_tests --gtest_filter=\"ProtoRoundtrip.*\")",
+      "Bash(timeout 300 ctest --preset test -R \"ProtoRoundtrip\" --output-on-failure)",
+      "Bash(sed -n '1,40p' src/app/control/ports/ble-transport.hpp)",
+      "Bash(sed -n '1,40p' src/app/control/ports/controller.hpp)",
+      "Bash(set -e)",
+      "Bash(sed -n '1,40p' src/domain/config/models/device.hpp)",
+      "Bash(sed -n '1,40p' src/domain/config/models/calibration.hpp)",
+      "Bash(timeout 120 ctest --preset test -R \"ConfigLoaderTest\" --output-on-failure)"
     ]
   }
 }

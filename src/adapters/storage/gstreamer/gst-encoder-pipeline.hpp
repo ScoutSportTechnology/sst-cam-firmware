@@ -9,7 +9,6 @@
 #include <gst/gst.h>
 
 #include "app/storage/ports/encoder-pipeline.hpp"
-#include "domain/db/models/camera.hpp"
 
 namespace sst::adapters::storage {
 

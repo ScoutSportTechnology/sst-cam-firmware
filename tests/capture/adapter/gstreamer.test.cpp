@@ -9,17 +9,13 @@
 #include <string>
 
 #include "app/config/services/config_loader/config-loader.hpp"
-#include "app/db/services/db_manager/db-manager.hpp"
-#include "app/db/services/db_seeder/db-seeder.hpp"
+#include "domain/capture/models/camera-config.hpp"
 
 namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kSchemaPath = SST_REPO_ROOT_DIR "/db/schema.sql";
-constexpr const char* kDbPath = SST_REPO_ROOT_DIR "/tests/db/data/test.db";
 constexpr const char* kConfigDir = SST_REPO_ROOT_DIR "/tests/config/config_files";
-constexpr int64_t kDefaultUserId = 1;
 
 }  // namespace
 
@@ -31,18 +27,12 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
     sst::config::ConfigData cfg = loader.get();
     const std::string device_model = cfg.device.model.value_or("");
 
-    const fs::path db_path{kDbPath};
-    fs::create_directories(db_path.parent_path());
-    fs::remove(db_path);
-
-    sst::db::DbManager database({.db_path = kDbPath, .schema_path = kSchemaPath});
-    sst::db::DbSeeder::seedIfEmpty(database, cfg);
-
-    auto camera_cfg = database.cameras().getConfig(kDefaultUserId);
-    ASSERT_TRUE(camera_cfg.success) << "Failed to load CameraConfig from DB";
+    // Camera sensor config is a compiled-in default now (app-as-source-of-truth:
+    // no local DB). Lens calibration still comes from calibration.json.
+    const sst::capture::CameraConfig camera_cfg{};
 
     constexpr std::uint16_t kCameraIndex = 0;
-    sst::capture::GStreamerAdapter adapter(camera_cfg.data, device_model, kCameraIndex);
+    sst::capture::GStreamerAdapter adapter(camera_cfg, device_model, kCameraIndex);
     adapter.Start();
     ASSERT_TRUE(adapter.IsRunning()) << "GStreamer pipeline did not start";
 

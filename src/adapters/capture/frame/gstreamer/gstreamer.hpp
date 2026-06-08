@@ -6,7 +6,7 @@
 #include <string>
 
 #include "app/capture/ports/frame-src.hpp"
-#include "domain/db/models/camera.hpp"
+#include "domain/capture/models/camera-config.hpp"
 
 extern "C" {
 using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)
@@ -22,7 +22,7 @@ using sst::capture::ICaptureFrame;
 
 class GStreamerAdapter final : public ICaptureFrame {
    public:
-    GStreamerAdapter(const sst::db::CameraConfig& camera_config, std::string device_model,
+    GStreamerAdapter(const CameraConfig& camera_config, std::string device_model,
                      std::uint16_t camera_index);
 
     ~GStreamerAdapter() override = default;
@@ -33,7 +33,7 @@ class GStreamerAdapter final : public ICaptureFrame {
     auto Capture() -> std::optional<Frame> override;
 
    private:
-    sst::db::CameraConfig camera_config_;
+    CameraConfig camera_config_;
     std::string device_model_;
     std::uint16_t camera_index_{0};
     std::uint64_t frame_counter_{0};

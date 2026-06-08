@@ -9,9 +9,9 @@ enum class PlatformStreamType : std::uint8_t { kRtmp = 0, kRtmpS = 1 };
 enum class PlatformStreamCodec : std::uint8_t { kH264 = 0, kH265 = 1 };
 
 // In-flight value object passed to a per-destination streamer adapter. The
-// streaming service builds this from a sst::db::StreamConfig row at start
-// time, so user edits to the DB row take effect on the next StartPlatformStream
-// call. Decouples the streaming module from the DB types.
+// streaming service builds this from the app-supplied streaming destination
+// (SetStreamingConfig / StreamingControl) at start time. Decouples the
+// streaming module from the wire/proto types.
 struct PlatformStreamConfig {
     int64_t stream_id{0};
     std::string name;

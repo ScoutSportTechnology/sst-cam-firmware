@@ -10,7 +10,6 @@
 #include <spdlog/spdlog.h>
 
 #include "domain/common/utils/uuid.hpp"
-#include "domain/db/models/recording.hpp"
 #include "domain/storage/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
 namespace sst::storage {
@@ -26,13 +25,11 @@ constexpr const char* kEventClipFile = "clip.mp4";
 RecordingService::RecordingService(std::unique_ptr<IEncoderPipeline> encoder,
                                    std::unique_ptr<ISegmentRecorder> segment_recorder,
                                    std::unique_ptr<IEventClipRecorder> event_clip_recorder,
-                                   sst::db::IRecordingRepository& recording_repo,
                                    IDiskGuard& disk_guard,
                                    std::filesystem::path video_root)
     : encoder_(std::move(encoder)),
       segment_recorder_(std::move(segment_recorder)),
       event_clip_recorder_(std::move(event_clip_recorder)),
-      recording_repo_(recording_repo),
       disk_guard_(disk_guard),
       video_root_(std::move(video_root)) {
     ConnectEncoderSinks();
@@ -88,22 +85,13 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
         std::filesystem::remove(MatchDir(video_root_, match_id), rec);
     };
 
-    sst::db::Recording row;
-    row.id = recording_id;
-    row.match_id = match_id;
-    row.kind = sst::db::RecordingKind::kFullGame;
-    row.file_path = merged_path.string();
-    row.started_at = started_at;
-    if (!recording_repo_.save(row).success) {
-        spdlog::error("RecordingService::StartFullGame: DB insert failed for recording {}",
-                      recording_id);
-        cleanup_dirs();
-        return {.success = false, .recording_id = {}};
-    }
+    // Recording metadata is no longer persisted to a local DB (app is the source
+    // of truth); recordings are enumerated from disk on demand (U13).
+    (void)merged_path;
+    (void)started_at;
 
     if (!encoder_->Start()) {
         spdlog::error("RecordingService::StartFullGame: encoder failed to start");
-        recording_repo_.remove(recording_id);
         cleanup_dirs();
         return {.success = false, .recording_id = {}};
     }
@@ -111,7 +99,6 @@ auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGa
     if (!segment_recorder_->Start(dir)) {
         spdlog::error("RecordingService::StartFullGame: segment recorder failed to start");
         encoder_->Stop();
-        recording_repo_.remove(recording_id);
         cleanup_dirs();
         return {.success = false, .recording_id = {}};
     }
@@ -158,28 +145,6 @@ auto RecordingService::StopFullGame() -> StopFullGameResult {
     const auto merged = segment_recorder_->Stop();
     encoder_->Stop();
 
-    const std::string ended_at = NowIso8601();
-    if (!recording_repo_.finalize(active_recording_id_, ended_at).success) {
-        spdlog::error("RecordingService::StopFullGame: failed to finalize recording {}",
-                      active_recording_id_);
-    }
-
-    // Persist each segment so the DB reflects what's on disk. Numbered in the
-    // order the segment recorder produced them.
-    int32_t sequence = 0;
-    for (const auto& seg_path : segment_recorder_->Segments()) {
-        sst::db::RecordingSegment seg;
-        seg.recording_id = active_recording_id_;
-        seg.sequence = sequence++;
-        seg.file_path = seg_path.string();
-        seg.started_at = ended_at;  // Best available wall-clock; encoder PTS is internal.
-        seg.ended_at = ended_at;
-        if (!recording_repo_.saveSegment(seg).success) {
-            spdlog::warn("RecordingService::StopFullGame: failed to persist segment {}",
-                         seg.file_path);
-        }
-    }
-
     spdlog::info("RecordingService: StopFullGame match={} merged={}", active_match_id_,
                  merged.string());
 
@@ -211,6 +176,7 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
 
     const std::string event_clip_id = sst::common::utils::MakeUuidV4();
     const std::string clip_recording_id = sst::common::utils::MakeUuidV4();
+    (void)match_event_id;  // No DB row linkage; clip is identified by its file path.
     const auto dir = EventClipDir(video_root_, active_match_id_, event_clip_id);
 
     std::error_code ec;
@@ -222,7 +188,6 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
     }
 
     const auto file_path = dir / kEventClipFile;
-    const std::string started_at = NowIso8601();
 
     // Removes the event_<uuid> dir we just created. The parent <match_uuid>
     // is left alone here — the active full-game recording is still writing
@@ -232,35 +197,8 @@ auto RecordingService::TriggerEventClip(const std::string& match_event_id,
         std::filesystem::remove_all(dir, rec);
     };
 
-    sst::db::Recording rec_row;
-    rec_row.id = clip_recording_id;
-    rec_row.match_id = active_match_id_;
-    rec_row.kind = sst::db::RecordingKind::kEventClip;
-    rec_row.file_path = file_path.string();
-    rec_row.started_at = started_at;
-    if (!recording_repo_.save(rec_row).success) {
-        spdlog::error("RecordingService::TriggerEventClip: DB insert (recording) failed");
-        cleanup_dir();
-        return {};
-    }
-
-    sst::db::EventClip clip_row;
-    clip_row.id = event_clip_id;
-    clip_row.match_event_id = match_event_id;
-    clip_row.recording_id = clip_recording_id;
-    clip_row.file_path = file_path.string();
-    clip_row.pre_seconds = window.pre_seconds;
-    clip_row.post_seconds = window.post_seconds;
-    if (!recording_repo_.saveEventClip(clip_row).success) {
-        spdlog::error("RecordingService::TriggerEventClip: DB insert (event_clip) failed");
-        recording_repo_.remove(clip_recording_id);
-        cleanup_dir();
-        return {};
-    }
-
     if (!event_clip_recorder_->Trigger(file_path, window)) {
         spdlog::error("RecordingService::TriggerEventClip: recorder rejected trigger");
-        recording_repo_.remove(clip_recording_id);  // cascade deletes event_clip row
         cleanup_dir();
         return {};
     }
