@@ -33,7 +33,17 @@
       "Bash(curl -s -o /dev/null -w '%{http_code}' --head http://ports.ubuntu.com/ubuntu-ports/__TRACKED_VAR__)",
       "Bash(curl -s http://ports.ubuntu.com/ubuntu-ports/pool/universe/g/gst-plugins-bad1.0/)",
       "Bash(curl -s http://ports.ubuntu.com/ubuntu-ports/pool/universe/g/gst-rtsp-server1.0/)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git submodule *)",
+      "Bash(git commit *)",
+      "Bash(command -v ctx7)",
+      "Bash(command -v protoc)",
+      "Bash(protoc --version)",
+      "Bash(sed -n '1,80p' /workspace/src/adapters/control/ble/bluez/gatt-application.hpp)",
+      "Bash(sed -n '1,70p' /workspace/src/adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp)",
+      "WebFetch(domain:android.googlesource.com)",
+      "WebFetch(domain:packages.ubuntu.com)",
+      "WebFetch(domain:gstreamer.freedesktop.org)"
     ]
   }
 }
