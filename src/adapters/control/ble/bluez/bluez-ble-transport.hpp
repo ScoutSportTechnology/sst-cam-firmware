@@ -1,12 +1,15 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <sdbus-c++/sdbus-c++.h>
 
+#include "adapters/control/ble/bluez/chunk-assembler.hpp"
 #include "adapters/control/ble/bluez/gatt-application.hpp"
 #include "app/control/ports/ble-transport.hpp"
 
@@ -36,11 +39,16 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     [[nodiscard]] auto IsRunning() const -> bool override;
 
     auto SetOnCommand(CommandHandler handler) -> void override;
-    auto SendResult(const sst::control::CommandResult& result) -> void override;
 
    private:
     auto BuildAdvertisement() -> void;
+    // Demux a Command-Write characteristic write: either an inbound command
+    // ChunkedPayload (total_chunks >= 1) or a ChunkAck (total_chunks == 0,
+    // wire-compatible on fields 1/2) acking an outbound response chunk.
     auto OnRawCommand(std::vector<std::uint8_t> bytes) -> void;
+    // Serialize + chunk a CommandResponse out over the response characteristic,
+    // gated by ChunkAck (R3). Sends chunk 0 immediately.
+    auto SendResponse(const sst_cam::CommandResponse& response) -> void;
 
     std::string adapter_path_;
     std::string app_root_path_;
@@ -52,6 +60,7 @@ class BluezBleTransport final : public sst::control::IBleTransport {
 
     mutable std::mutex mtx_;
     CommandHandler on_command_;
+    ChunkAssembler assembler_;
     std::atomic<bool> running_{false};
     bool advertisement_registered_{false};
     bool application_registered_{false};

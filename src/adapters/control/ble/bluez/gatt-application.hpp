@@ -13,12 +13,14 @@ namespace sst::adapters::control {
 
 // BLE GATT application registered with org.bluez. Exposes one primary service
 // with two characteristics:
-//   - command  (write):       phone → firmware (Command envelope bytes)
-//   - response (read+notify): firmware → phone (CommandResult bytes)
+//   - command  (write):       phone → firmware (ChunkedPayload bytes; carries
+//                             both inbound Command chunks and ChunkAck writes)
+//   - response (read+notify): firmware → phone (ChunkedPayload bytes wrapping a
+//                             CommandResponse)
 //
-// The provisional wire format until the .proto schema lands:
-//   Command     := u32_le(route_len) | route | u64_le(corr_id) | payload
-//   Result      := u8(status)        | u64_le(corr_id) | payload
+// Each write/notification value is a serialized sst_cam::ChunkedPayload. The
+// BluezBleTransport owns reassembly and ChunkAck-gated outbound chunking; this
+// class only moves raw bytes over D-Bus.
 //
 // All D-Bus objects live under <root_path> and are returned via the
 // ObjectManager interface so RegisterApplication() in BlueZ can introspect

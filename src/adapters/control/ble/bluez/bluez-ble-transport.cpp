@@ -1,14 +1,14 @@
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 
 #include <cstdint>
-#include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include <spdlog/spdlog.h>
 
+#include "bluetooth.pb.h"
 #include "domain/control/models/bootstrap-config.hpp"
-#include "domain/control/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
 namespace sst::adapters::control {
 
@@ -19,41 +19,9 @@ constexpr const char* kIfaceGattManager = "org.bluez.GattManager1";
 constexpr const char* kIfaceLeAdvManager = "org.bluez.LEAdvertisingManager1";
 constexpr const char* kIfaceLeAdv = "org.bluez.LEAdvertisement1";
 
-// Wire format (provisional, replaced when .proto schema lands):
-//   Command := u32_le(route_len) | route | u64_le(corr_id) | payload
-//   Result  := u8(status)        | u64_le(corr_id) | payload
-auto ParseCommand(const std::vector<std::uint8_t>& bytes) -> std::optional<sst::control::Command> {
-    if (bytes.size() < 4) {
-        return std::nullopt;
-    }
-    std::uint32_t route_len = 0;
-    std::memcpy(&route_len, bytes.data(), 4);
-    if (4 + route_len + 8 > bytes.size()) {
-        return std::nullopt;
-    }
-    sst::control::Command cmd;
-    cmd.route.assign(reinterpret_cast<const char*>(bytes.data() + 4), route_len);
-    std::memcpy(&cmd.correlation_id, bytes.data() + 4 + route_len, 8);
-    const std::size_t header = 4 + route_len + 8;
-    cmd.payload.resize(bytes.size() - header);
-    for (std::size_t i = 0; i < cmd.payload.size(); ++i) {
-        cmd.payload[i] = static_cast<std::byte>(bytes[header + i]);
-    }
-    return cmd;
-}
-
-auto SerializeResult(const sst::control::CommandResult& r) -> std::vector<std::uint8_t> {
-    std::vector<std::uint8_t> out;
-    out.reserve(1 + 8 + r.payload.size());
-    out.push_back(static_cast<std::uint8_t>(r.status));
-    const auto corr = r.correlation_id;
-    for (int i = 0; i < 8; ++i) {
-        out.push_back(static_cast<std::uint8_t>((corr >> (i * 8)) & 0xFFU));
-    }
-    for (auto b : r.payload) {
-        out.push_back(static_cast<std::uint8_t>(b));
-    }
-    return out;
+auto ToBytes(const sst_cam::ChunkedPayload& chunk) -> std::vector<std::uint8_t> {
+    const std::string wire = chunk.SerializeAsString();
+    return {wire.begin(), wire.end()};
 }
 
 }  // namespace
@@ -77,24 +45,42 @@ auto BluezBleTransport::SetOnCommand(CommandHandler handler) -> void {
 }
 
 auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
-    auto cmd = ParseCommand(bytes);
-    if (!cmd) {
-        spdlog::warn("BluezBleTransport: malformed command of {} bytes — dropping",
+    sst_cam::ChunkedPayload chunk;
+    if (!chunk.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
+        spdlog::warn("BluezBleTransport: undecodable {}-byte write on command char — dropping",
                      bytes.size());
         return;
     }
-    spdlog::debug("BluezBleTransport received {}", *cmd);
 
-    CommandHandler handler;
-    {
-        std::lock_guard lock(mtx_);
-        handler = on_command_;
+    std::lock_guard lock(mtx_);
+
+    // A ChunkAck is wire-compatible with ChunkedPayload on fields 1/2 but carries
+    // no total_chunks (#3): total_chunks == 0 means this write acks one of OUR
+    // outbound response chunks rather than delivering an inbound command chunk.
+    if (chunk.total_chunks() == 0) {
+        assembler_.OnAck(chunk.correlation_id(), chunk.chunk_index());
+        return;
     }
-    if (handler) {
-        handler(std::move(*cmd));
-    } else {
+
+    auto reassembled = assembler_.OfferInbound(chunk);
+    if (!reassembled) {
+        return;  // more chunks pending, or malformed/duplicate
+    }
+
+    sst_cam::Command command;
+    if (!command.ParseFromString(*reassembled)) {
+        spdlog::warn("BluezBleTransport: reassembled payload (corr={}) is not a valid Command",
+                     chunk.correlation_id());
+        return;
+    }
+
+    if (!on_command_) {
         spdlog::warn("BluezBleTransport: no command handler set");
+        return;
     }
+
+    sst_cam::CommandResponse response = on_command_(command);
+    SendResponse(response);
 }
 
 auto BluezBleTransport::BuildAdvertisement() -> void {
@@ -215,13 +201,19 @@ auto BluezBleTransport::Stop() -> void {
     running_ = false;
 }
 
-auto BluezBleTransport::SendResult(const sst::control::CommandResult& result) -> void {
+auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -> void {
     if (!gatt_app_) {
-        spdlog::warn("BluezBleTransport::SendResult: GATT app not active");
+        spdlog::warn("BluezBleTransport::SendResponse: GATT app not active");
         return;
     }
-    spdlog::debug("BluezBleTransport sending {}", result);
-    gatt_app_->SendNotification(SerializeResult(result));
+    const std::string wire = response.SerializeAsString();
+    const std::uint32_t total = assembler_.BeginOutbound(
+        response.correlation_id(), wire,
+        [this](const sst_cam::ChunkedPayload& chunk) {
+            gatt_app_->SendNotification(ToBytes(chunk));
+        });
+    spdlog::debug("BluezBleTransport: response corr={} status={} -> {} chunk(s)",
+                  response.correlation_id(), static_cast<int>(response.status()), total);
 }
 
 }  // namespace sst::adapters::control
