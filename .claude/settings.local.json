@@ -67,7 +67,10 @@
       "Bash(sed -n '1,40p' src/domain/config/models/calibration.hpp)",
       "Bash(timeout 120 ctest --preset test -R \"ConfigLoaderTest\" --output-on-failure)",
       "Bash(timeout 150 ctest --preset test -R \"CommandDispatcherTest\" --output-on-failure)",
-      "Bash(timeout 150 ctest --preset test -R \"ChunkAssemblerTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"ChunkAssemblerTest\" --output-on-failure)",
+      "Bash(sed -n '1,20p' docs/cross-repo/app/2026-06-08-wifi-direct-dynamic-credentials.md)",
+      "Bash(sed -n '1,20p' docs/cross-repo/app/2026-06-08-overlay-pixel-parity-contract.md)",
+      "Bash(sed -n '1,20p' docs/cross-repo/proto/2026-06-08-gatt-uuids-and-overlay-semantics.md)"
     ]
   }
 }
