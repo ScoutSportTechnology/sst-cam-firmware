@@ -65,7 +65,8 @@
       "Bash(set -e)",
       "Bash(sed -n '1,40p' src/domain/config/models/device.hpp)",
       "Bash(sed -n '1,40p' src/domain/config/models/calibration.hpp)",
-      "Bash(timeout 120 ctest --preset test -R \"ConfigLoaderTest\" --output-on-failure)"
+      "Bash(timeout 120 ctest --preset test -R \"ConfigLoaderTest\" --output-on-failure)",
+      "Bash(timeout 150 ctest --preset test -R \"CommandDispatcherTest\" --output-on-failure)"
     ]
   }
 }
