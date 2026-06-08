@@ -56,14 +56,13 @@ auto GattApplication::BuildRoot() -> void {
             cmd_props.emplace("UUID", sdbus::Variant{command_char_uuid_});
             cmd_props.emplace("Service", sdbus::Variant{sdbus::ObjectPath{service_path_}});
             cmd_props.emplace("Flags", sdbus::Variant{std::vector<std::string>{
-                                          "write", "write-without-response"}});
+                                          "write-without-response"}});
             out[sdbus::ObjectPath{command_char_path_}][kIfaceGattChar] = std::move(cmd_props);
 
             std::map<std::string, sdbus::Variant> resp_props;
             resp_props.emplace("UUID", sdbus::Variant{response_char_uuid_});
             resp_props.emplace("Service", sdbus::Variant{sdbus::ObjectPath{service_path_}});
-            resp_props.emplace(
-                "Flags", sdbus::Variant{std::vector<std::string>{"read", "notify"}});
+            resp_props.emplace("Flags", sdbus::Variant{std::vector<std::string>{"notify"}});
             out[sdbus::ObjectPath{response_char_path_}][kIfaceGattChar] = std::move(resp_props);
 
             return out;
@@ -96,9 +95,7 @@ auto GattApplication::BuildCommandChar() -> void {
         .withGetter([this] { return sdbus::ObjectPath{service_path_}; });
     command_obj_->registerProperty("Flags")
         .onInterface(kIfaceGattChar)
-        .withGetter([] {
-            return std::vector<std::string>{"write", "write-without-response"};
-        });
+        .withGetter([] { return std::vector<std::string>{"write-without-response"}; });
 
     // BlueZ calls WriteValue(ay value, a{sv} options) on the GATT characteristic.
     command_obj_->registerMethod("WriteValue")
@@ -132,7 +129,7 @@ auto GattApplication::BuildResponseChar() -> void {
         .withGetter([this] { return sdbus::ObjectPath{service_path_}; });
     response_obj_->registerProperty("Flags")
         .onInterface(kIfaceGattChar)
-        .withGetter([] { return std::vector<std::string>{"read", "notify"}; });
+        .withGetter([] { return std::vector<std::string>{"notify"}; });
     response_obj_->registerProperty("Value")
         .onInterface(kIfaceGattChar)
         .withGetter([this] {

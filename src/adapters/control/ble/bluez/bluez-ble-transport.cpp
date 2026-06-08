@@ -26,8 +26,9 @@ auto ToBytes(const sst_cam::ChunkedPayload& chunk) -> std::vector<std::uint8_t> 
 
 }  // namespace
 
-BluezBleTransport::BluezBleTransport(std::string adapter_path)
-    : adapter_path_(std::move(adapter_path)),
+BluezBleTransport::BluezBleTransport(std::string advertised_name, std::string adapter_path)
+    : advertised_name_(std::move(advertised_name)),
+      adapter_path_(std::move(adapter_path)),
       app_root_path_("/com/sst/cam/gatt"),
       adv_path_("/com/sst/cam/adv") {}
 
@@ -97,9 +98,7 @@ auto BluezBleTransport::BuildAdvertisement() -> void {
         });
     adv_obj_->registerProperty("LocalName")
         .onInterface(kIfaceLeAdv)
-        .withGetter([] {
-            return std::string{sst::control::BootstrapDefaults::kBleAdvertisedName};
-        });
+        .withGetter([this] { return advertised_name_; });
     adv_obj_->registerProperty("Includes")
         .onInterface(kIfaceLeAdv)
         .withGetter([] { return std::vector<std::string>{"tx-power"}; });
@@ -134,6 +133,17 @@ auto BluezBleTransport::Start() -> void {
 
         BuildAdvertisement();
 
+        // Set the adapter Alias so the classic device name also reads
+        // sst-cam-NNNN (the app's secondary scan filter checks the name).
+        try {
+            auto adapter = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+            adapter->setProperty("Alias")
+                .onInterface("org.bluez.Adapter1")
+                .toValue(advertised_name_);
+        } catch (const sdbus::Error& e) {
+            spdlog::warn("BluezBleTransport: could not set adapter Alias: {}", e.what());
+        }
+
         auto adv_proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
         adv_proxy->callMethod("RegisterAdvertisement")
             .onInterface(kIfaceLeAdvManager)
@@ -153,8 +163,7 @@ auto BluezBleTransport::Start() -> void {
 
         spdlog::info(
             "BluezBleTransport: advertising as \"{}\" with service {} on adapter {}",
-            sst::control::BootstrapDefaults::kBleAdvertisedName,
-            sst::control::BootstrapDefaults::kGattServiceUuid, adapter_path_);
+            advertised_name_, sst::control::BootstrapDefaults::kGattServiceUuid, adapter_path_);
     } catch (const sdbus::Error& e) {
         spdlog::error("BluezBleTransport::Start failed: {}: {}", e.getName(), e.getMessage());
         Stop();

@@ -26,7 +26,11 @@ namespace sst::adapters::control {
 // drop all D-Bus objects.
 class BluezBleTransport final : public sst::control::IBleTransport {
    public:
-    explicit BluezBleTransport(std::string adapter_path = "/org/bluez/hci0");
+    // `advertised_name` is the contract `sst-cam-NNNN` name (computed from the
+    // device identity in config). It is used both as the LEAdvertisement
+    // LocalName and as the adapter Alias.
+    explicit BluezBleTransport(std::string advertised_name,
+                               std::string adapter_path = "/org/bluez/hci0");
     ~BluezBleTransport() override;
 
     BluezBleTransport(const BluezBleTransport&) = delete;
@@ -50,6 +54,7 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     // gated by ChunkAck (R3). Sends chunk 0 immediately.
     auto SendResponse(const sst_cam::CommandResponse& response) -> void;
 
+    std::string advertised_name_;
     std::string adapter_path_;
     std::string app_root_path_;
     std::string adv_path_;
