@@ -85,6 +85,17 @@ auto NowUnixSeconds() -> std::uint64_t {
             .count());
 }
 
+// Wall-clock epoch milliseconds. Distinct from NowMs (monotonic steady_clock,
+// used for relative overlay/match durations): this is the absolute Unix-epoch
+// timestamp the app decodes for MatchState.updated_at and
+// ThumbnailResponse.capture_timestamp, so it must come from system_clock.
+auto NowEpochMs() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
 }  // namespace
 
 // App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
@@ -169,7 +180,7 @@ auto main() -> int {
         std::make_shared<sst::control::MatchHandler>(session_manager, overlay_controller, NowMs);
     dispatcher.Register(match_handler);
     dispatcher.Register(
-        std::make_shared<sst::control::MatchStateHandler>(session_manager, NowMs));
+        std::make_shared<sst::control::MatchStateHandler>(session_manager, NowEpochMs));
     dispatcher.Register(
         std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
@@ -205,7 +216,7 @@ auto main() -> int {
     // transport starts, so it's wired by the time a command can arrive.
     sst::adapters::storage::OpenCvJpegEncoder jpeg_encoder;
     dispatcher.Register(
-        std::make_shared<sst::control::ThumbnailHandler>(pipeline, jpeg_encoder, NowMs));
+        std::make_shared<sst::control::ThumbnailHandler>(pipeline, jpeg_encoder, NowEpochMs));
 
     if (!pipeline.Start()) {
         spdlog::error("pipeline failed to start (camera unavailable?) — aborting");
