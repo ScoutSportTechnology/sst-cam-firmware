@@ -95,6 +95,30 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     PkgConfig::GST_RTSP_SERVER
 )
 
+# Overlay rasterizer: Cairo (shapes / rounded-rects / alpha) + Pango (text
+# layout). Runtime .so ship in the JetPack base; -dev headers are added by
+# 003_install_extra_pkgs.sh. Link directly rather than via pkg-config — pango.pc
+# Requires the full X11 .pc chain, none of which a headless RGBA image surface
+# needs. glib/gobject come transitively from the GStreamer pkg-config target.
+find_path(SST_CAIRO_INCLUDE_DIR NAMES cairo.h PATH_SUFFIXES cairo REQUIRED)
+find_path(SST_PANGO_INCLUDE_DIR NAMES pango/pangocairo.h PATH_SUFFIXES pango-1.0 REQUIRED)
+# Pango public headers include <hb.h> (HarfBuzz) — it lives in its own dir.
+find_path(SST_HARFBUZZ_INCLUDE_DIR NAMES hb.h PATH_SUFFIXES harfbuzz REQUIRED)
+find_library(SST_CAIRO_LIB NAMES cairo REQUIRED)
+find_library(SST_PANGO_LIB NAMES pango-1.0 REQUIRED)
+find_library(SST_PANGOCAIRO_LIB NAMES pangocairo-1.0 REQUIRED)
+
+target_include_directories(sst_cam_firmware_external_libs SYSTEM INTERFACE
+    ${SST_CAIRO_INCLUDE_DIR}
+    ${SST_PANGO_INCLUDE_DIR}
+    ${SST_HARFBUZZ_INCLUDE_DIR}
+)
+target_link_libraries(sst_cam_firmware_external_libs INTERFACE
+    ${SST_PANGOCAIRO_LIB}
+    ${SST_PANGO_LIB}
+    ${SST_CAIRO_LIB}
+)
+
 # ============================================================
 # Proto codegen (sst-cam-proto BLE/WiFi wire contract)
 # ============================================================

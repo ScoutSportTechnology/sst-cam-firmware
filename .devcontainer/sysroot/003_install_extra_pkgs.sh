@@ -40,6 +40,24 @@ PKGS=(
   "pool/main/p/protobuf/libprotobuf23_3.12.4-1ubuntu7_arm64.deb"
   "pool/main/p/protobuf/libprotobuf-lite23_3.12.4-1ubuntu7_arm64.deb"
   "pool/main/p/protobuf/libprotobuf-dev_3.12.4-1ubuntu7_arm64.deb"
+  # Cairo + Pango -dev: headers + .pc for the overlay rasterizer (U8). The
+  # runtime .so already ship in the L4T base; these add the dev bits plus the
+  # transitive -dev packages their headers/.pc reference (harfbuzz, freetype,
+  # fontconfig, fribidi, png, pixman, brotli, graphite2, thai, datrie). The
+  # firmware links the libs directly (CMakeLists) rather than via pango's full
+  # X11 pkg-config chain.
+  "pool/main/c/cairo/libcairo2-dev_1.16.0-5ubuntu2.1_arm64.deb"
+  "pool/main/p/pango1.0/libpango1.0-dev_1.50.6+ds-2ubuntu1_arm64.deb"
+  "pool/main/h/harfbuzz/libharfbuzz-dev_2.7.4-1ubuntu3.2_arm64.deb"
+  "pool/main/f/freetype/libfreetype-dev_2.11.1+dfsg-1ubuntu0.3_arm64.deb"
+  "pool/main/f/fontconfig/libfontconfig-dev_2.13.1-4.2ubuntu5_arm64.deb"
+  "pool/main/f/fribidi/libfribidi-dev_1.0.8-2ubuntu3.1_arm64.deb"
+  "pool/main/libp/libpng1.6/libpng-dev_1.6.37-3ubuntu0.5_arm64.deb"
+  "pool/main/p/pixman/libpixman-1-dev_0.40.0-1ubuntu0.22.04.1_arm64.deb"
+  "pool/main/b/brotli/libbrotli-dev_1.0.9-2build6_arm64.deb"
+  "pool/main/g/graphite2/libgraphite2-dev_1.3.14-1build2_arm64.deb"
+  "pool/main/libt/libthai/libthai-dev_0.1.29-1build1_arm64.deb"
+  "pool/main/libd/libdatrie/libdatrie-dev_0.2.13-2_arm64.deb"
 )
 
 TMP=$(mktemp -d)

@@ -75,7 +75,17 @@
       "Bash(sed -n '1,60p')",
       "Bash(sed -n '1,50p' src/app/streaming/ports/*.hpp)",
       "Bash(timeout 150 ctest --preset test -R \"SessionManagerTest\" --output-on-failure)",
-      "Bash(timeout 150 ctest --preset test -R \"DeviceHandlerTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"DeviceHandlerTest\" --output-on-failure)",
+      "Read(//tmp/**)",
+      "Bash(timeout 120 wget -q \"http://ports.ubuntu.com/ubuntu-ports/dists/jammy/main/binary-arm64/Packages.xz\" -O P_main.xz)",
+      "Bash(timeout 120 wget -q \"http://ports.ubuntu.com/ubuntu-ports/dists/jammy-updates/main/binary-arm64/Packages.xz\" -O P_upd.xz)",
+      "Bash(xz -dc P_main.xz)",
+      "Bash(xz -dc P_upd.xz)",
+      "Bash(awk '$1==\"Package:\"{c=$2} c==\"libfreetype-dev\" && $1==\"Version:\"{v=$2} c==\"libfreetype-dev\" && $1==\"Filename:\"{print v\"  \"$2; exit}' P_upd P_main)",
+      "Bash(awk '$1==\"Package:\"{c=$2} c==\"libfontconfig-dev\" && $1==\"Filename:\"{print \"libfontconfig-dev \"$2}' P_main P_upd)",
+      "Bash(awk '$1==\"Package:\"{c=$2} c==\"libfontconfig1-dev\" && $1==\"Filename:\"{print \"libfontconfig1-dev \"$2}' P_main P_upd)",
+      "Bash(awk '$1==\"Package:\"{c=$2} c==\"libbrotli-dev\" && $1==\"Version:\"{v=$2} c==\"libbrotli-dev\" && $1==\"Filename:\"{print v\" \"$2; exit}' P_upd P_main)",
+      "Bash(timeout 200 ctest --preset test -R \"OverlaySceneTest|CairoRendererTest\" --output-on-failure)"
     ]
   }
 }
