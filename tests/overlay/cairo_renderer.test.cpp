@@ -188,6 +188,53 @@ TEST(CairoRendererTest, TextClippedToBoundsHeight) {
     }
 }
 
+// U4: a TEXT element with non-empty fill_color paints the bounds background box
+// behind the glyphs — assert background pixels inside bounds carry the fill.
+TEST(CairoRendererTest, TextFillColorPaintsBackgroundBox) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 120;
+    scene.canvas_height = 60;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 120, .y2 = 60, .z = 1};
+    e.style.fill_color = "#FF0000";   // red background box
+    e.style.text_color = "#FFFFFF";   // white glyphs
+    e.style.font_size = 20.0F;
+    e.style.opacity = 1.0F;
+    e.text = "Hi";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 120, 60);
+    // A bottom corner inside bounds is background, not a glyph -> red, opaque.
+    const Px bg = At(img, 110, 55);
+    EXPECT_GT(bg.r, 200);
+    EXPECT_LT(bg.g, 50);
+    EXPECT_LT(bg.b, 50);
+    EXPECT_EQ(bg.a, 255);
+}
+
+// U4 edge: empty fill_color paints no background — inside-bounds pixels with no
+// glyph stay fully transparent.
+TEST(CairoRendererTest, TextWithoutFillHasTransparentBackground) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 120;
+    scene.canvas_height = 60;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 120, .y2 = 60, .z = 1};
+    e.style.fill_color = "";        // no background box
+    e.style.text_color = "#FFFFFF";
+    e.style.font_size = 20.0F;
+    e.style.opacity = 1.0F;
+    e.text = "Hi";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 120, 60);
+    EXPECT_EQ(At(img, 110, 55).a, 0);  // bottom corner, no glyph, no fill
+}
+
 // Text element renders without crashing (font availability aside).
 TEST(CairoRendererTest, TextRenderDoesNotCrash) {
     CairoOverlayRenderer renderer;
