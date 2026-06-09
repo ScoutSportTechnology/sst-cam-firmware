@@ -18,15 +18,14 @@
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/utils/get-timestamp.hpp"
+#include "domain/capture/models/camera-config.hpp"
 #include "domain/config/utils/parse-model-version.hpp"
-#include "domain/db/models/camera.hpp"
 
 namespace sst::capture {
 
 using sst::common::MemoryType;
 using sst::common::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
-using sst::db::CameraConfig;
 
 GStreamerAdapter::GStreamerAdapter(const CameraConfig& camera_config, std::string device_model,
                                    std::uint16_t camera_index)

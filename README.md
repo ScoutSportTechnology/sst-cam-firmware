@@ -51,34 +51,61 @@ The Python implementation is deprecated and no longer maintained.
 
 ---
 
-## Current Status
+## Pipeline
 
-- 🎥 Video streaming → partially working
-- 📸 Image capture → ~70% complete (minor fixes pending)
-- 🤖 AI tracking → not implemented yet (post-migration to Jetson)
-- 🔍 Zoom algorithm → in progress (based on ball position, player count, and scene context)
-- 🎙️ Microphones → planned integration (MAX4466)
-- 📡 Control → no Bluetooth yet (mobile app experiments pending)
-- 💾 Video storage → not implemented (local/archive saving pending)
-- 🏷️ Video overlay → planned (starting with a basic scoreboard overlay)
+End-to-end intended flow:
+
+```
+       per-camera (×2)                                       shared            chosen frame only        parallel        outputs
+─────────────────────────────────────────────────────  ┌───────────────┐   ┌──────────────────┐   ┌─────────────┐   ┌──────────┐
+                                                       │               │   │                  │   │             │   │ storage  │
+cam 0 ─► capture ─► preprocess ─► materialize ─► buf ─►│  AI/tracking  │──►│                  │   │             │ ┌►│          │
+                                                       │   (per cam)   │   │                  │   │             │ │ └──────────┘
+                                                       │       │       │   │  postprocess     │   │             │ │
+                                                       │       ▼       │   │  (crop + zoom    │   │  overlay    │ │
+                                                       │   physics ────┼──►│   + resize)      │──►│  (banner /  │─┤
+                                                       │   (shared)    │   │                  │   │  scoreboard)│ │
+                                                       │       │       │   │                  │   │             │ │ ┌──────────┐
+                                                       │       ▼       │   │                  │   │             │ └►│          │
+cam 1 ─► capture ─► preprocess ─► materialize ─► buf ─►│   decision    │──►│  ─► final buffer │   │             │   │ streaming│
+                                                       │ (which cam +  │   │                  │   │             │   │          │
+                                                       │  crop rect)   │   │                  │   │             │   └──────────┘
+                                                       └───────────────┘   └──────────────────┘   └─────────────┘
+```
+
+- **Capture** runs one GStreamer pipeline per IMX477. The appsink is capped at 5 in-flight buffers.
+- **Preprocess** turns raw NV12 into a `FrameBundle{ source_frame, ai_frame }`. Grayscale / Binary AI modes touch only the Y plane — no color conversion on the hot path.
+- **Materialize** deep-copies the source out of the GstBuffer right before the bundle enters the per-camera buffer, so nothing downstream pins the appsink.
+- **AI / tracking** runs per camera and produces detections (field, ball, eventually players).
+- **Physics** consumes both cameras' detections and computes trajectory / world-coordinate state.
+- **Decision** picks which camera's frame + a crop / zoom rect, then hands them to postprocess.
+- **Postprocess** runs once, on the chosen frame only — NV12→BGR, crop, resize, format-convert. Pushes into the final buffer.
+- **Overlay** runs in parallel (banner, scoreboard, event info from user/app state).
+- **Storage** and **streaming** each consume the final buffer independently and composite the overlay on top if the user enabled it. Either can be on or off.
 
 ---
 
-## C++ Architecture Status
+## Module status
 
-The ongoing C++ rewrite currently includes:
+Built and working:
 
-- Config → done
-- Capture → done
-- Frame buffer (latest-only buffer) → in progress
-- Frame synchronization / pairing → in progress
-- Pre-process → planned
-- Inference / feature extraction → planned
-- Metrics smoothing / tracking → planned
-- Cross-camera decision → planned
-- Post-process / composition → planned
-- Encode / output → planned
-- Control / configuration → planned
+- [x] **Config** — JSON device / calibration / storage configs
+- [x] **Database** — SQLite + per-entity repositories + seeding
+- [x] **Capture** — GStreamer adapter for dual IMX477
+- [x] **Buffer** — `LatestOnlySlot`, `DropOldestRing`, plus a `MaterializeFrame` helper so producers can release the GstBuffer the moment a frame enters a downstream buffer
+- [x] **Network / control** — WiFi and Bluetooth BLE modules
+- [x] **Processing** — `IPreprocessor` / `IPostprocessor` ports + OpenCV adapter (Grayscale / Binary / RGB AI modes; crop + resize + format-convert post)
+
+Not started:
+
+- [ ] **Pipeline orchestration** — per-camera worker threads that wire capture → preprocess → materialize → buffer, and the shared threads for AI → physics → decision → postprocess
+- [ ] **AI / tracking** — TensorRT model + adapter; field and ball first, players + jersey numbers later. One inference per camera
+- [ ] **Physics** — ball trajectory / world-coordinate projection from both cameras' detections
+- [ ] **Decision** — picks which camera's frame + crop / zoom rect; hands off to postprocess
+- [ ] **Overlay** — banner / scoreboard / event-info overlays, runs in parallel; storage + streaming composite it on top when enabled
+- [ ] **Storage** — local recording / archive of (optionally overlaid) final frames
+- [ ] **Streaming** — network output (RTSP / HLS / etc.) of (optionally overlaid) final frames
+- [ ] **Microphone** — MAX4466 dual-mic integration
 
 ---
 

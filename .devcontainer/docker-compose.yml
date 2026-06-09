@@ -1,0 +1,25 @@
+# Docker Compose file for the SST Cam Firmware devcontainer.
+# devcontainer.json points here via "dockerComposeFile" and attaches to "app".
+#
+# Build context is the repo root (..) so the Dockerfile's `COPY .devcontainer/sysroot/*`
+# steps resolve. The ~/.conan2 host-cache bind and the .bashrc bind are declared
+# in devcontainer.json instead, since they need ${localEnv}/${localWorkspaceFolder}
+# devcontainer token substitution that plain compose can't do.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    image: sst-cam-firmware
+    stdin_open: true
+    tty: true
+    volumes:
+      - ..:/workspace:cached
+      - claude-code:/home/vscode/.claude
+
+volumes:
+  claude-code:
+    # Explicit name prevents Docker Compose from prefixing with the project name.
+    # Stable across rebuilds — Claude Code sessions survive.
+    name: sst-cam-firmware-claude-code

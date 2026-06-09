@@ -1,47 +1,251 @@
+#include <unistd.h>
+
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <filesystem>
+#include <memory>
+#include <thread>
+#include <vector>
+
 #include <spdlog/spdlog.h>
 
+#include "adapters/capture/frame/gstreamer/gstreamer.hpp"
+#include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
+#include "adapters/control/system/proc-system-stats.hpp"
+#include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
+#include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
+#include "adapters/network/http/http-download-server.hpp"
+#include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
+#include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
+#include "adapters/processing/opencv/opencv-postprocessor.hpp"
+#include "adapters/processing/opencv/opencv-preprocessor.hpp"
+#include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
+#include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
+#include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
+#include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
+#include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
+#include "app/buffer/services/fan_out_sink/fan-out-sink.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
-#include "app/db/services/db_manager/db-manager.hpp"
-#include "app/db/services/db_seeder/db-seeder.hpp"
+#include "app/control/services/dispatcher/command-dispatcher.hpp"
+#include "app/control/services/handlers/device.handler.hpp"
+#include "app/control/services/handlers/download.handler.hpp"
+#include "app/control/services/handlers/match.handler.hpp"
+#include "app/control/services/handlers/overlay.handler.hpp"
+#include "app/control/services/handlers/recording.handler.hpp"
+#include "app/control/services/handlers/session.handler.hpp"
+#include "app/control/services/handlers/streaming.handler.hpp"
+#include "app/control/services/handlers/wifi-direct.handler.hpp"
+#include "app/network/services/download_server/download-server.hpp"
+#include "app/overlay/services/overlay_controller/overlay-controller.hpp"
+#include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
+#include "app/session/services/session_cleanup/session-cleanup.hpp"
+#include "app/session/services/session_manager/session-manager.hpp"
+#include "app/storage/services/recording_service/recording-service.hpp"
+#include "app/streaming/services/streaming_service/streaming-service.hpp"
+#include "domain/capture/models/camera-config.hpp"
+#include "domain/control/utils/advertised-name.hpp"
 
-// ============================================================
-// Runtime paths — adjust per deployment environment
-// ============================================================
 namespace sst::paths {
-
-constexpr const char* kDbFile = "/var/lib/sst/cam/data.db";
-constexpr const char* kDbSchema = "/usr/share/sst/cam/schema.sql";
 
 constexpr const char* kConfigDir = "/etc/sst/cam/config";
 constexpr const char* kConfigFormat = "json";
+constexpr const char* kVideoRootFallback = "/var/lib/sst/cam/videos";
 
 }  // namespace sst::paths
 
+namespace sst::runtime_defaults {
+
+constexpr std::uint16_t kCamera0Index = 0;
+constexpr std::uint32_t kOverlayWidth = 1280;   // matches postprocess output
+constexpr std::uint32_t kOverlayHeight = 720;
+constexpr std::uint32_t kPreviewPort = 8554;    // RTSP preview (wifi.proto)
+constexpr std::uint32_t kDownloadPort = 8080;   // HTTP downloads
+constexpr std::uint64_t kDownloadTokenTtlSeconds = 3600;
+constexpr const char* kGroupOwnerIp = "192.168.49.1";
+
+}  // namespace sst::runtime_defaults
+
+namespace {
+
+auto NowMs() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+auto NowUnixSeconds() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
+}  // namespace
+
+// App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
+// contract. main() wires config + pipeline + the full control plane (BLE
+// transport -> proto dispatcher -> session SM + per-concern handlers) and runs
+// until terminated.
 auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
-    // Config module: static device info + initial calibration seeds + storage paths
-    constexpr std::uint32_t kDefaultUserId = 1;
+    // ── Config (device identity + lens calibration — the only persistent state) ─
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
     auto cfg = config.get();
+    const std::filesystem::path video_root =
+        cfg.storage.video.value_or(sst::paths::kVideoRootFallback);
 
-    // Database
-    sst::db::DbManager database({
-        .db_path = sst::paths::kDbFile,
-        .schema_path = sst::paths::kDbSchema,
+    // ── Storage (single continuous MP4) ────────────────────────────────
+    sst::adapters::storage::FilesystemDiskGuard disk_guard(video_root, cfg.storage.min_free_bytes);
+    sst::storage::RecordingService recording_service(
+        std::make_unique<sst::adapters::storage::GstContinuousRecorder>(),
+        std::make_unique<sst::adapters::storage::OpenCvThumbnailWriter>(), disk_guard);
+
+    // ── Streaming (RTSP preview + RTMP egress) ─────────────────────────
+    auto app_stream_server =
+        std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
+    sst::streaming::StreamingService streaming_service(
+        std::move(app_stream_server),
+        [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
+
+    // ── WiFi Direct + DHCP ─────────────────────────────────────────────
+    sst::adapters::control::WpaWifiManager wifi_manager("wlan0");
+    sst::adapters::control::DnsmasqDhcpServer dhcp_server;
+
+    // ── Session (lifecycle SM + disconnect cleanup) ────────────────────
+    sst::session::SessionCleanup cleanup(recording_service, streaming_service, wifi_manager,
+                                         dhcp_server);
+    sst::session::SessionManager session_manager(cleanup);
+
+    // ── Overlay (scene -> Cairo/Pango RGBA -> compositor) ──────────────
+    sst::adapters::overlay::CairoOverlayRenderer overlay_renderer;
+    sst::adapters::overlay::GstOverlayCompositor overlay_compositor(
+        sst::runtime_defaults::kOverlayWidth, sst::runtime_defaults::kOverlayHeight);
+    sst::overlay::OverlayController overlay_controller(overlay_renderer, overlay_compositor,
+                                                       sst::runtime_defaults::kOverlayWidth,
+                                                       sst::runtime_defaults::kOverlayHeight);
+
+    // ── Downloads ──────────────────────────────────────────────────────
+    sst::network::DownloadServer download_server(video_root, NowUnixSeconds);
+    // The HTTP server hands out token-gated byte ranges. Bind on all interfaces
+    // (0.0.0.0) rather than the GO IP: that address only exists once a WiFi
+    // Direct session is up, and INADDR_ANY still accepts connections on it when
+    // it appears. Per-request bearer tokens (not network reachability) gate
+    // access; in the field the P2P link is the only active interface.
+    sst::adapters::network::HttpDownloadServer http_download_server(
+        "0.0.0.0", static_cast<std::uint16_t>(sst::runtime_defaults::kDownloadPort),
+        [&download_server](const std::string& token) {
+            return download_server.ValidateToken(token);
+        });
+
+    // ── System stats (telemetry source) ────────────────────────────────
+    sst::adapters::control::ProcSystemStats system_stats(video_root);
+
+    // ── Control plane: dispatcher + per-concern handlers ───────────────
+    sst::control::CommandDispatcher dispatcher;
+
+    // ★ Extensibility point — one Register() line per concern.
+    dispatcher.Register(std::make_shared<sst::control::DeviceHandler>(
+        cfg.device, system_stats,
+        [&recording_service] {
+            return recording_service.CurrentState() != sst::storage::RecordingState::kIdle;
+        },
+        [&streaming_service] {
+            return !streaming_service.ListActivePlatformStreams().empty();
+        }));
+    dispatcher.Register(std::make_shared<sst::control::SessionHandler>(session_manager));
+    dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
+        session_manager, wifi_manager, dhcp_server, sst::runtime_defaults::kPreviewPort,
+        sst::runtime_defaults::kDownloadPort));
+    dispatcher.Register(std::make_shared<sst::control::OverlayHandler>(session_manager,
+                                                                       overlay_controller, NowMs));
+    auto match_handler =
+        std::make_shared<sst::control::MatchHandler>(session_manager, overlay_controller, NowMs);
+    dispatcher.Register(match_handler);
+    dispatcher.Register(
+        std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
+    dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
+    dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
+        download_server, sst::runtime_defaults::kGroupOwnerIp,
+        sst::runtime_defaults::kDownloadPort, sst::runtime_defaults::kDownloadTokenTtlSeconds));
+
+    // ── BLE transport ──────────────────────────────────────────────────
+    const std::string advertised_name = sst::control::MakeAdvertisedName(
+        sst::control::DeriveUnitNumber(cfg.device.serial_number.value_or("")));
+    sst::adapters::control::BluezBleTransport ble_transport(advertised_name);
+    ble_transport.SetOnCommand(
+        [&dispatcher](const sst_cam::Command& cmd) { return dispatcher.Dispatch(cmd); });
+    ble_transport.SetOnConnect([&session_manager] { session_manager.OnConnect(); });
+    ble_transport.SetOnDisconnect([&session_manager] { session_manager.OnDisconnect(); });
+
+    // ── Pipeline (capture -> preprocess -> buffer -> postprocess -> fan-out) ──
+    // FanOutSink feeds both storage + streaming; the overlay is composited onto
+    // the shared frame within each output branch so both carry identical pixels.
+    sst::buffer::FanOutSink final_frame_sink(
+        std::vector<sst::buffer::IFrameSink*>{&recording_service, &streaming_service});
+
+    const sst::capture::CameraConfig camera_cfg{};
+    auto capture = std::make_unique<sst::capture::GStreamerAdapter>(
+        camera_cfg, cfg.device.model.value_or(""), sst::runtime_defaults::kCamera0Index);
+    auto preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>();
+    auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
+    sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
+                                                 std::move(postprocessor), final_frame_sink);
+
+    if (!pipeline.Start()) {
+        spdlog::error("pipeline failed to start (camera unavailable?) — aborting");
+        return 1;
+    }
+    ble_transport.Start();
+    if (!ble_transport.IsRunning()) {
+        spdlog::error("BLE transport failed to start — aborting");
+        pipeline.Stop();
+        return 1;
+    }
+    if (!http_download_server.Start()) {
+        // Non-fatal: the camera still records/streams; only downloads are off.
+        spdlog::warn("HTTP download server failed to bind on :{} — downloads disabled",
+                     sst::runtime_defaults::kDownloadPort);
+    }
+
+    // Drive the display-only match clock at ~1 Hz (the app is still the timing
+    // authority; this only advances the on-screen clock between app events).
+    std::atomic<bool> clock_running{true};
+    std::thread clock_thread([&match_handler, &clock_running] {
+        while (clock_running.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            match_handler->TickClock();
+        }
     });
 
-    // Seed DB from config on first boot (idempotent)
-    sst::db::DbSeeder::seedIfEmpty(database, cfg);
+    spdlog::info("startup complete — advertising as {}", advertised_name);
 
-    // Device model — stays in config module (device info)
-    [[maybe_unused]] const std::string device_model = cfg.device.model.value_or("");
+    // Run until terminated (SIGINT/SIGTERM). Destructors stop the pipeline +
+    // transport (which finalizes any active session via the disconnect hook).
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) {
+        spdlog::error("sigprocmask failed — cannot guarantee clean shutdown; aborting");
+        clock_running.store(false);
+        clock_thread.join();
+        http_download_server.Stop();
+        ble_transport.Stop();
+        pipeline.Stop();
+        return 1;
+    }
+    int signo = 0;
+    sigwait(&mask, &signo);
+    spdlog::info("signal {} received — shutting down", signo);
 
-    // Camera settings — from DB from here on
-    [[maybe_unused]] auto camera0_cfg = database.cameras().getConfig(kDefaultUserId);
-    // sst::capture::GStreamerAdapter cam0(camera0_cfg.data, device_model, 0);
-
-    spdlog::info("startup complete");
+    clock_running.store(false);
+    clock_thread.join();
+    http_download_server.Stop();
+    ble_transport.Stop();
+    pipeline.Stop();
     return 0;
 }

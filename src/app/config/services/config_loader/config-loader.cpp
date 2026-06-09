@@ -38,22 +38,25 @@ ConfigLoader::ConfigLoader(std::string root_path, std::string file_type)
             MakePath(root_path_, "calibration", ext));
         storageAdapter_ =
             std::make_unique<JsonReaderAdapter<StorageData>>(MakePath(root_path_, "storage", ext));
+        wifiDirectAdapter_ = std::make_unique<JsonReaderAdapter<WifiDirectData>>(
+            MakePath(root_path_, "wifi-direct", ext));
     } else {
         throw std::runtime_error("Unsupported config file type: " + file_type_);
     }
 }
 
 auto ConfigLoader::get() -> ConfigData {
-    if (!deviceAdapter_ || !calibrationAdapter_ || !storageAdapter_) {
+    if (!deviceAdapter_ || !calibrationAdapter_ || !storageAdapter_ || !wifiDirectAdapter_) {
         throw std::logic_error("ConfigLoader adapters not initialized");
     }
 
     const auto deviceConfig = deviceAdapter_->load();
     const auto calibrationConfig = calibrationAdapter_->load();
     const auto storageConfig = storageAdapter_->load();
+    const auto wifiDirectConfig = wifiDirectAdapter_->load();
 
     if (fail("device", deviceConfig) || fail("calibration", calibrationConfig) ||
-        fail("storage", storageConfig)) {
+        fail("storage", storageConfig) || fail("wifi-direct", wifiDirectConfig)) {
         throw std::runtime_error("failed to load configuration files");
     }
 
@@ -61,6 +64,7 @@ auto ConfigLoader::get() -> ConfigData {
         .calibration = calibrationConfig.data,
         .device = deviceConfig.data,
         .storage = storageConfig.data,
+        .wifi_direct = wifiDirectConfig.data,
     };
 }
 

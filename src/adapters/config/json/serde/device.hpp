@@ -15,22 +15,12 @@ inline void from_json(const json& jsonObject, DeviceStaticIpData& values) {
     json_get_opt(jsonObject, "gateway", values.gateway);
 }
 
-inline void from_json(const json& jsonObject, DeviceConnectivityWifiClientData& values) {
-    json_get_opt(jsonObject, "enabled", values.enabled);
-    json_get_opt(jsonObject, "wifi_ssid", values.wifi_ssid);
-    json_get_opt(jsonObject, "wifi_password", values.wifi_password);
-    json_get_opt(jsonObject, "static_ip", values.static_ip);
-}
-
-inline void from_json(const json& jsonObject, DeviceConnectivityWifiAccessPointData& values) {
+inline void from_json(const json& jsonObject, DeviceConnectivityWifiDirectData& values) {
     json_get_opt(jsonObject, "enabled", values.enabled);
     json_get_opt(jsonObject, "ssid", values.ssid);
-    json_get_opt(jsonObject, "password", values.password);
-}
-
-inline void from_json(const json& jsonObject, DeviceConnectivityWifiData& values) {
-    json_get_opt(jsonObject, "client", values.client);
-    json_get_opt(jsonObject, "access_point", values.access_point);
+    json_get_opt(jsonObject, "passphrase", values.passphrase);
+    json_get_opt(jsonObject, "channel", values.channel);
+    json_get_opt(jsonObject, "ip_address", values.ip_address);
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityEthernetData& values) {
@@ -45,7 +35,7 @@ inline void from_json(const json& jsonObject, DeviceConnectivityBluetoothData& v
 }
 
 inline void from_json(const json& jsonObject, DeviceConnectivityData& values) {
-    json_get_opt(jsonObject, "wifi", values.wifi);
+    json_get_opt(jsonObject, "wifi_direct", values.wifi_direct);
     json_get_opt(jsonObject, "ethernet", values.ethernet);
     json_get_opt(jsonObject, "bluetooth", values.bluetooth);
 }

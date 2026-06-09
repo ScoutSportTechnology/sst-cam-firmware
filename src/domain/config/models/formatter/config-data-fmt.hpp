@@ -2,10 +2,11 @@
 
 #include <fmt/format.h>
 
-#include "calibration-fmt.hpp"  // IWYU pragma: keep
-#include "device-fmt.hpp"       // IWYU pragma: keep
+#include "calibration-fmt.hpp"   // IWYU pragma: keep
+#include "device-fmt.hpp"        // IWYU pragma: keep
 #include "domain/config/models/config-data.hpp"
-#include "storage-fmt.hpp"  // IWYU pragma: keep
+#include "storage-fmt.hpp"       // IWYU pragma: keep
+#include "wifi-direct-fmt.hpp"   // IWYU pragma: keep
 
 template <>
 struct fmt::formatter<sst::config::ConfigData> {
@@ -17,8 +18,9 @@ struct fmt::formatter<sst::config::ConfigData> {
                               "ConfigData{{\n"
                               "  calibration={},\n"
                               "  device={},\n"
-                              "  storage={}\n"
+                              "  storage={},\n"
+                              "  wifi_direct={}\n"
                               "}}",
-                              data.calibration, data.device, data.storage);
+                              data.calibration, data.device, data.storage, data.wifi_direct);
     }
 };

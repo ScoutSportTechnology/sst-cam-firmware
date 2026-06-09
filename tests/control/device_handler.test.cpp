@@ -1,0 +1,97 @@
+// Device-info + telemetry handlers (U7, R7/R8).
+//
+// Pure — handler driven against a fake ISystemStats; no hardware sensor reads.
+
+#include "app/control/services/handlers/device.handler.hpp"
+
+#include <gtest/gtest.h>
+
+#include "app/control/ports/system-stats.hpp"
+#include "bluetooth.pb.h"
+#include "domain/config/models/device.hpp"
+
+namespace {
+
+using sst::control::DeviceHandler;
+
+class FakeStats final : public sst::control::ISystemStats {
+   public:
+    [[nodiscard]] auto Read() const -> sst::control::SystemStats override {
+        ++reads;
+        sst::control::SystemStats s;
+        s.storage_free_bytes = 1000;
+        s.storage_total_bytes = 4000;
+        s.uptime_seconds = 12345;
+        s.cpu_used_pct = 25.0F;
+        return s;
+    }
+    mutable int reads{0};
+};
+
+auto MakeDevice() -> sst::config::DeviceData {
+    sst::config::DeviceData d;
+    d.name = "sst-cam";
+    d.model = "v1";
+    d.version = "1.0.0";
+    d.serial_number = "00000042";
+    return d;
+}
+
+auto DeviceInfoCommand() -> sst_cam::Command {
+    sst_cam::Command c;
+    c.set_correlation_id("corr-info");
+    c.mutable_get_device_info();
+    return c;
+}
+
+auto TelemetryCommand() -> sst_cam::Command {
+    sst_cam::Command c;
+    c.set_correlation_id("corr-tel");
+    c.mutable_get_telemetry();
+    return c;
+}
+
+// R8: GetDeviceInfo returns the configured identity + a non-zero protocol_version.
+TEST(DeviceHandlerTest, DeviceInfoReturnsIdentityAndProtocolVersion) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; });
+
+    auto resp = handler.Handle(DeviceInfoCommand());
+
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kDeviceInfo);
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.device_info().device_id(), "00000042");
+    EXPECT_EQ(resp.device_info().name(), "sst-cam");
+    EXPECT_EQ(resp.device_info().model(), "v1");
+    EXPECT_EQ(resp.device_info().firmware_version(), "1.0.0");
+    EXPECT_GT(resp.device_info().protocol_version(), 0U);
+}
+
+// is_recording / is_streaming reflect the injected providers.
+TEST(DeviceHandlerTest, TelemetryReflectsRecordingAndStreamingFlags) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats, [] { return true; }, [] { return false; });
+
+    auto resp = handler.Handle(TelemetryCommand());
+
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kTelemetry);
+    EXPECT_EQ(resp.telemetry().storage_free_bytes(), 1000U);
+    EXPECT_EQ(resp.telemetry().storage_total_bytes(), 4000U);
+    EXPECT_EQ(resp.telemetry().uptime_seconds(), 12345U);
+    EXPECT_TRUE(resp.telemetry().is_recording());
+    EXPECT_FALSE(resp.telemetry().is_streaming());
+}
+
+// R7: the handler never reads stats / produces telemetry unless a command is
+// dispatched — no background polling, no unsolicited push.
+TEST(DeviceHandlerTest, NoTelemetryWithoutACommand) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; });
+
+    EXPECT_EQ(stats.reads, 0);  // nothing read until asked
+
+    handler.Handle(TelemetryCommand());
+    EXPECT_EQ(stats.reads, 1);  // exactly one read per GetTelemetry
+}
+
+}  // namespace

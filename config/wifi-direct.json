@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "ssid": "DIRECT-SST-CAM",
+  "passphrase": "scoutcam1234",
+  "channel": 6,
+  "ip_address": "192.168.49.1"
+}
