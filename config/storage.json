@@ -1,0 +1,7 @@
+{
+  "log": "/var/log/sst/cam/",
+  "video": "/var/lib/sst/cam/videos/",
+  "snapshots": "/var/lib/sst/cam/snapshots/",
+  "thumbnails": "/var/lib/sst/cam/thumbnails/",
+  "min_free_bytes": 1073741824
+}

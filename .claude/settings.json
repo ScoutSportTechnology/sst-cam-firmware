@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /workspace log --oneline --all)",
+      "Bash(xargs ls *)",
+      "Bash(grep -E \"\\\\.\\(hpp|cpp|h|c\\)$\")",
+      "Bash(grep -E \"\\\\.\\(hpp|cpp\\)$\")",
+      "Read(//l4t/targetfs/usr/lib/aarch64-linux-gnu/**)",
+      "Read(//l4t/targetfs/**)",
+      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && ls -1 {}')",
+      "Bash(chmod +x /workspace/.devcontainer/sysroot/003_install_extra_pkgs.sh)",
+      "Bash(bash /workspace/.devcontainer/sysroot/003_install_extra_pkgs.sh /l4t/targetfs)",
+      "Bash(grep -E \"\\\\.hpp$\")",
+      "Bash(grep -v \".cpp$\")",
+      "Bash(cmake --preset debug)",
+      "Bash(cmake --build --preset debug)",
+      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|CaptureSingleFrameAndLog')",
+      "Bash(ctest --preset test --output-on-failure -R 'NetworkRead|JsonAdapter|ConfigLoader|DbTest|UserRead|CameraRead|MicrophoneRead|StreamRead')",
+      "Bash(ctest --preset test --output-on-failure -R 'RecordingServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'StorageE2ETest')",
+      "Bash(ctest --preset test)",
+      "Bash(nm /workspace/build/debug/CMakeFiles/sst_cam_firmware_internal_libs.dir/src/app/streaming/services/streaming_service/streaming-service.cpp.o)",
+      "Bash(ctest --preset test --output-on-failure -R 'StreamingServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'MatchServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'FanOutSinkTest|PipelineOrchestratorTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'SportControllerTest|TeamControllerTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'CameraControllerTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'MatchControllerBrowseTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'FilesystemDiskGuardTest|RecordingServiceTest')",
+      "Bash(ctest --preset test --output-on-failure -R 'SystemControllerTest')"
+    ]
+  }
+}

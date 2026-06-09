@@ -1,0 +1,69 @@
+{
+  "cameras": {
+    "exposure": 100,
+    "gain": 1.00,
+    "white_balance": 0,
+    "focus": 0,
+    "width": 1920,
+    "height": 1080,
+    "format": 0,
+    "fps": 60,
+    "device": [
+      {
+        "id": 0,
+        "intrinsic_matrix": [
+          1000.00,
+          0.00,
+          960.00,
+          0.00,
+          1000.00,
+          540.00,
+          0.00,
+          0.00,
+          1.00
+        ],
+        "distortion_coefficients": [
+          0.10,
+          -0.05,
+          0.00,
+          0.00,
+          0.00
+        ]
+      },
+      {
+        "id": 1,
+        "intrinsic_matrix": [
+          1000.00,
+          0.00,
+          960.00,
+          0.00,
+          1000.00,
+          540.00,
+          0.00,
+          0.00,
+          1.00
+        ],
+        "distortion_coefficients": [
+          0.10,
+          -0.05,
+          0.00,
+          0.00,
+          0.00
+        ]
+      }
+    ]
+  },
+  "microphones": {
+    "noise_reduction": true,
+    "device": [
+      {
+        "id": 0,
+        "sensitivity": 1.00
+      },
+      {
+        "id": 1,
+        "sensitivity": 1.00
+      }
+    ]
+  }
+}

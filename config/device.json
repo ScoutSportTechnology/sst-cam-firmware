@@ -1,0 +1,9 @@
+{
+  "manufacturer": "Scout Sport Technology",
+  "model": "v1",
+  "name": "sst-cam",
+  "serial_number": "00000001",
+  "timestamp": "monotonic",
+  "timezone": "UTC",
+  "version": "1.0.0"
+}

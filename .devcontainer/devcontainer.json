@@ -1,0 +1,48 @@
+{
+  "name": "SST Cam Firmware — Cross-Compile (Jetson aarch64)",
+  "dockerComposeFile": [
+    "docker-compose.yml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
+  // ${localEnv}/${localWorkspaceFolder} tokens only work in devcontainer.json,
+  // so the host Conan cache and the .bashrc bind live here, not in compose.
+  "mounts": [
+    "source=${localEnv:HOME}/.conan2,target=/home/vscode/.conan2,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/vscode/.bashrc.d/00-aliases.bashrc,readonly,type=bind"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpp-devtools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "anthropic.claude-code",
+        "llvm-vs-code-extensions.lldb-dap",
+        "matepek.vscode-catch2-test-adapter",
+        "aaron-bond.better-comments",
+        "dbcode.dbcode"
+      ],
+      "settings": {
+        "cmake.useCMakePresets": "always",
+        "cmake.configureOnOpen": false,
+        "clangd.arguments": [
+          "--compile-commands-dir=${workspaceFolder}/build/debug"
+        ]
+      }
+    }
+  },
+  "initializeCommand": ".devcontainer/script/initialize-command.sh",
+  "onCreateCommand": ".devcontainer/script/on-create.sh",
+  "postCreateCommand": ".devcontainer/script/post-create.sh",
+  "postStartCommand": ".devcontainer/script/post-start.sh",
+  "postAttachCommand": ".devcontainer/script/post-attach.sh",
+  "waitFor": "postCreateCommand",
+  "remoteEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  }
+}
