@@ -218,6 +218,7 @@ target_link_libraries(sst_cam_firmware_internal_libs PUBLIC
 
 target_include_directories(sst_cam_firmware_internal_libs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
 target_compile_definitions(sst_cam_firmware_internal_libs PUBLIC

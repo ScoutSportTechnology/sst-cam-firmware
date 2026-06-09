@@ -89,7 +89,12 @@
       "Bash(timeout 200 ctest --preset test -R \"OverlayControllerTest|MatchHandlerTest\" --output-on-failure)",
       "Bash(timeout 200 ctest --preset test -R \"ContinuousRecorderTest|ThumbnailWriterTest\" --output-on-failure)",
       "Bash(timeout 150 ctest --preset test -R \"StreamingHandlerTest\" --output-on-failure)",
-      "Bash(timeout 150 ctest --preset test -R \"WpaP2pParseTest|WifiDirectHandlerTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"WpaP2pParseTest|WifiDirectHandlerTest\" --output-on-failure)",
+      "Bash(timeout 60 wget -q \"https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.15.3/httplib.h\" -O third_party/httplib.h)",
+      "Bash(timeout 200 ctest --preset test -R \"DownloadServerTest\" --output-on-failure)",
+      "Bash(timeout 120 ctest --preset test -R \"HttpServesByteRange\" --output-on-failure)",
+      "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest\" --output-on-failure)",
+      "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.EnumeratesRecordings|DownloadServerTest.TokenMintValidateExpire\" --output-on-failure)"
     ]
   }
 }
