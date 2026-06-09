@@ -96,7 +96,8 @@
       "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest\" --output-on-failure)",
       "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.EnumeratesRecordings|DownloadServerTest.TokenMintValidateExpire\" --output-on-failure)",
       "Bash(timeout 150 ctest --preset test -R \"Pipeline|Orchestrator\" --output-on-failure)",
-      "Bash(timeout 150 ctest --preset test -R \"ControlPlaneIntegrationTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"ControlPlaneIntegrationTest\" --output-on-failure)",
+      "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.Enumerate|ProtoRoundtrip\" --output-on-failure)"
     ]
   }
 }

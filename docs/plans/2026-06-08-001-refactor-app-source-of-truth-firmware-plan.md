@@ -2,7 +2,7 @@
 date: 2026-06-08
 type: refactor
 title: "refactor: App-as-source-of-truth firmware — stateless executor of the proto3 BLE contract"
-status: active
+status: completed
 origin: docs/brainstorms/2026-06-04-app-source-of-truth-firmware-refactor-requirements.md
 depth: deep
 ---
