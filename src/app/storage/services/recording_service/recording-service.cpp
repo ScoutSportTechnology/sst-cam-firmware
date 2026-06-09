@@ -1,114 +1,57 @@
 #include "app/storage/services/recording_service/recording-service.hpp"
 
-#include <chrono>
-#include <ctime>
-#include <iomanip>
-#include <sstream>
-#include <system_error>
 #include <utility>
 
 #include <spdlog/spdlog.h>
 
-#include "domain/common/utils/uuid.hpp"
 #include "domain/storage/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
 namespace sst::storage {
 
-namespace {
-
-constexpr const char* kFullGameDirName = "full_game";
-constexpr const char* kEventDirPrefix = "event_";
-constexpr const char* kEventClipFile = "clip.mp4";
-
-}  // namespace
-
-RecordingService::RecordingService(std::unique_ptr<IEncoderPipeline> encoder,
-                                   std::unique_ptr<ISegmentRecorder> segment_recorder,
-                                   std::unique_ptr<IEventClipRecorder> event_clip_recorder,
-                                   IDiskGuard& disk_guard,
-                                   std::filesystem::path video_root)
-    : encoder_(std::move(encoder)),
-      segment_recorder_(std::move(segment_recorder)),
-      event_clip_recorder_(std::move(event_clip_recorder)),
-      disk_guard_(disk_guard),
-      video_root_(std::move(video_root)) {
-    ConnectEncoderSinks();
-}
+RecordingService::RecordingService(std::unique_ptr<IContinuousRecorder> recorder,
+                                   std::unique_ptr<IThumbnailWriter> thumbnail_writer,
+                                   IDiskGuard& disk_guard)
+    : recorder_(std::move(recorder)),
+      thumbnail_writer_(std::move(thumbnail_writer)),
+      disk_guard_(disk_guard) {}
 
 RecordingService::~RecordingService() {
     if (state_ != RecordingState::kIdle) {
-        spdlog::warn("RecordingService: destructor while state={} — forcing stop", state_);
-        (void)StopFullGame();
+        spdlog::warn("RecordingService: destructor while state={} — finalizing", state_);
+        (void)Stop();
     }
 }
 
-auto RecordingService::ConnectEncoderSinks() -> void {
-    encoder_->SetSegmentSink(
-        [this](const EncodedNal& nal) { segment_recorder_->OnEncoded(nal); });
-    encoder_->SetRingSink(
-        [this](const EncodedNal& nal) { event_clip_recorder_->OnEncoded(nal); });
-}
-
-auto RecordingService::StartFullGame(const std::string& match_id) -> StartFullGameResult {
+auto RecordingService::StartRecording(const std::string& video_output_path,
+                                      const std::string& thumbnail_output_path) -> bool {
     std::lock_guard lock(mtx_);
     if (state_ != RecordingState::kIdle) {
-        spdlog::warn("RecordingService::StartFullGame rejected: state={} active_match={}", state_,
-                     active_match_id_);
-        return {.success = false, .recording_id = {}};
+        spdlog::warn("RecordingService::StartRecording rejected: state={}", state_);
+        return false;
+    }
+    if (video_output_path.empty()) {
+        spdlog::error("RecordingService::StartRecording: empty video output path");
+        return false;
     }
     if (!disk_guard_.HasEnoughFreeSpace()) {
-        spdlog::warn(
-            "RecordingService::StartFullGame rejected: disk guard refused (free={} bytes)",
-            disk_guard_.FreeBytes());
-        return {.success = false, .recording_id = {}};
+        spdlog::warn("RecordingService::StartRecording rejected: disk guard refused (free={})",
+                     disk_guard_.FreeBytes());
+        return false;
     }
 
-    const auto dir = FullGameDir(video_root_, match_id);
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
-        spdlog::error("RecordingService::StartFullGame: mkdir({}) failed: {}", dir.string(),
-                      ec.message());
-        return {.success = false, .recording_id = {}};
-    }
-
-    const std::string recording_id = sst::common::utils::MakeUuidV4();
-    const std::string started_at = NowIso8601();
-    const auto merged_path = dir / "full_game.mp4";
-
-    // Filesystem cleanup on any post-mkdir rollback path. Removes the full_game
-    // subdir we just created, and the parent <match_uuid> dir too if it ended
-    // up empty (it will, since this is a fresh UUID).
-    auto cleanup_dirs = [&] {
-        std::error_code rec;
-        std::filesystem::remove_all(dir, rec);
-        std::filesystem::remove(MatchDir(video_root_, match_id), rec);
-    };
-
-    // Recording metadata is no longer persisted to a local DB (app is the source
-    // of truth); recordings are enumerated from disk on demand (U13).
-    (void)merged_path;
-    (void)started_at;
-
-    if (!encoder_->Start()) {
-        spdlog::error("RecordingService::StartFullGame: encoder failed to start");
-        cleanup_dirs();
-        return {.success = false, .recording_id = {}};
-    }
-
-    if (!segment_recorder_->Start(dir)) {
-        spdlog::error("RecordingService::StartFullGame: segment recorder failed to start");
-        encoder_->Stop();
-        cleanup_dirs();
-        return {.success = false, .recording_id = {}};
+    video_path_ = video_output_path;
+    thumbnail_path_ = thumbnail_output_path;
+    if (!recorder_->Start(video_path_)) {
+        spdlog::error("RecordingService::StartRecording: recorder failed to start ({})",
+                      video_path_.string());
+        video_path_.clear();
+        thumbnail_path_.clear();
+        return false;
     }
 
     state_ = RecordingState::kRecording;
-    active_match_id_ = match_id;
-    active_recording_id_ = recording_id;
-    spdlog::info("RecordingService: StartFullGame match={} recording={} dir={}", match_id,
-                 recording_id, dir.string());
-    return {.success = true, .recording_id = recording_id};
+    spdlog::info("RecordingService: recording -> {}", video_path_.string());
+    return true;
 }
 
 auto RecordingService::Pause() -> bool {
@@ -117,9 +60,9 @@ auto RecordingService::Pause() -> bool {
         spdlog::warn("RecordingService::Pause rejected: state={}", state_);
         return false;
     }
-    segment_recorder_->Pause();
+    recorder_->Pause();
     state_ = RecordingState::kPaused;
-    spdlog::info("RecordingService: Paused (encoder still running for event-clip ring)");
+    spdlog::info("RecordingService: paused (same file resumes on RESUME)");
     return true;
 }
 
@@ -129,87 +72,39 @@ auto RecordingService::Resume() -> bool {
         spdlog::warn("RecordingService::Resume rejected: state={}", state_);
         return false;
     }
-    segment_recorder_->Resume();
+    recorder_->Resume();
     state_ = RecordingState::kRecording;
-    spdlog::info("RecordingService: Resumed");
+    spdlog::info("RecordingService: resumed");
     return true;
 }
 
-auto RecordingService::StopFullGame() -> StopFullGameResult {
+auto RecordingService::Stop() -> StopRecordingResult {
     std::lock_guard lock(mtx_);
     if (state_ == RecordingState::kIdle) {
-        spdlog::warn("RecordingService::StopFullGame rejected: state=Idle");
-        return {.success = false, .merged_path = {}};
+        return {.success = false, .file_path = {}, .thumbnail_written = false};
     }
 
-    const auto merged = segment_recorder_->Stop();
-    encoder_->Stop();
+    const bool stopped = recorder_->Stop();
 
-    spdlog::info("RecordingService: StopFullGame match={} merged={}", active_match_id_,
-                 merged.string());
+    bool thumb = false;
+    if (last_frame_ && !thumbnail_path_.empty()) {
+        thumb = thumbnail_writer_->Write(*last_frame_, thumbnail_path_);
+        if (!thumb) {
+            spdlog::warn("RecordingService: thumbnail write failed ({})",
+                         thumbnail_path_.string());
+        }
+    }
+
+    const std::filesystem::path file = video_path_;
+    spdlog::info("RecordingService: finalized {} (stopped={}, thumbnail={})", file.string(),
+                 stopped, thumb);
 
     state_ = RecordingState::kIdle;
-    active_match_id_.clear();
-    active_recording_id_.clear();
+    video_path_.clear();
+    thumbnail_path_.clear();
+    last_frame_.reset();
 
-    return {.success = !merged.empty(), .merged_path = merged};
-}
-
-auto RecordingService::TriggerEventClip(const std::string& match_event_id,
-                                        const EventClipWindow& window)
-    -> TriggerEventClipResult {
-    std::lock_guard lock(mtx_);
-    if (state_ == RecordingState::kIdle) {
-        spdlog::warn("RecordingService::TriggerEventClip rejected: state=Idle");
-        return {};
-    }
-    if (window.pre_seconds <= 0 || window.post_seconds <= 0) {
-        spdlog::error("RecordingService::TriggerEventClip rejected: invalid window {}", window);
-        return {};
-    }
-    if (!disk_guard_.HasEnoughFreeSpace()) {
-        spdlog::warn(
-            "RecordingService::TriggerEventClip rejected: disk guard refused (free={} bytes)",
-            disk_guard_.FreeBytes());
-        return {};
-    }
-
-    const std::string event_clip_id = sst::common::utils::MakeUuidV4();
-    const std::string clip_recording_id = sst::common::utils::MakeUuidV4();
-    (void)match_event_id;  // No DB row linkage; clip is identified by its file path.
-    const auto dir = EventClipDir(video_root_, active_match_id_, event_clip_id);
-
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
-        spdlog::error("RecordingService::TriggerEventClip: mkdir({}) failed: {}", dir.string(),
-                      ec.message());
-        return {};
-    }
-
-    const auto file_path = dir / kEventClipFile;
-
-    // Removes the event_<uuid> dir we just created. The parent <match_uuid>
-    // is left alone here — the active full-game recording is still writing
-    // into it.
-    auto cleanup_dir = [&] {
-        std::error_code rec;
-        std::filesystem::remove_all(dir, rec);
-    };
-
-    if (!event_clip_recorder_->Trigger(file_path, window)) {
-        spdlog::error("RecordingService::TriggerEventClip: recorder rejected trigger");
-        cleanup_dir();
-        return {};
-    }
-
-    spdlog::info("RecordingService: TriggerEventClip match={} event={} clip={} window={}",
-                 active_match_id_, match_event_id, event_clip_id, window);
-
-    return {.success = true,
-            .event_clip_id = event_clip_id,
-            .recording_id = clip_recording_id,
-            .file_path = file_path};
+    return {.success = stopped, .file_path = file, .thumbnail_written = thumb};
 }
 
 auto RecordingService::CurrentState() const -> RecordingState {
@@ -218,39 +113,15 @@ auto RecordingService::CurrentState() const -> RecordingState {
 }
 
 auto RecordingService::Push(const sst::capture::Frame& frame) -> void {
-    {
-        std::lock_guard lock(mtx_);
-        if (state_ == RecordingState::kIdle) {
-            return;
-        }
+    std::lock_guard lock(mtx_);
+    if (state_ == RecordingState::kIdle) {
+        return;
     }
-    encoder_->Push(frame);
-}
-
-auto RecordingService::NowIso8601() -> std::string {
-    const auto now = std::chrono::system_clock::now();
-    const auto t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-    gmtime_r(&t, &tm);
-    std::ostringstream os;
-    os << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
-    return os.str();
-}
-
-auto RecordingService::MatchDir(const std::filesystem::path& root, const std::string& match_id)
-    -> std::filesystem::path {
-    return root / match_id;
-}
-
-auto RecordingService::FullGameDir(const std::filesystem::path& root,
-                                   const std::string& match_id) -> std::filesystem::path {
-    return MatchDir(root, match_id) / kFullGameDirName;
-}
-
-auto RecordingService::EventClipDir(const std::filesystem::path& root,
-                                    const std::string& match_id,
-                                    const std::string& event_clip_id) -> std::filesystem::path {
-    return MatchDir(root, match_id) / (std::string{kEventDirPrefix} + event_clip_id);
+    // Keep the most recent frame for the finalization thumbnail.
+    last_frame_ = frame;
+    // Feed the muxer; the recorder drops frames internally while paused and
+    // resumes at the next IDR into the same file.
+    recorder_->Push(frame);
 }
 
 }  // namespace sst::storage

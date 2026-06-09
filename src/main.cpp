@@ -8,9 +8,8 @@
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
-#include "adapters/storage/gstreamer/gst-encoder-pipeline.hpp"
-#include "adapters/storage/gstreamer/gst-event-clip-recorder.hpp"
-#include "adapters/storage/gstreamer/gst-segment-recorder.hpp"
+#include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
+#include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 #include "app/buffer/services/fan_out_sink/fan-out-sink.hpp"
@@ -30,21 +29,6 @@ constexpr const char* kConfigFormat = "json";
 constexpr const char* kVideoRootFallback = "/var/lib/sst/cam/videos";
 
 }  // namespace sst::paths
-
-// ============================================================
-// Storage encoder defaults — match what postprocess emits today (BGR8 1280x720
-// @ 30fps). Bitrate sized for NVENC budget on Orin Nano alongside the app +
-// platform streams.
-// ============================================================
-namespace sst::storage_defaults {
-
-constexpr int kEncoderWidth = 1280;
-constexpr int kEncoderHeight = 720;
-constexpr int kEncoderFramerate = 30;
-constexpr int kEncoderBitrateBps = 4'000'000;
-constexpr std::int64_t kEventClipMaxPreSeconds = 120;
-
-}  // namespace sst::storage_defaults
 
 // Camera 0 is the only camera wired into the pipeline today. The second
 // IMX477 + the AI/physics/decision modules will land in follow-up changes;
@@ -69,29 +53,13 @@ auto main() -> int {
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
     auto cfg = config.get();
 
-    // ── Storage module ────────────────────────────────────────────────
-    auto encoder = std::make_unique<sst::adapters::storage::GstEncoderPipeline>(
-        sst::adapters::storage::GstEncoderPipeline::Config{
-            .width = sst::storage_defaults::kEncoderWidth,
-            .height = sst::storage_defaults::kEncoderHeight,
-            .framerate = sst::storage_defaults::kEncoderFramerate,
-            .raw_format = "BGR",
-            .bitrate_bps = sst::storage_defaults::kEncoderBitrateBps,
-            .iframe_interval_frames = sst::storage_defaults::kEncoderFramerate,
-        });
-    auto segment_recorder = std::make_unique<sst::adapters::storage::GstSegmentRecorder>();
-    auto event_clip_recorder = std::make_unique<sst::adapters::storage::GstEventClipRecorder>(
-        sst::adapters::storage::GstEventClipRecorder::Config{
-            .max_pre_seconds = sst::storage_defaults::kEventClipMaxPreSeconds,
-        });
-
+    // ── Storage module (single continuous MP4 per session) ─────────────
     const std::filesystem::path video_root =
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback);
     sst::adapters::storage::FilesystemDiskGuard disk_guard(video_root, cfg.storage.min_free_bytes);
-    sst::storage::RecordingService recording_service(std::move(encoder),
-                                                     std::move(segment_recorder),
-                                                     std::move(event_clip_recorder), disk_guard,
-                                                     video_root);
+    sst::storage::RecordingService recording_service(
+        std::make_unique<sst::adapters::storage::GstContinuousRecorder>(),
+        std::make_unique<sst::adapters::storage::OpenCvThumbnailWriter>(), disk_guard);
 
     // ── Streaming module ───────────────────────────────────────────────
     auto app_stream_server =

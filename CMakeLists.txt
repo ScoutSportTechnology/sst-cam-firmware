@@ -73,6 +73,11 @@ find_library(SST_OPENCV_IMGPROC
     NAMES libopencv_imgproc.so.408
     REQUIRED
 )
+# imgcodecs (cv::imwrite) for the JPEG thumbnail writer — same 4.8 SONAME pin.
+find_library(SST_OPENCV_IMGCODECS
+    NAMES libopencv_imgcodecs.so.408
+    REQUIRED
+)
 
 target_include_directories(sst_cam_firmware_external_libs INTERFACE
     ${OPENCV_INCLUDE_DIRS}
@@ -81,6 +86,7 @@ target_include_directories(sst_cam_firmware_external_libs INTERFACE
 target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     ${SST_OPENCV_CORE}
     ${SST_OPENCV_IMGPROC}
+    ${SST_OPENCV_IMGCODECS}
 )
 
 # Control plane + live preview: BlueZ over D-Bus (sdbus-c++) and the GStreamer
