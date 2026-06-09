@@ -55,6 +55,13 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     // Serialize + chunk a CommandResponse out over the response characteristic,
     // gated by ChunkAck (R3). Sends chunk 0 immediately.
     auto SendResponse(const sst_cam::CommandResponse& response) -> void;
+    // Emit a ChunkAck for one inbound (app->camera) command chunk so the app
+    // can release its next chunk. The firmware is a GATT peripheral and cannot
+    // write to the central, so the ack rides the response characteristic as a
+    // notification; it is wire-compatible with ChunkedPayload on fields 1/2 and
+    // carries no total_chunks (==0), which the app demuxes as an ack rather than
+    // a response chunk (mirroring our own inbound-ack disambiguation).
+    auto SendInboundAck(const std::string& correlation_id, std::uint32_t chunk_index) -> void;
 
     std::string advertised_name_;
     std::string adapter_path_;

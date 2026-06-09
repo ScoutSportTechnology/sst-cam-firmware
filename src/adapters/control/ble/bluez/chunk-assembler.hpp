@@ -39,12 +39,24 @@ class ChunkAssembler {
    public:
     using SendChunkFn = std::function<void(const sst_cam::ChunkedPayload&)>;
 
+    // Outcome of offering one inbound chunk. `accepted` is true when the chunk
+    // was well-formed and either buffered or completed a reassembly (so the
+    // transport may ack it); false when rejected (malformed framing:
+    // index>=total, total==0 / over-cap). A duplicate of an already-seen chunk
+    // is `accepted` (well-formed; the app may have retransmitted after a lost
+    // ack) but contributes nothing new. `payload` holds the reassembled inner
+    // bytes only on the chunk that completes the message.
+    struct OfferResult {
+        bool accepted{false};
+        std::optional<std::string> payload;
+    };
+
     explicit ChunkAssembler(ChunkAssemblerConfig cfg = {});
 
-    // Returns the fully-reassembled inner payload bytes when `chunk` completes
-    // its message; std::nullopt while more chunks are pending or on a
-    // malformed / duplicate chunk.
-    auto OfferInbound(const sst_cam::ChunkedPayload& chunk) -> std::optional<std::string>;
+    // Buffer / reassemble one inbound chunk. Returns an OfferResult: rejected
+    // (malformed) chunks are not accepted; well-formed chunks are accepted, and
+    // the one completing the message carries the reassembled inner payload.
+    auto OfferInbound(const sst_cam::ChunkedPayload& chunk) -> OfferResult;
 
     // Split `data` for `correlation_id` and emit chunk 0 via `send`. Multi-chunk
     // transfers retain state until acked; a single-chunk transfer is fire-and-
@@ -56,6 +68,12 @@ class ChunkAssembler {
     // chunk is emitted via the transfer's stored send fn. Returns true once the
     // whole message has been delivered and acked (transfer complete).
     auto OnAck(const std::string& correlation_id, std::uint32_t chunk_index) -> bool;
+
+    // Drop all in-flight inbound reassemblies and pending outbound transfers.
+    // Called on disconnect so a new central never sees a previous session's
+    // half-assembled message or a stale outbound flow-control state, and so the
+    // stored outbound send closures (which capture the transport) are released.
+    auto Reset() -> void;
 
     [[nodiscard]] auto InflightInboundCount() const -> std::size_t { return inbound_.size(); }
     [[nodiscard]] auto PendingOutboundCount() const -> std::size_t { return outbound_.size(); }

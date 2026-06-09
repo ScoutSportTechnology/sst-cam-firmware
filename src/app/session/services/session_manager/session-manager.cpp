@@ -66,8 +66,15 @@ auto SessionManager::OnWifiStopped() -> bool {
 
 auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
     std::lock_guard lock(mtx_);
+    // Contract §11 ordering: StartWifiDirect -> PushSessionConfig -> ... . The
+    // session config provisions the streaming sinks (RTMP / preview), which
+    // require the WiFi-Direct group already up; config before the group exists
+    // is out of order. Re-pushing config mid-recording is likewise rejected (the
+    // documented flow configures before recording starts).
     if (state_.phase < SessionPhase::kWifiReady || state_.phase == SessionPhase::kRecording) {
-        spdlog::warn("SessionManager::ApplySessionConfig rejected: phase={}", state_.phase);
+        spdlog::warn("SessionManager::ApplySessionConfig rejected (out of order: WiFi Direct group "
+                     "required first per contract §11): phase={}",
+                     state_.phase);
         return false;
     }
     if (!PrepareOutputDirs(config)) {

@@ -121,6 +121,76 @@ TEST(SessionManagerTest, OutOfOrderTransitionsRejected) {
     fs::remove_all(root);
 }
 
+// U8 / R8 / contract §11: session config is accepted only after the WiFi-Direct
+// group is up (phase >= kWifiReady). The documented order
+// (StartWifiDirect -> PushSessionConfig) succeeds; config before the group is a
+// no-op rejection that leaves the phase unchanged.
+TEST(SessionManagerTest, SessionConfigGatedOnWifiDirectPerSection11) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    const fs::path root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+
+    ASSERT_TRUE(sm.OnConnect());
+
+    // Before the WiFi-Direct group: rejected, phase stays Connected.
+    EXPECT_FALSE(sm.ApplySessionConfig(cfg));
+    EXPECT_EQ(sm.Phase(), SessionPhase::kConnected);
+
+    // After StartWifiDirect (OnWifiReady): the documented order is accepted.
+    ASSERT_TRUE(sm.OnWifiReady());
+    EXPECT_TRUE(sm.ApplySessionConfig(cfg));
+    EXPECT_EQ(sm.Phase(), SessionPhase::kConfigured);
+
+    fs::remove_all(root);
+}
+
+// U8: the only ordering constraint is the documented §11 one — there is no
+// extra firmware-only rule. Overlay-before-session is still rejected (it has its
+// own documented prerequisite), and a re-push of config while Configured/Ready
+// is accepted (idempotent design-change resend), keeping the phase.
+TEST(SessionManagerTest, NoUndocumentedOrderingConstraints) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    const fs::path root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+
+    // Overlay before any session config: rejected (documented prerequisite).
+    ASSERT_TRUE(sm.OnConnect());
+    ASSERT_TRUE(sm.OnWifiReady());
+    EXPECT_FALSE(sm.OnOverlayConfigured());
+    EXPECT_EQ(sm.Phase(), SessionPhase::kWifiReady);
+
+    // Config, then overlay, then a re-push of config while Ready — all accepted,
+    // phase held at Ready (no undocumented "config only once" rule).
+    ASSERT_TRUE(sm.ApplySessionConfig(cfg));
+    ASSERT_TRUE(sm.OnOverlayConfigured());
+    EXPECT_EQ(sm.Phase(), SessionPhase::kReady);
+    EXPECT_TRUE(sm.ApplySessionConfig(cfg));
+    EXPECT_EQ(sm.Phase(), SessionPhase::kReady);
+
+    fs::remove_all(root);
+}
+
+// Re-pushing session config mid-recording is rejected (the documented flow
+// configures before recording starts): the call is a no-op that leaves the
+// phase at Recording.
+TEST(SessionManagerTest, ApplySessionConfigRejectedWhileRecording) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    const fs::path root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+
+    AdvanceToReady(sm, cfg);
+    ASSERT_TRUE(sm.OnRecordingStart());
+    ASSERT_EQ(sm.Phase(), SessionPhase::kRecording);
+
+    EXPECT_FALSE(sm.ApplySessionConfig(cfg));
+    EXPECT_EQ(sm.Phase(), SessionPhase::kRecording);
+
+    fs::remove_all(root);
+}
+
 // R11: session memory (config, scores, clock, period) is cleared on session end.
 TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     FakeCleanup cleanup;

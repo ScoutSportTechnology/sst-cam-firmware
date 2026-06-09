@@ -1,5 +1,7 @@
 #include "app/overlay/overlay-proto-mapper.hpp"
 
+#include <algorithm>
+
 namespace sst::overlay {
 
 namespace {
@@ -43,10 +45,17 @@ auto MapRect(const sst_cam::OverlayRect& r) -> OverlayRect {
 }
 
 auto MapStyle(const sst_cam::OverlayStyle& s) -> OverlayStyle {
+    // proto3 `optional`: absent opacity => documented default 1.0 (opaque), not
+    // the scalar zero-value (0.0 = fully transparent). See overlay-rendering.md
+    // "Element defaults". Clamp to [0,1] here, the single proto->domain
+    // translation point: an out-of-range alpha reaching cairo_paint_with_alpha
+    // puts the cairo_t into a permanent error state, silently dropping every
+    // later element in the frame.
+    const float opacity = s.has_opacity() ? s.opacity() : 1.0F;
     return OverlayStyle{
         .fill_color = s.fill_color(),
         .text_color = s.text_color(),
-        .opacity = s.opacity(),
+        .opacity = std::clamp(opacity, 0.0F, 1.0F),
         .corner_radius = s.corner_radius(),
         .font_family = s.font_family(),
         .font_size = s.font_size(),
@@ -63,7 +72,10 @@ auto MapElement(const sst_cam::OverlayElement& e) -> OverlayElement {
         .bounds = MapRect(e.bounds()),
         .style = MapStyle(e.style()),
         .binding = MapBinding(e.binding()),
-        .visible = e.visible(),
+        // proto3 `optional`: absent visible => documented default true (renders),
+        // not the scalar zero-value (false = hidden). See overlay-rendering.md
+        // "Element defaults".
+        .visible = e.has_visible() ? e.visible() : true,
     };
 }
 
