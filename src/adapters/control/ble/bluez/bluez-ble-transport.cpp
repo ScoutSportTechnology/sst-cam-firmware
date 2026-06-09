@@ -266,8 +266,16 @@ auto BluezBleTransport::Stop() -> void {
         }
     }
 
+    {
+        // Drop assembler state under the lock BEFORE clearing gatt_app_ so no
+        // half-assembled inbound message or stale outbound flow-control survives
+        // into a future session, and the retained outbound send closures (which
+        // capture this transport + gatt_app_) are released (#9).
+        std::lock_guard lock(mtx_);
+        assembler_.Reset();
+        gatt_app_.reset();
+    }
     adv_obj_.reset();
-    gatt_app_.reset();
     connection_.reset();
     running_ = false;
 }
@@ -281,7 +289,13 @@ auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -
     const std::uint32_t total = assembler_.BeginOutbound(
         response.correlation_id(), wire,
         [this](const sst_cam::ChunkedPayload& chunk) {
-            gatt_app_->SendNotification(ToBytes(chunk));
+            // This closure is retained inside the assembler and invoked later by
+            // OnAck. By then Stop()/disconnect may have reset gatt_app_; guard
+            // against the null deref (the disconnect path also Reset()s the
+            // assembler to drop these closures, but a race can still fire one).
+            if (gatt_app_) {
+                gatt_app_->SendNotification(ToBytes(chunk));
+            }
         });
     spdlog::debug("BluezBleTransport: response corr={} status={} -> {} chunk(s)",
                   response.correlation_id(), static_cast<int>(response.status()), total);

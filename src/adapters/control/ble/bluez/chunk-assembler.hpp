@@ -69,6 +69,12 @@ class ChunkAssembler {
     // whole message has been delivered and acked (transfer complete).
     auto OnAck(const std::string& correlation_id, std::uint32_t chunk_index) -> bool;
 
+    // Drop all in-flight inbound reassemblies and pending outbound transfers.
+    // Called on disconnect so a new central never sees a previous session's
+    // half-assembled message or a stale outbound flow-control state, and so the
+    // stored outbound send closures (which capture the transport) are released.
+    auto Reset() -> void;
+
     [[nodiscard]] auto InflightInboundCount() const -> std::size_t { return inbound_.size(); }
     [[nodiscard]] auto PendingOutboundCount() const -> std::size_t { return outbound_.size(); }
 

@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -235,6 +237,66 @@ TEST(ChunkAssemblerTest, MalformedChunksRejected) {
     EXPECT_FALSE(over.accepted);
     EXPECT_FALSE(over.payload.has_value());
     EXPECT_EQ(assembler.InflightInboundCount(), 0U);
+}
+
+// #9: disconnect must drop all assembler state — in-flight inbound reassemblies
+// AND pending outbound transfers — so a new central never inherits a previous
+// session's half-assembled message or stale flow-control. Reset() is what the
+// transport calls on its disconnect/Stop path.
+TEST(ChunkAssemblerTest, ResetClearsInboundAndOutboundState) {
+    ChunkAssemblerConfig cfg;
+    cfg.max_chunk_payload_bytes = 4;
+    ChunkAssembler assembler(cfg);
+
+    // A partial inbound reassembly (first of two chunks, never completes).
+    EXPECT_TRUE(assembler.OfferInbound(MakeChunk("in", 0, 2, "aa")).accepted);
+    EXPECT_EQ(assembler.InflightInboundCount(), 1U);
+
+    // A multi-chunk outbound transfer awaiting acks.
+    auto send = [](const sst_cam::ChunkedPayload&) {};
+    ASSERT_EQ(assembler.BeginOutbound("out", "abcdefghij", send), 3U);
+    EXPECT_EQ(assembler.PendingOutboundCount(), 1U);
+
+    assembler.Reset();
+
+    EXPECT_EQ(assembler.InflightInboundCount(), 0U);
+    EXPECT_EQ(assembler.PendingOutboundCount(), 0U);
+
+    // A late ack for the dropped transfer is a harmless no-op (no retained send).
+    EXPECT_FALSE(assembler.OnAck("out", 0));
+}
+
+// #9 null-guard: the outbound send closure the transport stores captures the
+// GATT app and is invoked later by OnAck. After Stop() that app is null, so the
+// real closure guards the deref. Mirror that transport-free: a closure whose
+// backing target has been nulled must be safe to drive via OnAck (no crash).
+TEST(ChunkAssemblerTest, OutboundSendClosureToleratesNulledTarget) {
+    ChunkAssemblerConfig cfg;
+    cfg.max_chunk_payload_bytes = 4;
+    ChunkAssembler assembler(cfg);
+
+    struct FakeGatt {
+        int notifications{0};
+        void Notify() { ++notifications; }
+    };
+    auto gatt = std::make_unique<FakeGatt>();
+
+    // Capture a pointer-to-unique_ptr so the closure observes the later reset(),
+    // exactly like the transport's gatt_app_ member after Stop().
+    auto* gatt_ptr = &gatt;
+    auto send = [gatt_ptr](const sst_cam::ChunkedPayload&) {
+        if (*gatt_ptr) {
+            (*gatt_ptr)->Notify();
+        }
+    };
+
+    ASSERT_EQ(assembler.BeginOutbound("g", "abcdefgh", send), 2U);  // 8 bytes / 4 -> 2 chunks
+    EXPECT_EQ(gatt->notifications, 1);  // chunk 0 sent immediately
+
+    // Simulate Stop(): the GATT app is destroyed. The retained closure must not
+    // deref a dangling/null target when the next chunk is released.
+    gatt.reset();
+    EXPECT_NO_THROW({ (void)assembler.OnAck("g", 0); });  // releases chunk 1 -> guarded no-op
 }
 
 // Never-completing reassemblies are evicted past the in-flight cap — no leak.

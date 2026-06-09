@@ -156,4 +156,10 @@ auto ChunkAssembler::OnAck(const std::string& correlation_id, std::uint32_t chun
     return true;
 }
 
+auto ChunkAssembler::Reset() -> void {
+    inbound_.clear();
+    inbound_order_.clear();
+    outbound_.clear();
+}
+
 }  // namespace sst::adapters::control
