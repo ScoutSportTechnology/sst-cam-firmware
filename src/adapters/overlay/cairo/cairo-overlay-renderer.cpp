@@ -98,12 +98,25 @@ void DrawText(cairo_t* cr, const RenderElement& e) {
         return;
     }
 
-    // Composite the whole element (background box + glyphs) as a single unit at
-    // one opacity (overlay-rendering.md: opacity multiplies the element's
-    // overall alpha, applied to fill + text together). A group lets us paint the
-    // sub-parts opaque and apply the per-element alpha once on pop — overlapping
-    // fill/glyph coverage does not double-darken (U5).
-    cairo_push_group(cr);
+    // A push_group allocates a full offscreen surface (~8MB at 1080p) every
+    // frame, so only pay for it when it actually buys correctness: it exists to
+    // composite the fill+glyph unit at a single per-element alpha without
+    // overlapping coverage double-darkening (U5). That only matters when the
+    // element is translucent OR has a background box behind the glyphs. With a
+    // fully-opaque, no-fill text element (the common scoreboard case) the glyphs
+    // alone need no group — paint them directly with the opacity folded into the
+    // source color, matching the rect/circle path.
+    constexpr double kEps = 1.0 / 512.0;
+    const bool needs_group = (opacity < 1.0 - kEps) || fill.valid;
+
+    if (needs_group) {
+        // Composite the whole element (background box + glyphs) as a single unit
+        // at one opacity (overlay-rendering.md: opacity multiplies the element's
+        // overall alpha, applied to fill + text together). A group lets us paint
+        // the sub-parts opaque and apply the per-element alpha once on pop —
+        // overlapping fill/glyph coverage does not double-darken (U5).
+        cairo_push_group(cr);
+    }
 
     // U4: non-empty fill_color paints the bounds background box behind glyphs,
     // mirroring the SHAPE_RECT fill path. corner_radius applies as for rects.
@@ -151,10 +164,16 @@ void DrawText(cairo_t* cr, const RenderElement& e) {
 
         // U5 baseline: Pango lays the first line's top at the move-to origin, so
         // its baseline sits exactly one ascent below the top of `bounds` —
-        // top-aligned text block, per the contract. Paint glyphs opaque inside
-        // the group; the group's pop applies the element opacity.
+        // top-aligned text block, per the contract. Inside a group the glyphs are
+        // painted opaque and the group's pop applies the element opacity;
+        // without a group (opaque, no-fill fast path) fold opacity into the
+        // source alpha directly, matching the rect/circle path.
         if (text_color.valid) {
-            cairo_set_source_rgb(cr, text_color.r, text_color.g, text_color.b);
+            if (needs_group) {
+                cairo_set_source_rgb(cr, text_color.r, text_color.g, text_color.b);
+            } else {
+                cairo_set_source_rgba(cr, text_color.r, text_color.g, text_color.b, opacity);
+            }
         }
         cairo_move_to(cr, x, y);
         pango_cairo_show_layout(cr, layout);
@@ -165,8 +184,10 @@ void DrawText(cairo_t* cr, const RenderElement& e) {
         }
     }
 
-    cairo_pop_group_to_source(cr);
-    cairo_paint_with_alpha(cr, opacity);
+    if (needs_group) {
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, opacity);
+    }
 }
 
 void DrawElement(cairo_t* cr, const RenderElement& e) {

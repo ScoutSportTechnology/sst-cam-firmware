@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 
 #include "domain/overlay/models/overlay-enums.hpp"
@@ -280,6 +281,36 @@ TEST(CairoRendererTest, EmptyFontFamilyFallsBack) {
     auto img = renderer.Render(scene, 200, 60);
     EXPECT_EQ(img.width, 200U);
     EXPECT_EQ(img.height, 60U);
+}
+
+// #12: the opaque, no-fill text element takes the no-push_group fast path
+// (opacity folded into the glyph source color). Glyphs must still paint at full
+// alpha and nothing must leak outside the bounds — behavior identical to the
+// grouped path. A large white block-glyph string on a tall box guarantees some
+// fully-opaque glyph pixel exists.
+TEST(CairoRendererTest, OpaqueNoFillTextPaintsGlyphsAtFullAlpha) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 200;
+    scene.canvas_height = 80;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 200, .y2 = 80, .z = 1};
+    e.style.fill_color = "";          // no background -> no group
+    e.style.text_color = "#FFFFFF";   // opaque white glyphs
+    e.style.font_size = 48.0F;
+    e.style.opacity = 1.0F;           // fully opaque -> no group
+    e.text = "MMMM";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 200, 80);
+    std::uint8_t max_alpha = 0;
+    for (std::uint32_t y = 0; y < 80; ++y) {
+        for (std::uint32_t x = 0; x < 200; ++x) {
+            max_alpha = std::max(max_alpha, At(img, x, y).a);
+        }
+    }
+    EXPECT_EQ(max_alpha, 255) << "opaque no-fill text should paint full-alpha glyph pixels";
 }
 
 // Text element renders without crashing (font availability aside).
