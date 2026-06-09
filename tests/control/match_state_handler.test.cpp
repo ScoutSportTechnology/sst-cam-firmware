@@ -98,6 +98,47 @@ TEST(MatchStateHandlerTest, StatusReflectsClockAndSegment) {
     EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().status(), sst_cam::MATCH_FINISHED);
 }
 
+// Half-time segment maps onto MATCH_HALF_TIME regardless of the clock state.
+TEST(MatchStateHandlerTest, HalfTimeSegmentReportsHalfTime) {
+    Fixture f;
+    f.sm.ApplyMatchUpdate([](sst::session::LiveMatch& m) {
+        m.period = 1;
+        m.clock_running = false;
+        m.segment = sst::session::MatchSegment::kHalfTime;
+    });
+    MatchStateHandler handler(f.sm, [] { return std::uint64_t{0}; });
+    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().status(),
+              sst_cam::MATCH_HALF_TIME);
+}
+
+// In-play but before kickoff (period == 0) is not started yet — even though a
+// session is configured, no period has begun.
+TEST(MatchStateHandlerTest, InPlayBeforeKickoffReportsNotStarted) {
+    Fixture f;
+    f.sm.ApplyMatchUpdate([](sst::session::LiveMatch& m) {
+        m.period = 0;  // no period started
+        m.clock_running = false;
+        m.segment = sst::session::MatchSegment::kInPlay;
+    });
+    MatchStateHandler handler(f.sm, [] { return std::uint64_t{0}; });
+    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().status(),
+              sst_cam::MATCH_NOT_STARTED);
+}
+
+// time_remaining_s clamps at zero when the locally-ticked clock has run past the
+// configured period length (never wraps/underflows).
+TEST(MatchStateHandlerTest, TimeRemainingClampsAtZeroWhenElapsedExceedsLength) {
+    Fixture f(/*period_length=*/600);
+    f.sm.ApplyMatchUpdate([](sst::session::LiveMatch& m) {
+        m.period = 1;
+        m.clock_seconds = 650;  // past the 600s period length
+        m.clock_running = true;
+        m.segment = sst::session::MatchSegment::kInPlay;
+    });
+    MatchStateHandler handler(f.sm, [] { return std::uint64_t{0}; });
+    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().time_remaining_s(), 0U);
+}
+
 // No active session (Idle) -> MATCH_NOT_STARTED, still OK, no crash.
 TEST(MatchStateHandlerTest, NoSessionReportsNotStarted) {
     FakeCleanup cleanup;

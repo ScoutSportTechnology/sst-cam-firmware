@@ -172,6 +172,25 @@ TEST(SessionManagerTest, NoUndocumentedOrderingConstraints) {
     fs::remove_all(root);
 }
 
+// Re-pushing session config mid-recording is rejected (the documented flow
+// configures before recording starts): the call is a no-op that leaves the
+// phase at Recording.
+TEST(SessionManagerTest, ApplySessionConfigRejectedWhileRecording) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    const fs::path root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+
+    AdvanceToReady(sm, cfg);
+    ASSERT_TRUE(sm.OnRecordingStart());
+    ASSERT_EQ(sm.Phase(), SessionPhase::kRecording);
+
+    EXPECT_FALSE(sm.ApplySessionConfig(cfg));
+    EXPECT_EQ(sm.Phase(), SessionPhase::kRecording);
+
+    fs::remove_all(root);
+}
+
 // R11: session memory (config, scores, clock, period) is cleared on session end.
 TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     FakeCleanup cleanup;

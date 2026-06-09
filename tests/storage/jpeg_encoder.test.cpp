@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <opencv2/imgcodecs.hpp>
+
 #include "domain/capture/models/frame.hpp"
 
 namespace {
@@ -26,7 +28,7 @@ auto MakeBgrFrame(int w, int h, std::uint8_t value) -> std::pair<sst::capture::F
     return {frame, std::move(pixels)};
 }
 
-// A BGR frame encodes to a non-empty JPEG (SOI marker 0xFFD8) at source size.
+// A BGR frame encodes to a JPEG that decodes back at the source dimensions.
 TEST(JpegEncoderTest, EncodesBgrFrameToJpegBytes) {
     auto [frame, storage] = MakeBgrFrame(32, 24, 120);
     OpenCvJpegEncoder encoder;
@@ -35,18 +37,27 @@ TEST(JpegEncoderTest, EncodesBgrFrameToJpegBytes) {
     ASSERT_GE(bytes->size(), 2U);
     EXPECT_EQ((*bytes)[0], 0xFF);  // JPEG Start Of Image
     EXPECT_EQ((*bytes)[1], 0xD8);
+
+    // Decode the output and assert it is a real JPEG of the source size.
+    const cv::Mat decoded = cv::imdecode(cv::Mat(*bytes), cv::IMREAD_COLOR);
+    ASSERT_FALSE(decoded.empty()) << "encoded bytes did not decode as a JPEG";
+    EXPECT_EQ(decoded.cols, 32);
+    EXPECT_EQ(decoded.rows, 24);
 }
 
-// A requested output size resizes before encoding (still a valid, non-empty
-// JPEG; smaller dimensions generally yield fewer bytes).
+// A requested output size resizes before encoding — the decoded JPEG carries the
+// requested dimensions, not the source's.
 TEST(JpegEncoderTest, ResizesToRequestedDimensions) {
     auto [frame, storage] = MakeBgrFrame(64, 64, 200);
     OpenCvJpegEncoder encoder;
     auto small = encoder.Encode(frame, /*width=*/16, /*height=*/16, /*quality=*/80);
     ASSERT_TRUE(small.has_value());
     EXPECT_FALSE(small->empty());
-    EXPECT_EQ((*small)[0], 0xFF);
-    EXPECT_EQ((*small)[1], 0xD8);
+
+    const cv::Mat decoded = cv::imdecode(cv::Mat(*small), cv::IMREAD_COLOR);
+    ASSERT_FALSE(decoded.empty()) << "resized output did not decode as a JPEG";
+    EXPECT_EQ(decoded.cols, 16);
+    EXPECT_EQ(decoded.rows, 16);
 }
 
 // A frame with no pixel data fails cleanly (nullopt, no crash).

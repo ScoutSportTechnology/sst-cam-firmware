@@ -212,7 +212,9 @@ TEST(PipelineOrchestratorTest, GrabLatestIsEmptyBeforeAnyFrame) {
 
 // U9: once the consumer has produced final frames, GrabLatest() returns the
 // latest post-processed frame (BGR8, output geometry) — an owned snapshot the
-// thumbnail path can encode after the call returns.
+// thumbnail path can encode after the call returns. Poll (instead of a fixed
+// sleep) so the test isn't flaky under load: the first frame is normally ready
+// within ~one capture period, but we allow up to ~2s.
 TEST(PipelineOrchestratorTest, GrabLatestReturnsLatestFinalFrame) {
     CountingSink sink;
     PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
@@ -220,14 +222,56 @@ TEST(PipelineOrchestratorTest, GrabLatestReturnsLatestFinalFrame) {
                                       std::make_unique<FakePostprocessor>(), sink, FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
-    auto snap = orchestrator.GrabLatest();
+
+    std::optional<Frame> snap;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        snap = orchestrator.GrabLatest();
+        if (snap.has_value()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     orchestrator.Stop();
 
-    ASSERT_TRUE(snap.has_value());
+    ASSERT_TRUE(snap.has_value()) << "no final frame produced within the poll window";
     EXPECT_EQ(snap->format, sst::common::PixelFormat::BGR8);
     EXPECT_EQ(snap->geometry.width, 1280U);
     EXPECT_EQ(snap->geometry.height, 720U);
+}
+
+// GrabLatest() racing Stop() must be safe: a reader thread hammering GrabLatest()
+// while the main thread tears the pipeline down must neither crash nor deadlock
+// (sanitizers catch any data race on the shared latest-frame slot).
+TEST(PipelineOrchestratorTest, ConcurrentGrabLatestAndStopIsSafe) {
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
+                                      std::make_unique<FakePreprocessor>(),
+                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+
+    ASSERT_TRUE(orchestrator.Start());
+
+    std::atomic<bool> stop_reader{false};
+    std::atomic<int> grab_calls{0};
+    std::thread reader([&] {
+        while (!stop_reader.load(std::memory_order_relaxed)) {
+            (void)orchestrator.GrabLatest();
+            grab_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Let a few frames flow, then tear down while the reader is still grabbing.
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    orchestrator.Stop();
+
+    // GrabLatest after Stop must remain safe (returns nullopt or a final frame).
+    (void)orchestrator.GrabLatest();
+
+    stop_reader.store(true, std::memory_order_relaxed);
+    reader.join();
+
+    EXPECT_GT(grab_calls.load(), 0);
+    EXPECT_FALSE(orchestrator.IsRunning());
 }
 
 TEST(PipelineOrchestratorTest, PostprocessorReceivesFullFrameCrop) {
