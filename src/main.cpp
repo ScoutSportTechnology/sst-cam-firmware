@@ -1,10 +1,21 @@
+#include <unistd.h>
+
+#include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <spdlog/spdlog.h>
 
 #include "adapters/capture/frame/gstreamer/gstreamer.hpp"
+#include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
+#include "adapters/control/system/proc-system-stats.hpp"
+#include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
+#include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
+#include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
+#include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
@@ -14,14 +25,25 @@
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 #include "app/buffer/services/fan_out_sink/fan-out-sink.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
+#include "app/control/services/dispatcher/command-dispatcher.hpp"
+#include "app/control/services/handlers/device.handler.hpp"
+#include "app/control/services/handlers/download.handler.hpp"
+#include "app/control/services/handlers/match.handler.hpp"
+#include "app/control/services/handlers/overlay.handler.hpp"
+#include "app/control/services/handlers/recording.handler.hpp"
+#include "app/control/services/handlers/session.handler.hpp"
+#include "app/control/services/handlers/streaming.handler.hpp"
+#include "app/control/services/handlers/wifi-direct.handler.hpp"
+#include "app/network/services/download_server/download-server.hpp"
+#include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
+#include "app/session/services/session_cleanup/session-cleanup.hpp"
+#include "app/session/services/session_manager/session-manager.hpp"
 #include "app/storage/services/recording_service/recording-service.hpp"
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
 #include "domain/capture/models/camera-config.hpp"
+#include "domain/control/utils/advertised-name.hpp"
 
-// ============================================================
-// Runtime paths — adjust per deployment environment
-// ============================================================
 namespace sst::paths {
 
 constexpr const char* kConfigDir = "/etc/sst/cam/config";
@@ -30,21 +52,40 @@ constexpr const char* kVideoRootFallback = "/var/lib/sst/cam/videos";
 
 }  // namespace sst::paths
 
-// Camera 0 is the only camera wired into the pipeline today. The second
-// IMX477 + the AI/physics/decision modules will land in follow-up changes;
-// when they do, the orchestrator constructor grows to accept the second
-// capture + a decision step that picks which camera to postprocess.
-namespace sst::pipeline_defaults {
+namespace sst::runtime_defaults {
 
 constexpr std::uint16_t kCamera0Index = 0;
+constexpr std::uint32_t kOverlayWidth = 1280;   // matches postprocess output
+constexpr std::uint32_t kOverlayHeight = 720;
+constexpr std::uint32_t kPreviewPort = 8554;    // RTSP preview (wifi.proto)
+constexpr std::uint32_t kDownloadPort = 8080;   // HTTP downloads
+constexpr std::uint64_t kDownloadTokenTtlSeconds = 3600;
+constexpr const char* kGroupOwnerIp = "192.168.49.1";
 
-}  // namespace sst::pipeline_defaults
+}  // namespace sst::runtime_defaults
 
-// App-as-source-of-truth refactor (big-bang, KTD9): the control plane (proto
-// dispatcher + session SM + handlers + BLE/WiFi adapters) is intentionally
-// absent here between the U2 teardown and the U14 re-wiring. This is a
-// reduced-function intermediate state — config + pipeline + storage + streaming
-// run; nothing is stubbed. The new control plane is assembled in U14.
+namespace {
+
+auto NowMs() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
+auto NowUnixSeconds() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
+}  // namespace
+
+// App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
+// contract. main() wires config + pipeline + the full control plane (BLE
+// transport -> proto dispatcher -> session SM + per-concern handlers) and runs
+// until terminated.
 auto main() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
@@ -52,38 +93,111 @@ auto main() -> int {
     // ── Config (device identity + lens calibration — the only persistent state) ─
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
     auto cfg = config.get();
-
-    // ── Storage module (single continuous MP4 per session) ─────────────
     const std::filesystem::path video_root =
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback);
+
+    // ── Storage (single continuous MP4) ────────────────────────────────
     sst::adapters::storage::FilesystemDiskGuard disk_guard(video_root, cfg.storage.min_free_bytes);
     sst::storage::RecordingService recording_service(
         std::make_unique<sst::adapters::storage::GstContinuousRecorder>(),
         std::make_unique<sst::adapters::storage::OpenCvThumbnailWriter>(), disk_guard);
 
-    // ── Streaming module ───────────────────────────────────────────────
+    // ── Streaming (RTSP preview + RTMP egress) ─────────────────────────
     auto app_stream_server =
         std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
     sst::streaming::StreamingService streaming_service(
         std::move(app_stream_server),
         [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
 
-    // ── Pipeline orchestration ────────────────────────────────────────
-    // Capture (sensor 0) → preprocess → buffer → postprocess → fan-out into
-    // both the storage RecordingService and the streaming StreamingService.
+    // ── WiFi Direct + DHCP ─────────────────────────────────────────────
+    sst::adapters::control::WpaWifiManager wifi_manager("wlan0");
+    sst::adapters::control::DnsmasqDhcpServer dhcp_server;
+
+    // ── Session (lifecycle SM + disconnect cleanup) ────────────────────
+    sst::session::SessionCleanup cleanup(recording_service, streaming_service, wifi_manager,
+                                         dhcp_server);
+    sst::session::SessionManager session_manager(cleanup);
+
+    // ── Overlay (scene -> Cairo/Pango RGBA -> compositor) ──────────────
+    sst::adapters::overlay::CairoOverlayRenderer overlay_renderer;
+    sst::adapters::overlay::GstOverlayCompositor overlay_compositor(
+        sst::runtime_defaults::kOverlayWidth, sst::runtime_defaults::kOverlayHeight);
+    sst::overlay::OverlayController overlay_controller(overlay_renderer, overlay_compositor,
+                                                       sst::runtime_defaults::kOverlayWidth,
+                                                       sst::runtime_defaults::kOverlayHeight);
+
+    // ── Downloads ──────────────────────────────────────────────────────
+    sst::network::DownloadServer download_server(video_root, NowUnixSeconds);
+
+    // ── System stats (telemetry source) ────────────────────────────────
+    sst::adapters::control::ProcSystemStats system_stats(video_root);
+
+    // ── Control plane: dispatcher + per-concern handlers ───────────────
+    sst::control::CommandDispatcher dispatcher;
+
+    // ★ Extensibility point — one Register() line per concern.
+    dispatcher.Register(std::make_shared<sst::control::DeviceHandler>(
+        cfg.device, system_stats,
+        [&recording_service] {
+            return recording_service.CurrentState() != sst::storage::RecordingState::kIdle;
+        },
+        [&streaming_service] {
+            return !streaming_service.ListActivePlatformStreams().empty();
+        }));
+    dispatcher.Register(std::make_shared<sst::control::SessionHandler>(session_manager));
+    dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
+        session_manager, wifi_manager, dhcp_server, sst::runtime_defaults::kPreviewPort,
+        sst::runtime_defaults::kDownloadPort));
+    dispatcher.Register(std::make_shared<sst::control::OverlayHandler>(session_manager,
+                                                                       overlay_controller, NowMs));
+    dispatcher.Register(std::make_shared<sst::control::MatchHandler>(session_manager,
+                                                                     overlay_controller, NowMs));
+    dispatcher.Register(
+        std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
+    dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
+    dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
+        download_server, sst::runtime_defaults::kGroupOwnerIp,
+        sst::runtime_defaults::kDownloadPort, sst::runtime_defaults::kDownloadTokenTtlSeconds));
+
+    // ── BLE transport ──────────────────────────────────────────────────
+    const std::string advertised_name = sst::control::MakeAdvertisedName(
+        sst::control::DeriveUnitNumber(cfg.device.serial_number.value_or("")));
+    sst::adapters::control::BluezBleTransport ble_transport(advertised_name);
+    ble_transport.SetOnCommand(
+        [&dispatcher](const sst_cam::Command& cmd) { return dispatcher.Dispatch(cmd); });
+    ble_transport.SetOnConnect([&session_manager] { session_manager.OnConnect(); });
+    ble_transport.SetOnDisconnect([&session_manager] { session_manager.OnDisconnect(); });
+
+    // ── Pipeline (capture -> preprocess -> buffer -> postprocess -> fan-out) ──
+    // FanOutSink feeds both storage + streaming; the overlay is composited onto
+    // the shared frame within each output branch so both carry identical pixels.
     sst::buffer::FanOutSink final_frame_sink(
         std::vector<sst::buffer::IFrameSink*>{&recording_service, &streaming_service});
 
     const sst::capture::CameraConfig camera_cfg{};
     auto capture = std::make_unique<sst::capture::GStreamerAdapter>(
-        camera_cfg, cfg.device.model.value_or(""), sst::pipeline_defaults::kCamera0Index);
+        camera_cfg, cfg.device.model.value_or(""), sst::runtime_defaults::kCamera0Index);
     auto preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>();
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
     sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
                                                  std::move(postprocessor), final_frame_sink);
 
     pipeline.Start();
+    ble_transport.Start();
+    spdlog::info("startup complete — advertising as {}", advertised_name);
 
-    spdlog::info("startup complete");
+    // Run until terminated (SIGINT/SIGTERM). Destructors stop the pipeline +
+    // transport (which finalizes any active session via the disconnect hook).
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    sigprocmask(SIG_BLOCK, &mask, nullptr);
+    int signo = 0;
+    sigwait(&mask, &signo);
+    spdlog::info("signal {} received — shutting down", signo);
+
+    ble_transport.Stop();
+    pipeline.Stop();
     return 0;
 }

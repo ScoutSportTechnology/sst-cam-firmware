@@ -43,6 +43,8 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     [[nodiscard]] auto IsRunning() const -> bool override;
 
     auto SetOnCommand(CommandHandler handler) -> void override;
+    auto SetOnConnect(ConnectionHandler handler) -> void override;
+    auto SetOnDisconnect(ConnectionHandler handler) -> void override;
 
    private:
     auto BuildAdvertisement() -> void;
@@ -65,6 +67,9 @@ class BluezBleTransport final : public sst::control::IBleTransport {
 
     mutable std::mutex mtx_;
     CommandHandler on_command_;
+    ConnectionHandler on_connect_;
+    ConnectionHandler on_disconnect_;
+    bool central_present_{false};
     ChunkAssembler assembler_;
     std::atomic<bool> running_{false};
     bool advertisement_registered_{false};

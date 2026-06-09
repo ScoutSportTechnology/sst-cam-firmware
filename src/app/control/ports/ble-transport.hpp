@@ -18,6 +18,7 @@ namespace sst::control {
 class IBleTransport {
    public:
     using CommandHandler = std::function<sst_cam::CommandResponse(const sst_cam::Command&)>;
+    using ConnectionHandler = std::function<void()>;
 
     virtual ~IBleTransport() = default;
 
@@ -26,6 +27,14 @@ class IBleTransport {
     virtual auto IsRunning() const -> bool = 0;
 
     virtual auto SetOnCommand(CommandHandler handler) -> void = 0;
+
+    // Invoked when a central (the app) first connects — detected as the first
+    // command write of a session — so the session lifecycle can leave Idle.
+    virtual auto SetOnConnect(ConnectionHandler handler) -> void = 0;
+
+    // Invoked when the central disconnects, so the session can be finalized +
+    // cleaned up (R15). Also fires on transport Stop().
+    virtual auto SetOnDisconnect(ConnectionHandler handler) -> void = 0;
 };
 
 }  // namespace sst::control

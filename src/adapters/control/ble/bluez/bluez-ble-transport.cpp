@@ -45,6 +45,16 @@ auto BluezBleTransport::SetOnCommand(CommandHandler handler) -> void {
     on_command_ = std::move(handler);
 }
 
+auto BluezBleTransport::SetOnConnect(ConnectionHandler handler) -> void {
+    std::lock_guard lock(mtx_);
+    on_connect_ = std::move(handler);
+}
+
+auto BluezBleTransport::SetOnDisconnect(ConnectionHandler handler) -> void {
+    std::lock_guard lock(mtx_);
+    on_disconnect_ = std::move(handler);
+}
+
 auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
     sst_cam::ChunkedPayload chunk;
     if (!chunk.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
@@ -54,6 +64,15 @@ auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
     }
 
     std::lock_guard lock(mtx_);
+
+    // Any write means a central is connected — surface the connect once so the
+    // session can leave Idle.
+    if (!central_present_) {
+        central_present_ = true;
+        if (on_connect_) {
+            on_connect_();
+        }
+    }
 
     // A ChunkAck is wire-compatible with ChunkedPayload on fields 1/2 but carries
     // no total_chunks (#3): total_chunks == 0 means this write acks one of OUR
@@ -176,6 +195,19 @@ auto BluezBleTransport::Stop() -> void {
         return;
     }
     spdlog::info("BluezBleTransport::Stop");
+
+    // Notify the session layer so it finalizes + cleans up (R15). On-device, a
+    // central-initiated disconnect (org.bluez Device1 Connected=false) should
+    // also invoke this; that D-Bus subscription is verified on hardware.
+    ConnectionHandler on_disconnect;
+    {
+        std::lock_guard lock(mtx_);
+        on_disconnect = central_present_ ? on_disconnect_ : nullptr;
+        central_present_ = false;
+    }
+    if (on_disconnect) {
+        on_disconnect();
+    }
 
     if (connection_ && (advertisement_registered_ || application_registered_)) {
         try {
