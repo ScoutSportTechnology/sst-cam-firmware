@@ -162,6 +162,32 @@ TEST(CairoRendererTest, UniformScalePreservesCircleOffAspect) {
     EXPECT_EQ(At(img, 52, 2).a, 0);
 }
 
+// U3: text taller than its bounds is clipped — no painted pixels below the
+// bounds bottom edge. Multi-line text with a tiny-height box forces overflow.
+TEST(CairoRendererTest, TextClippedToBoundsHeight) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 200;
+    scene.canvas_height = 200;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    // A short box (24px tall) that cannot hold three 40px lines.
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 200, .y2 = 24, .z = 1};
+    e.style.text_color = "#FFFFFF";
+    e.style.font_size = 40.0F;
+    e.style.opacity = 1.0F;
+    e.text = "AAAA\nBBBB\nCCCC";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 200, 200);
+    // No glyph pixel may appear below the bounds bottom edge (y >= 24).
+    for (std::uint32_t y = 30; y < 200; ++y) {
+        for (std::uint32_t x = 0; x < 200; ++x) {
+            EXPECT_EQ(At(img, x, y).a, 0) << "painted pixel below clip at (" << x << "," << y << ")";
+        }
+    }
+}
+
 // Text element renders without crashing (font availability aside).
 TEST(CairoRendererTest, TextRenderDoesNotCrash) {
     CairoOverlayRenderer renderer;
