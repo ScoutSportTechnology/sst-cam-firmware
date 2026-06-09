@@ -16,6 +16,10 @@ struct AppStreamConfig {
     static constexpr std::uint32_t kDefaultBitrateKbps = 1500;
     static constexpr std::uint16_t kDefaultPort = 8554;
 
+    // Bind address. Defaults to all interfaces; in production the orchestrator
+    // sets this to the WiFi Direct group-owner IP so the preview is reachable
+    // only over the phone link (R22), never on the cellular interface.
+    std::string address{"0.0.0.0"};
     std::string mount_point{"/preview"};
     std::uint16_t port{kDefaultPort};
     std::uint32_t width{kDefaultWidth};

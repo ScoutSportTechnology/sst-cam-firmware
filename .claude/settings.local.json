@@ -87,7 +87,8 @@
       "Bash(awk '$1==\"Package:\"{c=$2} c==\"libbrotli-dev\" && $1==\"Version:\"{v=$2} c==\"libbrotli-dev\" && $1==\"Filename:\"{print v\" \"$2; exit}' P_upd P_main)",
       "Bash(timeout 200 ctest --preset test -R \"OverlaySceneTest|CairoRendererTest\" --output-on-failure)",
       "Bash(timeout 200 ctest --preset test -R \"OverlayControllerTest|MatchHandlerTest\" --output-on-failure)",
-      "Bash(timeout 200 ctest --preset test -R \"ContinuousRecorderTest|ThumbnailWriterTest\" --output-on-failure)"
+      "Bash(timeout 200 ctest --preset test -R \"ContinuousRecorderTest|ThumbnailWriterTest\" --output-on-failure)",
+      "Bash(timeout 150 ctest --preset test -R \"StreamingHandlerTest\" --output-on-failure)"
     ]
   }
 }

@@ -60,6 +60,9 @@ auto GstRtspAppStreamServer::Start(const sst::streaming::AppStreamConfig& config
     g_main_context_push_thread_default(context_);
 
     server_ = gst_rtsp_server_new();
+    // Bind to the configured address only (WiFi Direct GO IP in production) so
+    // the preview is unreachable on the cellular interface (R22).
+    gst_rtsp_server_set_address(server_, config_.address.c_str());
     const std::string port_str = std::to_string(config_.port);
     gst_rtsp_server_set_service(server_, port_str.c_str());
 
@@ -104,7 +107,7 @@ auto GstRtspAppStreamServer::Start(const sst::streaming::AppStreamConfig& config
         g_main_context_pop_thread_default(context_);
     });
 
-    spdlog::info("GstRtspAppStreamServer: serving rtsp://0.0.0.0:{}{}", config_.port,
+    spdlog::info("GstRtspAppStreamServer: serving rtsp://{}:{}{}", config_.address, config_.port,
                  config_.mount_point);
     return true;
 }
