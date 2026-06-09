@@ -4,13 +4,16 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 #include "app/buffer/ports/frame-sink.hpp"
 #include "app/capture/ports/frame-src.hpp"
+#include "app/pipeline/ports/frame-snapshot-source.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
 #include "domain/buffer/services/latest-only-slot.hpp"
+#include "domain/capture/models/frame.hpp"
 #include "domain/processing/models/frame-bundle.hpp"
 
 namespace sst::pipeline {
@@ -41,14 +44,14 @@ struct PipelineConfig {
 // LatestOnlySlot drops older bundles on overrun, decoupling capture cadence
 // from postprocess+sink cadence so a slow downstream sink can't back-pressure
 // the camera.
-class PipelineOrchestrator {
+class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
    public:
     PipelineOrchestrator(std::unique_ptr<sst::capture::ICaptureFrame> capture,
                          std::unique_ptr<sst::processing::IPreprocessor> preprocessor,
                          std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
                          sst::buffer::IFrameSink& sink, PipelineConfig config = PipelineConfig{});
 
-    ~PipelineOrchestrator();
+    ~PipelineOrchestrator() override;
 
     PipelineOrchestrator(const PipelineOrchestrator&) = delete;
     auto operator=(const PipelineOrchestrator&) -> PipelineOrchestrator& = delete;
@@ -60,6 +63,11 @@ class PipelineOrchestrator {
     // Idempotent. Signals both threads to exit, joins them, stops the capture.
     auto Stop() -> void;
     [[nodiscard]] auto IsRunning() const -> bool;
+
+    // IFrameSnapshotSource: the most recent post-processed final frame, deep-
+    // copied off any GstBuffer so it stays valid for the caller. std::nullopt
+    // until the consumer has produced at least one frame.
+    [[nodiscard]] auto GrabLatest() -> std::optional<sst::capture::Frame> override;
 
    private:
     auto ProducerLoop() -> void;
@@ -77,6 +85,13 @@ class PipelineOrchestrator {
     std::atomic<bool> running_{false};
     std::thread producer_thread_;
     std::thread consumer_thread_;
+
+    // Latest final frame for on-demand snapshots (thumbnail). Guarded by its own
+    // mutex so GrabLatest() (BLE thread) never contends with Start/Stop. The
+    // stored Frame owns its pixels (postprocessor MakeOwnedFrame), so a value
+    // copy under the lock hands the caller a fully independent frame.
+    mutable std::mutex latest_frame_mtx_;
+    std::optional<sst::capture::Frame> latest_frame_;
 };
 
 }  // namespace sst::pipeline

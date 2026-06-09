@@ -22,6 +22,7 @@
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
 #include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
+#include "adapters/storage/opencv/opencv-jpeg-encoder.hpp"
 #include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
@@ -36,6 +37,7 @@
 #include "app/control/services/handlers/recording.handler.hpp"
 #include "app/control/services/handlers/session.handler.hpp"
 #include "app/control/services/handlers/streaming.handler.hpp"
+#include "app/control/services/handlers/thumbnail.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
@@ -197,6 +199,13 @@ auto main() -> int {
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
     sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
                                                  std::move(postprocessor), final_frame_sink);
+
+    // On-demand thumbnail: snapshot the latest pipeline frame + encode to JPEG
+    // in memory. Registered here (after the pipeline exists) but before the BLE
+    // transport starts, so it's wired by the time a command can arrive.
+    sst::adapters::storage::OpenCvJpegEncoder jpeg_encoder;
+    dispatcher.Register(
+        std::make_shared<sst::control::ThumbnailHandler>(pipeline, jpeg_encoder, NowMs));
 
     if (!pipeline.Start()) {
         spdlog::error("pipeline failed to start (camera unavailable?) — aborting");

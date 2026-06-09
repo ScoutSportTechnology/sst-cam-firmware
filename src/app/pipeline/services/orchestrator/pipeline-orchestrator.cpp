@@ -105,8 +105,20 @@ auto PipelineOrchestrator::ConsumerLoop() -> void {
         if (!final_frame) {
             continue;
         }
+        {
+            // Retain the latest final frame for on-demand snapshots. It already
+            // owns its pixels (postprocessor MakeOwnedFrame), so storing it by
+            // value keeps those bytes alive for a later GrabLatest().
+            std::lock_guard lock(latest_frame_mtx_);
+            latest_frame_ = *final_frame;
+        }
         sink_.Push(*final_frame);
     }
+}
+
+auto PipelineOrchestrator::GrabLatest() -> std::optional<sst::capture::Frame> {
+    std::lock_guard lock(latest_frame_mtx_);
+    return latest_frame_;
 }
 
 }  // namespace sst::pipeline

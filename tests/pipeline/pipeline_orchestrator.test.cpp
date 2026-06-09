@@ -200,6 +200,36 @@ TEST(PipelineOrchestratorTest, EndToEndFlowProducesPostprocessedFrames) {
     EXPECT_EQ(last_geom.height, 720U);
 }
 
+// U9: before any frame is produced, the snapshot source has nothing — the
+// thumbnail handler turns this into a ResponseStatus::ERROR.
+TEST(PipelineOrchestratorTest, GrabLatestIsEmptyBeforeAnyFrame) {
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
+                                      std::make_unique<FakePreprocessor>(),
+                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+    EXPECT_FALSE(orchestrator.GrabLatest().has_value());
+}
+
+// U9: once the consumer has produced final frames, GrabLatest() returns the
+// latest post-processed frame (BGR8, output geometry) — an owned snapshot the
+// thumbnail path can encode after the call returns.
+TEST(PipelineOrchestratorTest, GrabLatestReturnsLatestFinalFrame) {
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
+                                      std::make_unique<FakePreprocessor>(),
+                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+
+    ASSERT_TRUE(orchestrator.Start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    auto snap = orchestrator.GrabLatest();
+    orchestrator.Stop();
+
+    ASSERT_TRUE(snap.has_value());
+    EXPECT_EQ(snap->format, sst::common::PixelFormat::BGR8);
+    EXPECT_EQ(snap->geometry.width, 1280U);
+    EXPECT_EQ(snap->geometry.height, 720U);
+}
+
 TEST(PipelineOrchestratorTest, PostprocessorReceivesFullFrameCrop) {
     auto postprocessor_owner = std::make_unique<FakePostprocessor>();
     auto* postprocessor = postprocessor_owner.get();
