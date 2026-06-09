@@ -235,6 +235,53 @@ TEST(CairoRendererTest, TextWithoutFillHasTransparentBackground) {
     EXPECT_EQ(At(img, 110, 55).a, 0);  // bottom corner, no glyph, no fill
 }
 
+// U5: per-element opacity composites the fill+text unit at the given alpha —
+// a 0.5-opacity red background box yields ~50% alpha pixels (group compositing,
+// not double-darkening).
+TEST(CairoRendererTest, TextElementOpacityCompositesAsUnit) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 120;
+    scene.canvas_height = 60;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 120, .y2 = 60, .z = 1};
+    e.style.fill_color = "#FF0000";
+    e.style.text_color = "#FFFFFF";
+    e.style.font_size = 20.0F;
+    e.style.opacity = 0.5F;
+    e.text = "Hi";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 120, 60);
+    const Px bg = At(img, 110, 55);  // background-only pixel
+    EXPECT_NEAR(bg.a, 127, 12);
+    EXPECT_GT(bg.r, 200);  // straight-alpha red preserved
+    EXPECT_LT(bg.g, 50);
+}
+
+// U5 edge: empty font family falls back to a shipped comparable face without
+// crashing (smoke; in-container font availability is limited).
+TEST(CairoRendererTest, EmptyFontFamilyFallsBack) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 200;
+    scene.canvas_height = 60;
+    RenderElement e;
+    e.shape = OverlayShape::kText;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 200, .y2 = 60, .z = 1};
+    e.style.text_color = "#FFFFFF";
+    e.style.font_family = "";  // unset -> sans-serif fallback
+    e.style.font_size = 24.0F;
+    e.style.opacity = 1.0F;
+    e.text = "Score";
+    scene.elements.push_back(e);
+
+    auto img = renderer.Render(scene, 200, 60);
+    EXPECT_EQ(img.width, 200U);
+    EXPECT_EQ(img.height, 60U);
+}
+
 // Text element renders without crashing (font availability aside).
 TEST(CairoRendererTest, TextRenderDoesNotCrash) {
     CairoOverlayRenderer renderer;
