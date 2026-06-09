@@ -85,7 +85,8 @@
       "Bash(awk '$1==\"Package:\"{c=$2} c==\"libfontconfig-dev\" && $1==\"Filename:\"{print \"libfontconfig-dev \"$2}' P_main P_upd)",
       "Bash(awk '$1==\"Package:\"{c=$2} c==\"libfontconfig1-dev\" && $1==\"Filename:\"{print \"libfontconfig1-dev \"$2}' P_main P_upd)",
       "Bash(awk '$1==\"Package:\"{c=$2} c==\"libbrotli-dev\" && $1==\"Version:\"{v=$2} c==\"libbrotli-dev\" && $1==\"Filename:\"{print v\" \"$2; exit}' P_upd P_main)",
-      "Bash(timeout 200 ctest --preset test -R \"OverlaySceneTest|CairoRendererTest\" --output-on-failure)"
+      "Bash(timeout 200 ctest --preset test -R \"OverlaySceneTest|CairoRendererTest\" --output-on-failure)",
+      "Bash(timeout 200 ctest --preset test -R \"OverlayControllerTest|MatchHandlerTest\" --output-on-failure)"
     ]
   }
 }
