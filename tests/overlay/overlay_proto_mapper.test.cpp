@@ -77,4 +77,22 @@ TEST(OverlayProtoMapperTest, ExplicitOpacityIsPreserved) {
     EXPECT_FLOAT_EQ(MapSingle(zero).style.opacity, 0.0F);
 }
 
+// #6: an opacity outside [0,1] is clamped at the mapper (the single proto->domain
+// translation point). An out-of-range alpha reaching cairo_paint_with_alpha puts
+// the cairo_t into a permanent error state, silently dropping every later element
+// in the frame, so the clamp must happen before the renderer ever sees it.
+TEST(OverlayProtoMapperTest, OpacityAboveOneIsClampedToOne) {
+    sst_cam::OverlayElement el;
+    el.set_id("e");
+    el.mutable_style()->set_opacity(1.5F);
+    EXPECT_FLOAT_EQ(MapSingle(el).style.opacity, 1.0F);
+}
+
+TEST(OverlayProtoMapperTest, OpacityBelowZeroIsClampedToZero) {
+    sst_cam::OverlayElement el;
+    el.set_id("e");
+    el.mutable_style()->set_opacity(-0.2F);
+    EXPECT_FLOAT_EQ(MapSingle(el).style.opacity, 0.0F);
+}
+
 }  // namespace
