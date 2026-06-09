@@ -97,7 +97,15 @@
       "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.EnumeratesRecordings|DownloadServerTest.TokenMintValidateExpire\" --output-on-failure)",
       "Bash(timeout 150 ctest --preset test -R \"Pipeline|Orchestrator\" --output-on-failure)",
       "Bash(timeout 150 ctest --preset test -R \"ControlPlaneIntegrationTest\" --output-on-failure)",
-      "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.Enumerate|ProtoRoundtrip\" --output-on-failure)"
+      "Bash(timeout 120 ctest --preset test -R \"DownloadServerTest.Enumerate|ProtoRoundtrip\" --output-on-failure)",
+      "Bash(awk '/^diff --git/{file=$0} /^[+]#include.*<gst/{print file, $0} /^[+]#include.*<opencv/{print file, $0}' /tmp/compound-engineering/ce-code-review/20260609-2e0c80c2/full.diff)",
+      "Bash(python3 -c \"import json; f=open\\('/tmp/compound-engineering/ce-code-review/20260609-2e0c80c2/reliability.json'\\); d=json.load\\(f\\); print\\('findings:', len\\(d['findings']\\), 'residual_risks:', len\\(d['residual_risks']\\), 'testing_gaps:', len\\(d['testing_gaps']\\)\\)\")",
+      "Bash(awk '/^diff --git.*app.*ports/{file=$0} /^[+]#include.*<gst/{print file, $0} /^[+]#include.*<opencv/{print file, $0}' /tmp/compound-engineering/ce-code-review/20260609-2e0c80c2/full.diff)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(open\\('/tmp/compound-engineering/ce-code-review/20260609-2e0c80c2/performance.json'\\)\\); print\\('findings:', len\\(d['findings']\\), 'risks:', len\\(d['residual_risks']\\), 'gaps:', len\\(d['testing_gaps']\\)\\)\")",
+      "Bash(awk '/^diff --git/{file=$0} /^[+]#include \"bluetooth.pb.h\"/{print file}' /tmp/compound-engineering/ce-code-review/20260609-2e0c80c2/full.diff)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"BUILD_EXIT:$?\")",
+      "Bash(ctest --preset test --output-on-failure -R 'RecordingHandlerTest|WifiDirectHandlerTest|SessionManagerTest|OverlayControllerTest|ChunkAssemblerTest')"
     ]
   }
 }
