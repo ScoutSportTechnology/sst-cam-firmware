@@ -30,6 +30,7 @@
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
 #include "app/control/services/handlers/device.handler.hpp"
 #include "app/control/services/handlers/download.handler.hpp"
+#include "app/control/services/handlers/match-state.handler.hpp"
 #include "app/control/services/handlers/match.handler.hpp"
 #include "app/control/services/handlers/overlay.handler.hpp"
 #include "app/control/services/handlers/recording.handler.hpp"
@@ -165,6 +166,8 @@ auto main() -> int {
     auto match_handler =
         std::make_shared<sst::control::MatchHandler>(session_manager, overlay_controller, NowMs);
     dispatcher.Register(match_handler);
+    dispatcher.Register(
+        std::make_shared<sst::control::MatchStateHandler>(session_manager, NowMs));
     dispatcher.Register(
         std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
