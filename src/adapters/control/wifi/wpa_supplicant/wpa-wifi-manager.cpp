@@ -16,14 +16,18 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include "adapters/control/wifi/wpa_supplicant/wpa-p2p-parse.hpp"
+#include "domain/network/models/formatter/_fmt.hpp"  // IWYU pragma: keep
+
 namespace sst::adapters::control {
 
 namespace {
 
 constexpr std::size_t kRecvBufSize = 4096;
 constexpr auto kRecvTimeout = std::chrono::seconds{2};
-constexpr int kModeAp = 2;
 constexpr const char* kGoIpAddress = "192.168.49.1";
+constexpr const char* kGoRole = "GO";
+constexpr int kMaxEventReads = 20;
 
 auto StartsWith(const std::string& s, std::string_view prefix) -> bool {
     return s.size() >= prefix.size() &&
@@ -111,76 +115,76 @@ auto WpaWifiManager::SendCommand(std::string_view cmd) -> std::optional<std::str
     return std::string(buf.data(), static_cast<std::size_t>(n));
 }
 
-auto WpaWifiManager::RemoveAllNetworks() -> void {
-    SendCommand("DISCONNECT");
-    SendCommand("REMOVE_NETWORK all");
-}
-
-auto WpaWifiManager::ConfigureNetwork(const sst::control::WifiCredentials& creds)
-    -> std::optional<int> {
-    auto add = SendCommand("ADD_NETWORK");
-    if (!add) {
-        return std::nullopt;
-    }
-    int net_id = 0;
-    {
-        const std::string& s = *add;
-        auto end = s.find('\n');
-        const auto sv = std::string_view(s).substr(0, end);
-        if (std::from_chars(sv.data(), sv.data() + sv.size(), net_id).ec != std::errc{}) {
-            spdlog::error("WpaWifiManager: ADD_NETWORK returned non-numeric: \"{}\"", sv);
-            return std::nullopt;
+auto WpaWifiManager::ReadUntil(std::string_view marker) -> std::optional<std::string> {
+    for (int i = 0; i < kMaxEventReads; ++i) {
+        std::array<char, kRecvBufSize> buf{};
+        const auto n = ::recv(sock_, buf.data(), buf.size() - 1, 0);
+        if (n <= 0) {
+            return std::nullopt;  // timeout / closed
+        }
+        std::string msg(buf.data(), static_cast<std::size_t>(n));
+        if (msg.find(marker) != std::string::npos) {
+            return msg;
         }
     }
-
-    auto set = [this, net_id](std::string_view key, std::string_view value) -> bool {
-        auto reply = SendCommand(fmt::format("SET_NETWORK {} {} {}", net_id, key, value));
-        return reply && StartsWith(*reply, "OK");
-    };
-
-    if (!set("ssid", fmt::format("\"{}\"", creds.ssid))) return std::nullopt;
-    if (!set("psk", fmt::format("\"{}\"", creds.passphrase))) return std::nullopt;
-    if (!set("key_mgmt", "WPA-PSK")) return std::nullopt;
-    if (!set("proto", "RSN")) return std::nullopt;
-    if (!set("pairwise", "CCMP")) return std::nullopt;
-    if (!set("group", "CCMP")) return std::nullopt;
-    if (!set("mode", std::to_string(kModeAp))) return std::nullopt;
-    // 2.4 GHz channel 1 — broadest device support.
-    if (!set("frequency", "2412")) return std::nullopt;
-
-    auto enable = SendCommand(fmt::format("ENABLE_NETWORK {}", net_id));
-    if (!enable || !StartsWith(*enable, "OK")) {
-        return std::nullopt;
-    }
-    auto select = SendCommand(fmt::format("SELECT_NETWORK {}", net_id));
-    if (!select || !StartsWith(*select, "OK")) {
-        return std::nullopt;
-    }
-    SendCommand("SAVE_CONFIG");
-    return net_id;
+    return std::nullopt;
 }
 
-auto WpaWifiManager::StartP2pGroupOwner(const sst::control::WifiCredentials& creds) -> bool {
+auto WpaWifiManager::StartP2pGroupOwner() -> std::optional<sst::network::WifiDirectGroup> {
     std::lock_guard lock(mtx_);
-    if (!OpenCtrlSocket()) return false;
-    RemoveAllNetworks();
-    auto net_id = ConfigureNetwork(creds);
-    if (!net_id) return false;
+    if (!OpenCtrlSocket()) {
+        return std::nullopt;
+    }
+
+    // Subscribe to unsolicited events so we capture P2P-GROUP-STARTED.
+    SendCommand("ATTACH");
+
+    // Form a real autonomous (non-persistent) group owner. wpa_supplicant
+    // generates the SSID + passphrase.
+    auto reply = SendCommand("P2P_GROUP_ADD");
+    if (!reply || !StartsWith(*reply, "OK")) {
+        spdlog::error("WpaWifiManager: P2P_GROUP_ADD failed: {}",
+                      reply ? *reply : std::string{"<no reply>"});
+        return std::nullopt;
+    }
+
+    auto event = ReadUntil("P2P-GROUP-STARTED");
+    if (!event) {
+        spdlog::error("WpaWifiManager: no P2P-GROUP-STARTED event received");
+        return std::nullopt;
+    }
+    auto parsed = ParseGroupStarted(*event);
+    if (!parsed) {
+        spdlog::error("WpaWifiManager: could not parse P2P-GROUP-STARTED: {}", *event);
+        return std::nullopt;
+    }
+
+    group_interface_ = parsed->interface;
     state_ = {.mode = sst::control::WifiMode::kP2pGroupOwner,
               .connected = true,
-              .ssid = creds.ssid,
+              .ssid = parsed->ssid,
               .ip_address = kGoIpAddress};
-    spdlog::info("WpaWifiManager::StartP2pGroupOwner ssid=\"{}\" net_id={}", creds.ssid,
-                 *net_id);
-    return true;
+
+    sst::network::WifiDirectGroup group;
+    group.ssid = parsed->ssid;
+    group.psk = parsed->passphrase;
+    group.group_interface = parsed->interface;
+    group.group_owner_ip = kGoIpAddress;
+    group.role = kGoRole;
+    spdlog::info("WpaWifiManager::StartP2pGroupOwner formed group {}", group);
+    return group;
 }
 
 auto WpaWifiManager::Stop() -> void {
     std::lock_guard lock(mtx_);
     if (sock_ >= 0) {
-        SendCommand("DISCONNECT");
-        SendCommand("REMOVE_NETWORK all");
+        if (!group_interface_.empty()) {
+            SendCommand(fmt::format("P2P_GROUP_REMOVE {}", group_interface_));
+        } else {
+            SendCommand("P2P_GROUP_REMOVE *");
+        }
     }
+    group_interface_.clear();
     state_ = {};
     CloseCtrlSocket();
     spdlog::info("WpaWifiManager::Stop");

@@ -88,7 +88,8 @@
       "Bash(timeout 200 ctest --preset test -R \"OverlaySceneTest|CairoRendererTest\" --output-on-failure)",
       "Bash(timeout 200 ctest --preset test -R \"OverlayControllerTest|MatchHandlerTest\" --output-on-failure)",
       "Bash(timeout 200 ctest --preset test -R \"ContinuousRecorderTest|ThumbnailWriterTest\" --output-on-failure)",
-      "Bash(timeout 150 ctest --preset test -R \"StreamingHandlerTest\" --output-on-failure)"
+      "Bash(timeout 150 ctest --preset test -R \"StreamingHandlerTest\" --output-on-failure)",
+      "Bash(timeout 150 ctest --preset test -R \"WpaP2pParseTest|WifiDirectHandlerTest\" --output-on-failure)"
     ]
   }
 }
