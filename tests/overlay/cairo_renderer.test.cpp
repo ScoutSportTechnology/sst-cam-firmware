@@ -132,6 +132,36 @@ TEST(CairoRendererTest, EmptySceneIsTransparent) {
     }
 }
 
+// U2: an off-aspect output (wide) keeps a circle inscribed in square canvas
+// bounds circular — a uniform scale + letterbox, never an x/y stretch. A
+// non-uniform scale would stretch the circle into a wide ellipse, lighting up
+// pixels far left/right of center that the inscribed circle never covers.
+TEST(CairoRendererTest, UniformScalePreservesCircleOffAspect) {
+    CairoOverlayRenderer renderer;
+    RenderScene scene;
+    scene.canvas_width = 100;
+    scene.canvas_height = 100;
+    RenderElement e;
+    e.shape = OverlayShape::kCircle;
+    e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 100, .y2 = 100, .z = 1};
+    e.style.fill_color = "#00FF00";
+    e.style.opacity = 1.0F;
+    scene.elements.push_back(e);
+
+    // 200x100 output: scale = min(2, 1) = 1, canvas centered horizontally with
+    // 50px letterbox bars on each side. A 100px circle inscribed -> radius 50,
+    // center at (100, 50).
+    auto img = renderer.Render(scene, 200, 100);
+    EXPECT_EQ(At(img, 100, 50).a, 255);  // circle center filled
+    // If the canvas had been x-stretched to fill 200px width, these far columns
+    // would be inside the ellipse; with uniform scale + centering they are in
+    // the letterbox and stay transparent.
+    EXPECT_EQ(At(img, 5, 50).a, 0);    // left letterbox bar
+    EXPECT_EQ(At(img, 195, 50).a, 0);  // right letterbox bar
+    // The circle's own bbox corner (within the centered canvas) is outside it.
+    EXPECT_EQ(At(img, 52, 2).a, 0);
+}
+
 // Text element renders without crashing (font availability aside).
 TEST(CairoRendererTest, TextRenderDoesNotCrash) {
     CairoOverlayRenderer renderer;

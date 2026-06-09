@@ -171,12 +171,23 @@ auto CairoOverlayRenderer::Render(const RenderScene& scene, std::uint32_t out_wi
         CAIRO_FORMAT_ARGB32, static_cast<int>(out_width), static_cast<int>(out_height));
     cairo_t* cr = cairo_create(surface);
 
-    // Canvas -> output scaling so the same layout maps to any resolution.
+    // Canvas -> output mapping: a SINGLE uniform scale factor that preserves
+    // aspect ratio (overlay-rendering.md: non-uniform x/y scaling is
+    // non-conformant). When the output aspect differs from the canvas aspect we
+    // letterbox — center the scaled canvas so circles stay circular and corner
+    // radii stay unskewed. Every length (font_size, corner_radius, rect edges)
+    // then scales by this same factor.
     const double sx =
         scene.canvas_width > 0 ? static_cast<double>(out_width) / scene.canvas_width : 1.0;
     const double sy =
         scene.canvas_height > 0 ? static_cast<double>(out_height) / scene.canvas_height : 1.0;
-    cairo_scale(cr, sx, sy);
+    const double scale = std::min(sx, sy);
+    const double scaled_w = static_cast<double>(scene.canvas_width) * scale;
+    const double scaled_h = static_cast<double>(scene.canvas_height) * scale;
+    const double offset_x = (static_cast<double>(out_width) - scaled_w) / 2.0;
+    const double offset_y = (static_cast<double>(out_height) - scaled_h) / 2.0;
+    cairo_translate(cr, offset_x, offset_y);
+    cairo_scale(cr, scale, scale);
 
     for (const auto& element : scene.elements) {
         DrawElement(cr, element);
