@@ -46,7 +46,10 @@ auto MapStyle(const sst_cam::OverlayStyle& s) -> OverlayStyle {
     return OverlayStyle{
         .fill_color = s.fill_color(),
         .text_color = s.text_color(),
-        .opacity = s.opacity(),
+        // proto3 `optional`: absent opacity => documented default 1.0 (opaque),
+        // not the scalar zero-value (0.0 = fully transparent). See
+        // overlay-rendering.md "Element defaults".
+        .opacity = s.has_opacity() ? s.opacity() : 1.0F,
         .corner_radius = s.corner_radius(),
         .font_family = s.font_family(),
         .font_size = s.font_size(),
@@ -63,7 +66,10 @@ auto MapElement(const sst_cam::OverlayElement& e) -> OverlayElement {
         .bounds = MapRect(e.bounds()),
         .style = MapStyle(e.style()),
         .binding = MapBinding(e.binding()),
-        .visible = e.visible(),
+        // proto3 `optional`: absent visible => documented default true (renders),
+        // not the scalar zero-value (false = hidden). See overlay-rendering.md
+        // "Element defaults".
+        .visible = e.has_visible() ? e.visible() : true,
     };
 }
 
