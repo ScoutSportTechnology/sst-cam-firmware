@@ -10,10 +10,12 @@
 #include <string>
 #include <vector>
 
+#include "adapters/control/ble/bluez/inbound-ack.hpp"
 #include "bluetooth.pb.h"
 
 namespace {
 
+using sst::adapters::control::BuildInboundAck;
 using sst::adapters::control::ChunkAssembler;
 using sst::adapters::control::ChunkAssemblerConfig;
 
@@ -136,6 +138,71 @@ TEST(ChunkAssemblerTest, OutOfOrderAndDuplicateInbound) {
     auto done = assembler.OfferInbound(MakeChunk("x", 1, 3, "bbb"));
     ASSERT_TRUE(done.has_value());
     EXPECT_EQ(*done, "aaabbbccc");
+}
+
+// U7 / R7: the transport emits one ChunkAck per inbound command chunk so the
+// app's flow control can release the next chunk. This mirrors the transport's
+// per-chunk policy transport-free: for each chunk, build the ack and feed the
+// chunk to the assembler; assert one well-formed ack per chunk and that the
+// message still reassembles. The ack carries no total_chunks (==0), the
+// disambiguation the app uses to tell an ack from a response chunk.
+struct AckSink {
+    std::vector<sst_cam::ChunkAck> acks;
+    void OnInbound(const sst_cam::ChunkedPayload& chunk, ChunkAssembler& assembler) {
+        acks.push_back(BuildInboundAck(chunk.correlation_id(), chunk.chunk_index()));
+        assembler.OfferInbound(chunk);
+    }
+};
+
+TEST(ChunkAssemblerTest, ThreeChunkInboundProducesThreeAcks) {
+    ChunkAssembler assembler;
+    AckSink sink;
+
+    const std::vector<sst_cam::ChunkedPayload> chunks = {
+        MakeChunk("big", 0, 3, "aaa"), MakeChunk("big", 1, 3, "bbb"),
+        MakeChunk("big", 2, 3, "ccc")};
+    for (const auto& c : chunks) {
+        sink.OnInbound(c, assembler);
+    }
+
+    ASSERT_EQ(sink.acks.size(), 3U);
+    for (std::uint32_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(sink.acks[i].correlation_id(), "big");
+        EXPECT_EQ(sink.acks[i].chunk_index(), i);
+        // Wire-compatible ack: re-parsed as a ChunkedPayload it has no
+        // total_chunks (==0), the app's ack-vs-response disambiguation.
+        sst_cam::ChunkedPayload as_payload;
+        ASSERT_TRUE(as_payload.ParseFromString(sink.acks[i].SerializeAsString()));
+        EXPECT_EQ(as_payload.total_chunks(), 0U);
+        EXPECT_EQ(as_payload.chunk_index(), i);
+    }
+    EXPECT_EQ(assembler.InflightInboundCount(), 0U);  // reassembled + freed
+}
+
+// Single-chunk inbound still acks exactly once and reassembles via the fast path.
+TEST(ChunkAssemblerTest, SingleChunkInboundAcksOnce) {
+    ChunkAssembler assembler;
+    AckSink sink;
+    auto chunk = MakeChunk("one", 0, 1, "payload");
+    sink.OnInbound(chunk, assembler);
+
+    ASSERT_EQ(sink.acks.size(), 1U);
+    EXPECT_EQ(sink.acks[0].correlation_id(), "one");
+    EXPECT_EQ(sink.acks[0].chunk_index(), 0U);
+}
+
+// A duplicate inbound chunk is still acked (the app may have retransmitted after
+// a lost ack), and the assembler dedups it so the message reassembles once.
+TEST(ChunkAssemblerTest, DuplicateInboundIsStillAcked) {
+    ChunkAssembler assembler;
+    AckSink sink;
+
+    sink.OnInbound(MakeChunk("d", 0, 2, "aa"), assembler);
+    sink.OnInbound(MakeChunk("d", 0, 2, "aa"), assembler);  // duplicate index 0
+    sink.OnInbound(MakeChunk("d", 1, 2, "bb"), assembler);
+
+    EXPECT_EQ(sink.acks.size(), 3U);  // every write is acked, dup included
+    EXPECT_EQ(sink.acks[1].chunk_index(), 0U);  // dup ack well-formed
 }
 
 // Malformed framing is rejected without crashing or retaining state.

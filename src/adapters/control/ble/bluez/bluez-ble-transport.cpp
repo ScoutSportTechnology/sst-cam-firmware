@@ -7,6 +7,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "adapters/control/ble/bluez/inbound-ack.hpp"
 #include "bluetooth.pb.h"
 #include "domain/control/models/bootstrap-config.hpp"
 
@@ -81,6 +82,13 @@ auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
         assembler_.OnAck(chunk.correlation_id(), chunk.chunk_index());
         return;
     }
+
+    // Acknowledge every inbound command chunk so the app can release its next
+    // chunk without stalling on large messages (overlay layout, session
+    // config). The single-chunk fast path is acked too — harmless and keeps the
+    // app's flow control uniform. Duplicates are still acked (well-formed),
+    // since the app may have retransmitted after a lost ack.
+    SendInboundAck(chunk.correlation_id(), chunk.chunk_index());
 
     auto reassembled = assembler_.OfferInbound(chunk);
     if (!reassembled) {
@@ -256,6 +264,17 @@ auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -
         });
     spdlog::debug("BluezBleTransport: response corr={} status={} -> {} chunk(s)",
                   response.correlation_id(), static_cast<int>(response.status()), total);
+}
+
+auto BluezBleTransport::SendInboundAck(const std::string& correlation_id,
+                                       std::uint32_t chunk_index) -> void {
+    if (!gatt_app_) {
+        spdlog::warn("BluezBleTransport::SendInboundAck: GATT app not active");
+        return;
+    }
+    const std::string wire = BuildInboundAck(correlation_id, chunk_index).SerializeAsString();
+    gatt_app_->SendNotification({wire.begin(), wire.end()});
+    spdlog::debug("BluezBleTransport: inbound ack corr={} index={}", correlation_id, chunk_index);
 }
 
 }  // namespace sst::adapters::control
