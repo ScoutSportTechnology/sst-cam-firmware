@@ -10,14 +10,15 @@
 #include <string>
 #include <vector>
 
-#include "adapters/control/ble/bluez/inbound-ack.hpp"
+#include "app/control/services/chunk-ack/chunk-ack.hpp"
 #include "bluetooth.pb.h"
 
 namespace {
 
-using sst::adapters::control::BuildInboundAck;
 using sst::adapters::control::ChunkAssembler;
 using sst::adapters::control::ChunkAssemblerConfig;
+using sst::control::BuildInboundAck;
+using sst::control::kChunkAckTotalChunks;
 
 auto MakeChunk(const std::string& corr, std::uint32_t index, std::uint32_t total,
                const std::string& data) -> sst_cam::ChunkedPayload {
@@ -173,7 +174,7 @@ TEST(ChunkAssemblerTest, ThreeChunkInboundProducesThreeAcks) {
         // total_chunks (==0), the app's ack-vs-response disambiguation.
         sst_cam::ChunkedPayload as_payload;
         ASSERT_TRUE(as_payload.ParseFromString(sink.acks[i].SerializeAsString()));
-        EXPECT_EQ(as_payload.total_chunks(), 0U);
+        EXPECT_EQ(as_payload.total_chunks(), kChunkAckTotalChunks);
         EXPECT_EQ(as_payload.chunk_index(), i);
     }
     EXPECT_EQ(assembler.InflightInboundCount(), 0U);  // reassembled + freed

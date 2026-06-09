@@ -7,7 +7,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "adapters/control/ble/bluez/inbound-ack.hpp"
+#include "app/control/services/chunk-ack/chunk-ack.hpp"
 #include "bluetooth.pb.h"
 #include "domain/control/models/bootstrap-config.hpp"
 
@@ -76,9 +76,10 @@ auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
     }
 
     // A ChunkAck is wire-compatible with ChunkedPayload on fields 1/2 but carries
-    // no total_chunks (#3): total_chunks == 0 means this write acks one of OUR
-    // outbound response chunks rather than delivering an inbound command chunk.
-    if (chunk.total_chunks() == 0) {
+    // no total_chunks (#3): total_chunks == kChunkAckTotalChunks means this write
+    // acks one of OUR outbound response chunks rather than delivering an inbound
+    // command chunk.
+    if (chunk.total_chunks() == sst::control::kChunkAckTotalChunks) {
         assembler_.OnAck(chunk.correlation_id(), chunk.chunk_index());
         return;
     }
@@ -272,7 +273,8 @@ auto BluezBleTransport::SendInboundAck(const std::string& correlation_id,
         spdlog::warn("BluezBleTransport::SendInboundAck: GATT app not active");
         return;
     }
-    const std::string wire = BuildInboundAck(correlation_id, chunk_index).SerializeAsString();
+    const std::string wire =
+        sst::control::BuildInboundAck(correlation_id, chunk_index).SerializeAsString();
     gatt_app_->SendNotification({wire.begin(), wire.end()});
     spdlog::debug("BluezBleTransport: inbound ack corr={} index={}", correlation_id, chunk_index);
 }
