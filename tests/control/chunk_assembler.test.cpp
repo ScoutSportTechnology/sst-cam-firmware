@@ -61,17 +61,18 @@ TEST(ChunkAssemblerTest, MultiChunkInboundReassemblesExactly) {
     auto chunks = SplitCommand(cmd, "layout-1", 16);
     ASSERT_GT(chunks.size(), 1U);
 
-    std::optional<std::string> done;
     for (std::size_t i = 0; i + 1 < chunks.size(); ++i) {
-        EXPECT_FALSE(assembler.OfferInbound(chunks[i]).has_value())
-            << "decoded before the final chunk at index " << i;
+        const auto r = assembler.OfferInbound(chunks[i]);
+        EXPECT_TRUE(r.accepted) << "well-formed pending chunk should be accepted at " << i;
+        EXPECT_FALSE(r.payload.has_value()) << "decoded before the final chunk at index " << i;
     }
-    done = assembler.OfferInbound(chunks.back());
-    ASSERT_TRUE(done.has_value());
-    EXPECT_EQ(*done, wire);
+    const auto done = assembler.OfferInbound(chunks.back());
+    EXPECT_TRUE(done.accepted);
+    ASSERT_TRUE(done.payload.has_value());
+    EXPECT_EQ(*done.payload, wire);
 
     sst_cam::Command parsed;
-    ASSERT_TRUE(parsed.ParseFromString(*done));
+    ASSERT_TRUE(parsed.ParseFromString(*done.payload));
     EXPECT_EQ(parsed.push_overlay_layout().layout().elements_size(), 40);
     EXPECT_EQ(assembler.InflightInboundCount(), 0U);  // state freed on completion
 }
@@ -81,8 +82,9 @@ TEST(ChunkAssemblerTest, SingleChunkFastPath) {
     ChunkAssembler assembler;
     auto chunk = MakeChunk("c1", 0, 1, "hello");
     auto done = assembler.OfferInbound(chunk);
-    ASSERT_TRUE(done.has_value());
-    EXPECT_EQ(*done, "hello");
+    EXPECT_TRUE(done.accepted);
+    ASSERT_TRUE(done.payload.has_value());
+    EXPECT_EQ(*done.payload, "hello");
     EXPECT_EQ(assembler.InflightInboundCount(), 0U);
 }
 
@@ -133,25 +135,24 @@ TEST(ChunkAssemblerTest, SingleChunkOutboundNeedsNoAck) {
 // Robustness: out-of-order arrival + a duplicate chunk still reassemble once.
 TEST(ChunkAssemblerTest, OutOfOrderAndDuplicateInbound) {
     ChunkAssembler assembler;
-    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 2, 3, "ccc")).has_value());
-    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 0, 3, "aaa")).has_value());
-    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 0, 3, "aaa")).has_value());  // dup
+    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 2, 3, "ccc")).payload.has_value());
+    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 0, 3, "aaa")).payload.has_value());
+    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("x", 0, 3, "aaa")).payload.has_value());  // dup
     auto done = assembler.OfferInbound(MakeChunk("x", 1, 3, "bbb"));
-    ASSERT_TRUE(done.has_value());
-    EXPECT_EQ(*done, "aaabbbccc");
+    ASSERT_TRUE(done.payload.has_value());
+    EXPECT_EQ(*done.payload, "aaabbbccc");
 }
 
-// U7 / R7: the transport emits one ChunkAck per inbound command chunk so the
-// app's flow control can release the next chunk. This mirrors the transport's
-// per-chunk policy transport-free: for each chunk, build the ack and feed the
-// chunk to the assembler; assert one well-formed ack per chunk and that the
-// message still reassembles. The ack carries no total_chunks (==0), the
-// disambiguation the app uses to tell an ack from a response chunk.
+// #8 ack-after-validate: mirror the transport's policy transport-free. Offer the
+// chunk to the assembler FIRST and ack only when it reports the chunk accepted
+// (well-formed). A rejected chunk (malformed framing) is offered but NOT acked.
 struct AckSink {
     std::vector<sst_cam::ChunkAck> acks;
     void OnInbound(const sst_cam::ChunkedPayload& chunk, ChunkAssembler& assembler) {
-        acks.push_back(BuildInboundAck(chunk.correlation_id(), chunk.chunk_index()));
-        assembler.OfferInbound(chunk);
+        const auto result = assembler.OfferInbound(chunk);
+        if (result.accepted) {
+            acks.push_back(BuildInboundAck(chunk.correlation_id(), chunk.chunk_index()));
+        }
     }
 };
 
@@ -202,15 +203,37 @@ TEST(ChunkAssemblerTest, DuplicateInboundIsStillAcked) {
     sink.OnInbound(MakeChunk("d", 0, 2, "aa"), assembler);  // duplicate index 0
     sink.OnInbound(MakeChunk("d", 1, 2, "bb"), assembler);
 
-    EXPECT_EQ(sink.acks.size(), 3U);  // every write is acked, dup included
+    EXPECT_EQ(sink.acks.size(), 3U);  // every accepted write is acked, dup included
     EXPECT_EQ(sink.acks[1].chunk_index(), 0U);  // dup ack well-formed
+}
+
+// #8: a rejected chunk (malformed framing) is offered to the assembler but must
+// NOT be acked — only chunks the assembler accepts get an ack. A valid chunk
+// before/after the rejects is still acked exactly once each.
+TEST(ChunkAssemblerTest, RejectedChunksAreNotAcked) {
+    ChunkAssembler assembler;
+    AckSink sink;
+
+    // index >= total and total == 0 are both rejected -> no ack.
+    sink.OnInbound(MakeChunk("r", 5, 3, "x"), assembler);  // index>=total
+    sink.OnInbound(MakeChunk("r", 0, 0, "x"), assembler);  // total 0
+    EXPECT_EQ(sink.acks.size(), 0U) << "rejected chunks must not be acked";
+
+    // A well-formed single-chunk message that follows is accepted and acked once.
+    sink.OnInbound(MakeChunk("ok", 0, 1, "payload"), assembler);
+    ASSERT_EQ(sink.acks.size(), 1U);
+    EXPECT_EQ(sink.acks[0].correlation_id(), "ok");
 }
 
 // Malformed framing is rejected without crashing or retaining state.
 TEST(ChunkAssemblerTest, MalformedChunksRejected) {
     ChunkAssembler assembler;
-    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("m", 0, 0, "x")).has_value());   // total 0
-    EXPECT_FALSE(assembler.OfferInbound(MakeChunk("m", 5, 3, "x")).has_value());   // index>=total
+    auto total0 = assembler.OfferInbound(MakeChunk("m", 0, 0, "x"));  // total 0
+    EXPECT_FALSE(total0.accepted);
+    EXPECT_FALSE(total0.payload.has_value());
+    auto over = assembler.OfferInbound(MakeChunk("m", 5, 3, "x"));  // index>=total
+    EXPECT_FALSE(over.accepted);
+    EXPECT_FALSE(over.payload.has_value());
     EXPECT_EQ(assembler.InflightInboundCount(), 0U);
 }
 

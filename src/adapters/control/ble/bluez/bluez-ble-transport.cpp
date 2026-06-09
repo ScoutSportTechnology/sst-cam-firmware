@@ -64,51 +64,71 @@ auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
         return;
     }
 
-    std::lock_guard lock(mtx_);
+    // Reassemble + ack under the lock (the assembler and connection state it
+    // guards are not thread-safe), but invoke the command handler OUTSIDE the
+    // lock (#14): the thumbnail handler runs a full-res cv::imencode, and holding
+    // mtx_ across it head-of-line-blocks the whole BLE control path, including
+    // acks for the other direction. We extract everything the handler needs while
+    // locked, drop the lock, then call it.
+    sst_cam::Command command;
+    bool have_command = false;
+    CommandHandler handler;
+    ConnectionHandler connect;
+    {
+        std::lock_guard lock(mtx_);
 
-    // Any write means a central is connected — surface the connect once so the
-    // session can leave Idle.
-    if (!central_present_) {
-        central_present_ = true;
-        if (on_connect_) {
-            on_connect_();
+        // Any write means a central is connected — surface the connect once so
+        // the session can leave Idle.
+        if (!central_present_) {
+            central_present_ = true;
+            connect = on_connect_;  // invoked after the lock is released
+        }
+
+        // A ChunkAck is wire-compatible with ChunkedPayload on fields 1/2 but
+        // carries no total_chunks (#3): total_chunks == kChunkAckTotalChunks
+        // means this write acks one of OUR outbound response chunks rather than
+        // delivering an inbound command chunk.
+        if (chunk.total_chunks() == sst::control::kChunkAckTotalChunks) {
+            assembler_.OnAck(chunk.correlation_id(), chunk.chunk_index());
+        } else {
+            // #8: validate BEFORE acking. Only ack a chunk the assembler actually
+            // accepted (well-formed framing). A rejected chunk (index>=total,
+            // over-cap, total==0) must NOT be acked. Duplicates are accepted
+            // (the app may have retransmitted after a lost ack) and re-acked,
+            // keeping the app's flow control unstalled.
+            const ChunkAssembler::OfferResult result = assembler_.OfferInbound(chunk);
+            if (result.accepted) {
+                SendInboundAck(chunk.correlation_id(), chunk.chunk_index());
+            }
+            if (result.payload) {
+                if (command.ParseFromString(*result.payload)) {
+                    have_command = true;
+                    handler = on_command_;
+                } else {
+                    spdlog::warn(
+                        "BluezBleTransport: reassembled payload (corr={}) is not a valid Command",
+                        chunk.correlation_id());
+                }
+            }
         }
     }
 
-    // A ChunkAck is wire-compatible with ChunkedPayload on fields 1/2 but carries
-    // no total_chunks (#3): total_chunks == kChunkAckTotalChunks means this write
-    // acks one of OUR outbound response chunks rather than delivering an inbound
-    // command chunk.
-    if (chunk.total_chunks() == sst::control::kChunkAckTotalChunks) {
-        assembler_.OnAck(chunk.correlation_id(), chunk.chunk_index());
-        return;
+    if (connect) {
+        connect();
     }
 
-    // Acknowledge every inbound command chunk so the app can release its next
-    // chunk without stalling on large messages (overlay layout, session
-    // config). The single-chunk fast path is acked too — harmless and keeps the
-    // app's flow control uniform. Duplicates are still acked (well-formed),
-    // since the app may have retransmitted after a lost ack.
-    SendInboundAck(chunk.correlation_id(), chunk.chunk_index());
-
-    auto reassembled = assembler_.OfferInbound(chunk);
-    if (!reassembled) {
-        return;  // more chunks pending, or malformed/duplicate
+    if (!have_command) {
+        return;  // ack write, more chunks pending, malformed/duplicate, or bad Command
     }
-
-    sst_cam::Command command;
-    if (!command.ParseFromString(*reassembled)) {
-        spdlog::warn("BluezBleTransport: reassembled payload (corr={}) is not a valid Command",
-                     chunk.correlation_id());
-        return;
-    }
-
-    if (!on_command_) {
+    if (!handler) {
         spdlog::warn("BluezBleTransport: no command handler set");
         return;
     }
 
-    sst_cam::CommandResponse response = on_command_(command);
+    // Handler runs unlocked (#14) — may do heavy work (full-res imencode).
+    sst_cam::CommandResponse response = handler(command);
+
+    std::lock_guard lock(mtx_);
     SendResponse(response);
 }
 

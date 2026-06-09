@@ -19,25 +19,24 @@ auto ChunkAssembler::EvictOldestInboundIfFull() -> void {
     }
 }
 
-auto ChunkAssembler::OfferInbound(const sst_cam::ChunkedPayload& chunk)
-    -> std::optional<std::string> {
+auto ChunkAssembler::OfferInbound(const sst_cam::ChunkedPayload& chunk) -> OfferResult {
     const std::uint32_t total = chunk.total_chunks();
     const std::uint32_t index = chunk.chunk_index();
     const std::string& corr = chunk.correlation_id();
 
     if (total == 0 || total > cfg_.max_total_chunks) {
         spdlog::warn("ChunkAssembler: rejecting chunk corr={} total_chunks={}", corr, total);
-        return std::nullopt;
+        return {.accepted = false, .payload = std::nullopt};
     }
     if (index >= total) {
         spdlog::warn("ChunkAssembler: rejecting chunk corr={} index={} >= total={}", corr, index,
                      total);
-        return std::nullopt;
+        return {.accepted = false, .payload = std::nullopt};
     }
 
     // Single-chunk fast path — no reassembly state retained.
     if (total == 1) {
-        return chunk.data();
+        return {.accepted = true, .payload = chunk.data()};
     }
 
     auto it = inbound_.find(corr);
@@ -62,8 +61,10 @@ auto ChunkAssembler::OfferInbound(const sst_cam::ChunkedPayload& chunk)
 
     InboundState& state = it->second;
     if (state.have[index]) {
+        // Duplicate of an already-seen chunk: well-formed, so still accepted (the
+        // app may have retransmitted after a lost ack), but adds nothing.
         spdlog::debug("ChunkAssembler: duplicate chunk corr={} index={} ignored", corr, index);
-        return std::nullopt;
+        return {.accepted = true, .payload = std::nullopt};
     }
 
     state.parts[index] = chunk.data();
@@ -71,7 +72,7 @@ auto ChunkAssembler::OfferInbound(const sst_cam::ChunkedPayload& chunk)
     ++state.received;
 
     if (state.received < state.total_chunks) {
-        return std::nullopt;
+        return {.accepted = true, .payload = std::nullopt};
     }
 
     std::string out;
@@ -86,7 +87,7 @@ auto ChunkAssembler::OfferInbound(const sst_cam::ChunkedPayload& chunk)
 
     inbound_.erase(it);
     inbound_order_.remove(corr);
-    return out;
+    return {.accepted = true, .payload = std::move(out)};
 }
 
 auto ChunkAssembler::BeginOutbound(const std::string& correlation_id, const std::string& data,
