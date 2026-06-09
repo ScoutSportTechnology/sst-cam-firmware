@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 
 #include "app/session/ports/session-cleanup.hpp"
@@ -187,6 +188,41 @@ TEST(SessionManagerTest, DisconnectFromIdleIsNoop) {
     EXPECT_FALSE(cleanup.finalize_recording);
     EXPECT_FALSE(cleanup.stop_streaming);
     EXPECT_FALSE(cleanup.teardown_wifi);
+}
+
+// A cleanup step that throws must not abort the disconnect: the remaining steps
+// still run and the session is still reset to Idle (exception-safe fan-out).
+TEST(SessionManagerTest, DisconnectCleanupIsExceptionSafe) {
+    class ThrowingFinalizeCleanup final : public sst::session::ISessionCleanup {
+       public:
+        auto FinalizeRecording() -> void override {
+            finalize_attempted = true;
+            throw std::runtime_error("recorder blew up on finalize");
+        }
+        auto StopStreaming() -> void override { stop_streaming = true; }
+        auto TeardownWifiDirect() -> void override { teardown_wifi = true; }
+
+        bool finalize_attempted{false};
+        bool stop_streaming{false};
+        bool teardown_wifi{false};
+    };
+
+    ThrowingFinalizeCleanup cleanup;
+    SessionManager sm(cleanup);
+    const fs::path root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+
+    AdvanceToReady(sm, cfg);
+    ASSERT_TRUE(sm.OnRecordingStart());
+
+    EXPECT_NO_THROW(sm.OnDisconnect());
+
+    EXPECT_TRUE(cleanup.finalize_attempted);
+    EXPECT_TRUE(cleanup.stop_streaming);   // ran despite the earlier throw
+    EXPECT_TRUE(cleanup.teardown_wifi);    // ran despite the earlier throw
+    EXPECT_EQ(sm.Phase(), SessionPhase::kIdle);  // session still reset
+
+    fs::remove_all(root);
 }
 
 }  // namespace

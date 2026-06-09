@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <string>
 
 #include "app/overlay/ports/overlay-renderer.hpp"
@@ -31,11 +32,18 @@ class OverlayController {
     // Returns true if a frame was pushed.
     auto Refresh(std::uint64_t now_ms) -> bool;
 
-    [[nodiscard]] auto PushCount() const -> std::uint64_t { return push_count_; }
+    [[nodiscard]] auto PushCount() const -> std::uint64_t {
+        std::lock_guard lock(mtx_);
+        return push_count_;
+    }
 
    private:
     [[nodiscard]] static auto Signature(const RenderScene& scene) -> std::string;
 
+    // Guards all scene/signature state: mutators run from the BLE event-loop
+    // thread (command handlers) while the 1 Hz match-clock thread also calls
+    // Refresh() concurrently.
+    mutable std::mutex mtx_;
     IOverlayRenderer& renderer_;
     IOverlaySink& sink_;
     std::uint32_t out_width_;

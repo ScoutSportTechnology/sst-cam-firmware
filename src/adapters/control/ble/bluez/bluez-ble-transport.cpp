@@ -232,7 +232,8 @@ auto BluezBleTransport::Stop() -> void {
     if (connection_) {
         try {
             connection_->leaveEventLoop();
-        } catch (const sdbus::Error&) {
+        } catch (const sdbus::Error& e) {
+            spdlog::warn("BluezBleTransport: leaveEventLoop failed: {}", e.what());
         }
     }
 

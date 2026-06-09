@@ -41,7 +41,15 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
         return resp;
     }
 
-    session_.OnWifiReady();
+    if (!session_.OnWifiReady()) {
+        // SM rejected the transition (e.g. no central connected) — don't report
+        // a live group + credentials the session can't actually use. Roll back.
+        dhcp_.Stop();
+        wifi_.Stop();
+        resp.set_status(sst_cam::ResponseStatus::ERROR);
+        resp.set_error_message("WiFi Direct group up but session not ready to accept it");
+        return resp;
+    }
 
     resp.set_status(sst_cam::ResponseStatus::OK);
     auto* out = resp.mutable_wifi_direct_group();

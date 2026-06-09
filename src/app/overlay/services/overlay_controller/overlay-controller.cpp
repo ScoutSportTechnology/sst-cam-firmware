@@ -11,10 +11,12 @@ OverlayController::OverlayController(IOverlayRenderer& renderer, IOverlaySink& s
     : renderer_(renderer), sink_(sink), out_width_(out_width), out_height_(out_height) {}
 
 auto OverlayController::SetLayout(OverlayLayout layout) -> void {
+    std::lock_guard lock(mtx_);
     scene_.SetLayout(std::move(layout));
 }
 
 auto OverlayController::SetBindingData(const BindingData& data) -> void {
+    std::lock_guard lock(mtx_);
     scene_.SetBindingData(data);
 }
 
@@ -22,6 +24,7 @@ auto OverlayController::ActivateBanner(const std::string& template_id,
                                        const std::map<std::string, std::string>& params,
                                        std::uint32_t duration_s_override, std::uint64_t now_ms)
     -> bool {
+    std::lock_guard lock(mtx_);
     return scene_.ActivateBanner(template_id, params, duration_s_override, now_ms);
 }
 
@@ -41,6 +44,7 @@ auto OverlayController::Signature(const RenderScene& scene) -> std::string {
 }
 
 auto OverlayController::Refresh(std::uint64_t now_ms) -> bool {
+    std::lock_guard lock(mtx_);
     const RenderScene scene = scene_.Build(now_ms);
     const std::string sig = Signature(scene);
     if (pushed_once_ && sig == last_signature_) {

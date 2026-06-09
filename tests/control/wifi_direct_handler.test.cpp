@@ -119,6 +119,27 @@ TEST(WifiDirectHandlerTest, GroupFailureErrors) {
     EXPECT_EQ(dhcp.starts, 0);
 }
 
+// If the session SM rejects WifiReady (e.g. no central connected), the handler
+// rolls the group + DHCP back and reports ERROR instead of handing out creds for
+// a group the session can't use.
+TEST(WifiDirectHandlerTest, StartRollsBackWhenSessionRejects) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager sm(cleanup);
+    // NOTE: no sm.OnConnect() — phase is Idle, so OnWifiReady() returns false.
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    WifiDirectHandler handler(sm, wifi, dhcp, 8554, 8080);
+
+    auto resp = handler.Handle(StartCmd());
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_NE(resp.payload_case(), sst_cam::CommandResponse::kWifiDirectGroup);
+    EXPECT_EQ(wifi.starts, 1);
+    EXPECT_EQ(wifi.stops, 1);   // group rolled back
+    EXPECT_EQ(dhcp.starts, 1);
+    EXPECT_EQ(dhcp.stops, 1);   // DHCP rolled back
+    EXPECT_EQ(sm.Phase(), sst::session::SessionPhase::kIdle);
+}
+
 // StopWifiDirect tears down DHCP + the group and drops the session phase.
 TEST(WifiDirectHandlerTest, StopTearsDownGroupAndDhcp) {
     FakeCleanup cleanup;

@@ -138,10 +138,16 @@ auto GstContinuousRecorder::Stop() -> bool {
 auto GstContinuousRecorder::IsRunning() const -> bool { return running_; }
 
 auto GstContinuousRecorder::Push(const sst::capture::Frame& frame) -> void {
-    if (!running_ || paused_ || appsrc_ == nullptr || frame.planes.empty()) {
+    if (frame.planes.empty()) {
         return;
     }
+    // Take the lock BEFORE reading running_/paused_/appsrc_: Stop()/Teardown()
+    // (BLE cleanup thread) null appsrc_ under the same lock, so an unlocked
+    // pre-check could pass and then dereference a freed appsrc_ here.
     std::lock_guard lock(mtx_);
+    if (!running_ || paused_ || appsrc_ == nullptr) {
+        return;
+    }
     if (!caps_set_) {
         GstCaps* caps = gst_caps_new_simple(
             "video/x-raw", "format", G_TYPE_STRING, GstFormatFor(frame.format), "width",

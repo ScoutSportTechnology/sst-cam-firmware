@@ -1,5 +1,7 @@
 #include "app/control/services/handlers/recording.handler.hpp"
 
+#include "domain/session/models/session-phase.hpp"
+
 namespace sst::control {
 
 RecordingHandler::RecordingHandler(sst::session::ISessionManager& session,
@@ -20,6 +22,14 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
             if (!state.config) {
                 resp.set_status(sst_cam::ResponseStatus::ERROR);
                 resp.set_error_message("recording start with no active session config");
+                return resp;
+            }
+            // Gate on phase BEFORE touching the recorder — otherwise a start in a
+            // non-Ready phase spins up NVENC and writes a stray MP4/thumbnail that
+            // the SM-rejection rollback below then has to finalize and orphan.
+            if (state.phase != sst::session::SessionPhase::kReady) {
+                resp.set_status(sst_cam::ResponseStatus::ERROR);
+                resp.set_error_message("recording start rejected: session not ready");
                 return resp;
             }
             if (!recording_.StartRecording(state.config->video_output_path,

@@ -1,0 +1,183 @@
+// Recording handler: maps RecordingControl actions onto the recorder, gated by
+// the session lifecycle (U10/U6). Pure — fake IRecordingService + real
+// SessionManager driven through a fake ISessionCleanup.
+
+#include "app/control/services/handlers/recording.handler.hpp"
+
+#include <gtest/gtest.h>
+
+#include <string>
+
+#include "app/session/ports/session-cleanup.hpp"
+#include "app/session/services/session_manager/session-manager.hpp"
+#include "app/storage/ports/recording-service.hpp"
+#include "bluetooth.pb.h"
+#include "domain/session/models/session-config.hpp"
+#include "domain/storage/models/recording-state.hpp"
+
+namespace {
+
+using sst::control::RecordingHandler;
+using sst::session::SessionConfig;
+using sst::session::SessionManager;
+using sst::session::SessionPhase;
+
+class FakeRecorder final : public sst::storage::IRecordingService {
+   public:
+    auto StartRecording(const std::string& video, const std::string& thumb) -> bool override {
+        ++start_calls;
+        last_video = video;
+        last_thumb = thumb;
+        return start_ok;
+    }
+    auto Pause() -> bool override {
+        ++pause_calls;
+        return pause_ok;
+    }
+    auto Resume() -> bool override {
+        ++resume_calls;
+        return resume_ok;
+    }
+    auto Stop() -> sst::storage::StopRecordingResult override {
+        ++stop_calls;
+        sst::storage::StopRecordingResult result;
+        result.success = stop_ok;
+        return result;
+    }
+    [[nodiscard]] auto CurrentState() const -> sst::storage::RecordingState override {
+        return state;
+    }
+
+    int start_calls{0};
+    int pause_calls{0};
+    int resume_calls{0};
+    int stop_calls{0};
+    bool start_ok{true};
+    bool pause_ok{true};
+    bool resume_ok{true};
+    bool stop_ok{true};
+    std::string last_video;
+    std::string last_thumb;
+    sst::storage::RecordingState state{};
+};
+
+class FakeCleanup final : public sst::session::ISessionCleanup {
+   public:
+    auto FinalizeRecording() -> void override {}
+    auto StopStreaming() -> void override {}
+    auto TeardownWifiDirect() -> void override {}
+};
+
+// Empty output paths keep the test off the filesystem (PrepareOutputDirs is a
+// no-op for empty paths).
+auto EmptyPathConfig() -> SessionConfig {
+    SessionConfig c;
+    c.match_uuid = "m";
+    c.user_uuid = "u";
+    return c;
+}
+
+auto AdvanceToConfigured(SessionManager& sm) -> void {
+    ASSERT_TRUE(sm.OnConnect());
+    ASSERT_TRUE(sm.OnWifiReady());
+    ASSERT_TRUE(sm.ApplySessionConfig(EmptyPathConfig()));
+}
+
+auto AdvanceToReady(SessionManager& sm) -> void {
+    AdvanceToConfigured(sm);
+    ASSERT_TRUE(sm.OnOverlayConfigured());
+}
+
+auto Cmd(sst_cam::RecordingAction action) -> sst_cam::Command {
+    sst_cam::Command c;
+    c.set_correlation_id("r");
+    c.mutable_recording_control()->set_action(action);
+    return c;
+}
+
+TEST(RecordingHandlerTest, StartInReadyPhaseStartsRecorderAndTransitions) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    RecordingHandler handler(sm, recorder);
+    AdvanceToReady(sm);
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_START));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(recorder.start_calls, 1);
+    EXPECT_EQ(sm.Phase(), SessionPhase::kRecording);
+}
+
+// The gate (#16): a START before Ready must NOT touch the recorder — no stray
+// MP4/thumbnail spun up only to be rolled back.
+TEST(RecordingHandlerTest, StartBeforeReadyRejectedWithoutTouchingRecorder) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    RecordingHandler handler(sm, recorder);
+    AdvanceToConfigured(sm);  // config present, but phase != Ready
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_START));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_EQ(recorder.start_calls, 0);
+    EXPECT_EQ(recorder.stop_calls, 0);
+    EXPECT_EQ(sm.Phase(), SessionPhase::kConfigured);
+}
+
+TEST(RecordingHandlerTest, StartWithNoSessionConfigErrors) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    RecordingHandler handler(sm, recorder);
+    ASSERT_TRUE(sm.OnConnect());
+    ASSERT_TRUE(sm.OnWifiReady());  // WifiReady, no config yet
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_START));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_EQ(recorder.start_calls, 0);
+}
+
+TEST(RecordingHandlerTest, StartRolledBackWhenRecorderStartsButSmRejects) {
+    // Recorder accepts the start, but force the SM to reject by being in a
+    // non-Ready phase is already covered above; here the recorder itself fails.
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    recorder.start_ok = false;
+    RecordingHandler handler(sm, recorder);
+    AdvanceToReady(sm);
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_START));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_EQ(recorder.start_calls, 1);
+    EXPECT_EQ(sm.Phase(), SessionPhase::kReady);  // no transition on failed start
+}
+
+TEST(RecordingHandlerTest, StopStopsRecorderAndReturnsToReady) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    RecordingHandler handler(sm, recorder);
+    AdvanceToReady(sm);
+    ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(),
+              sst_cam::ResponseStatus::OK);
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_STOP));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(recorder.stop_calls, 1);
+    EXPECT_EQ(sm.Phase(), SessionPhase::kReady);
+}
+
+TEST(RecordingHandlerTest, PauseWhileNotRecordingErrors) {
+    FakeCleanup cleanup;
+    SessionManager sm(cleanup);
+    FakeRecorder recorder;
+    recorder.pause_ok = false;  // recorder reports it isn't recording
+    RecordingHandler handler(sm, recorder);
+    AdvanceToReady(sm);
+
+    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_PAUSE));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+}
+
+}  // namespace

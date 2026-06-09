@@ -1,5 +1,6 @@
 #include "app/session/services/session_manager/session-manager.hpp"
 
+#include <exception>
 #include <filesystem>
 #include <system_error>
 
@@ -130,10 +131,20 @@ auto SessionManager::OnDisconnect() -> void {
     }
 
     // Fan out cleanup OUTSIDE the lock — each is idempotent and a no-op when its
-    // subsystem is inactive; order is irrelevant (R15).
-    cleanup_.FinalizeRecording();
-    cleanup_.StopStreaming();
-    cleanup_.TeardownWifiDirect();
+    // subsystem is inactive; order is irrelevant (R15). Each step is isolated so
+    // a throw in one still runs the rest and the Idle reset below (R11).
+    const auto safe = [](const char* step, auto&& fn) {
+        try {
+            fn();
+        } catch (const std::exception& e) {
+            spdlog::error("SessionManager: cleanup step {} threw: {}", step, e.what());
+        } catch (...) {
+            spdlog::error("SessionManager: cleanup step {} threw (non-std)", step);
+        }
+    };
+    safe("FinalizeRecording", [this] { cleanup_.FinalizeRecording(); });
+    safe("StopStreaming", [this] { cleanup_.StopStreaming(); });
+    safe("TeardownWifiDirect", [this] { cleanup_.TeardownWifiDirect(); });
 
     std::lock_guard lock(mtx_);
     state_ = SessionState{};  // back to Idle, all session memory cleared (R11)

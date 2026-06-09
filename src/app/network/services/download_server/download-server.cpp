@@ -81,7 +81,7 @@ auto DownloadServer::MintToken(const std::string& recording_id, std::uint64_t tt
     }
     DownloadToken token;
     token.recording_id = recording_id;
-    token.token = sst::common::utils::MakeUuidV4();
+    token.token = sst::common::utils::MakeSecureToken();
     token.expires_at_unix = clock_() + ttl_seconds;
     {
         std::lock_guard lock(mtx_);

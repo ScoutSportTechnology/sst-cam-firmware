@@ -31,4 +31,14 @@ inline auto MakeUuidV4() -> std::string {
         bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
 }
 
+// Cryptographically-strong 128-bit random token (32 hex chars). Unlike
+// MakeUuidV4 — which seeds an mt19937 PRNG once and is fine for human-scannable
+// ids — every word here is pulled directly from std::random_device (/dev/urandom
+// on Linux), so download bearer tokens are not predictable from observed ids.
+inline auto MakeSecureToken() -> std::string {
+    std::random_device rd;
+    const std::array<std::uint32_t, 4> words{rd(), rd(), rd(), rd()};
+    return fmt::format("{:08x}{:08x}{:08x}{:08x}", words[0], words[1], words[2], words[3]);
+}
+
 }  // namespace sst::common::utils

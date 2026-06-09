@@ -111,6 +111,18 @@ auto GstRtmpStreamer::Stop() -> void {
         gst_app_src_end_of_stream(GST_APP_SRC(appsrc_));
     }
     if (pipeline_ != nullptr) {
+        // Wait for EOS (or error) so flvmux/rtmpsink flush the tail of the
+        // stream before we cut the pipeline — otherwise the last GOP is lost.
+        GstBus* bus = gst_element_get_bus(pipeline_);
+        if (bus != nullptr) {
+            GstMessage* msg = gst_bus_timed_pop_filtered(
+                bus, 5 * GST_SECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+            if (msg != nullptr) {
+                gst_message_unref(msg);
+            }
+            gst_object_unref(bus);
+        }
         gst_element_set_state(pipeline_, GST_STATE_NULL);
     }
     Teardown();

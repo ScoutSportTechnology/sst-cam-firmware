@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <filesystem>
@@ -14,6 +15,7 @@
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
+#include "adapters/network/http/http-download-server.hpp"
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
 #include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
@@ -128,6 +130,16 @@ auto main() -> int {
 
     // ── Downloads ──────────────────────────────────────────────────────
     sst::network::DownloadServer download_server(video_root, NowUnixSeconds);
+    // The HTTP server hands out token-gated byte ranges. Bind on all interfaces
+    // (0.0.0.0) rather than the GO IP: that address only exists once a WiFi
+    // Direct session is up, and INADDR_ANY still accepts connections on it when
+    // it appears. Per-request bearer tokens (not network reachability) gate
+    // access; in the field the P2P link is the only active interface.
+    sst::adapters::network::HttpDownloadServer http_download_server(
+        "0.0.0.0", static_cast<std::uint16_t>(sst::runtime_defaults::kDownloadPort),
+        [&download_server](const std::string& token) {
+            return download_server.ValidateToken(token);
+        });
 
     // ── System stats (telemetry source) ────────────────────────────────
     sst::adapters::control::ProcSystemStats system_stats(video_root);
@@ -150,8 +162,9 @@ auto main() -> int {
         sst::runtime_defaults::kDownloadPort));
     dispatcher.Register(std::make_shared<sst::control::OverlayHandler>(session_manager,
                                                                        overlay_controller, NowMs));
-    dispatcher.Register(std::make_shared<sst::control::MatchHandler>(session_manager,
-                                                                     overlay_controller, NowMs));
+    auto match_handler =
+        std::make_shared<sst::control::MatchHandler>(session_manager, overlay_controller, NowMs);
+    dispatcher.Register(match_handler);
     dispatcher.Register(
         std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
@@ -182,8 +195,32 @@ auto main() -> int {
     sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
                                                  std::move(postprocessor), final_frame_sink);
 
-    pipeline.Start();
+    if (!pipeline.Start()) {
+        spdlog::error("pipeline failed to start (camera unavailable?) — aborting");
+        return 1;
+    }
     ble_transport.Start();
+    if (!ble_transport.IsRunning()) {
+        spdlog::error("BLE transport failed to start — aborting");
+        pipeline.Stop();
+        return 1;
+    }
+    if (!http_download_server.Start()) {
+        // Non-fatal: the camera still records/streams; only downloads are off.
+        spdlog::warn("HTTP download server failed to bind on :{} — downloads disabled",
+                     sst::runtime_defaults::kDownloadPort);
+    }
+
+    // Drive the display-only match clock at ~1 Hz (the app is still the timing
+    // authority; this only advances the on-screen clock between app events).
+    std::atomic<bool> clock_running{true};
+    std::thread clock_thread([&match_handler, &clock_running] {
+        while (clock_running.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            match_handler->TickClock();
+        }
+    });
+
     spdlog::info("startup complete — advertising as {}", advertised_name);
 
     // Run until terminated (SIGINT/SIGTERM). Destructors stop the pipeline +
@@ -192,11 +229,22 @@ auto main() -> int {
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigaddset(&mask, SIGTERM);
-    sigprocmask(SIG_BLOCK, &mask, nullptr);
+    if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) {
+        spdlog::error("sigprocmask failed — cannot guarantee clean shutdown; aborting");
+        clock_running.store(false);
+        clock_thread.join();
+        http_download_server.Stop();
+        ble_transport.Stop();
+        pipeline.Stop();
+        return 1;
+    }
     int signo = 0;
     sigwait(&mask, &signo);
     spdlog::info("signal {} received — shutting down", signo);
 
+    clock_running.store(false);
+    clock_thread.join();
+    http_download_server.Stop();
     ble_transport.Stop();
     pipeline.Stop();
     return 0;
