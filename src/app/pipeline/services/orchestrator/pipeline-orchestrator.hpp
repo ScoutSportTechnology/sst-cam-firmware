@@ -11,6 +11,7 @@
 #include "app/buffer/ports/frame-sink.hpp"
 #include "app/capture/ports/frame-src.hpp"
 #include "app/decision/ports/decision.hpp"
+#include "app/overlay/ports/overlay-frame-source.hpp"
 #include "app/pipeline/ports/frame-snapshot-source.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
@@ -62,14 +63,18 @@ struct CameraChain {
 // deadlock, and other cameras' frames simply age out.
 class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
    public:
-    // raw_sink is optional (may be null): when set, every camera's materialized
-    // bundle is forked to it before being moved into the slot, so raw dual
-    // capture taps the same frames the decision path consumes.
+    // Both raw_sink and overlay_source are optional (may be null). When raw_sink
+    // is set, every camera's materialized bundle is forked to it before the move
+    // into the slot, so raw dual capture taps the same frames the decision path
+    // consumes. When overlay_source is set and has a current overlay, the
+    // consumer composites it onto each final frame before fan-out, so recording,
+    // RTSP, and RTMP all carry identical overlaid pixels.
     PipelineOrchestrator(std::vector<CameraChain> cameras,
                          std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
                          std::unique_ptr<sst::decision::IDecision> decision,
                          sst::buffer::IFrameSink& sink, PipelineConfig config = PipelineConfig{},
-                         sst::storage::IRawCaptureSink* raw_sink = nullptr);
+                         sst::storage::IRawCaptureSink* raw_sink = nullptr,
+                         sst::overlay::IOverlayFrameSource* overlay_source = nullptr);
 
     ~PipelineOrchestrator() override;
 
@@ -101,6 +106,7 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     sst::buffer::IFrameSink& sink_;
     PipelineConfig config_;
     sst::storage::IRawCaptureSink* raw_sink_;
+    sst::overlay::IOverlayFrameSource* overlay_source_;
 
     // One slot per camera. unique_ptr because LatestOnlySlot is non-movable and
     // we size the vector at construction from the camera count.

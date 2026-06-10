@@ -17,7 +17,6 @@
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
 #include "adapters/network/http/http-download-server.hpp"
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
-#include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
@@ -44,6 +43,7 @@
 #include "app/network/services/download_server/download-server.hpp"
 #include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
+#include "adapters/overlay/caching/caching-overlay-sink.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 #include "app/session/services/session_cleanup/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
@@ -138,11 +138,13 @@ auto main() -> int {
                                          dhcp_server);
     sst::session::SessionManager session_manager(cleanup);
 
-    // ── Overlay (scene -> Cairo/Pango RGBA -> compositor) ──────────────
+    // ── Overlay (scene -> Cairo/Pango RGBA -> caching sink) ────────────
+    // The controller renders on change into the caching sink; the pipeline
+    // consumer reads the latest RGBA from the same sink and alpha-blends it onto
+    // each final BGR frame (CPU composite, single path for all output branches).
     sst::adapters::overlay::CairoOverlayRenderer overlay_renderer;
-    sst::adapters::overlay::GstOverlayCompositor overlay_compositor(
-        sst::runtime_defaults::kOverlayWidth, sst::runtime_defaults::kOverlayHeight);
-    sst::overlay::OverlayController overlay_controller(overlay_renderer, overlay_compositor,
+    sst::adapters::overlay::CachingOverlaySink overlay_sink;
+    sst::overlay::OverlayController overlay_controller(overlay_renderer, overlay_sink,
                                                        sst::runtime_defaults::kOverlayWidth,
                                                        sst::runtime_defaults::kOverlayHeight);
 
@@ -232,7 +234,8 @@ auto main() -> int {
 
     sst::pipeline::PipelineOrchestrator pipeline(std::move(camera_chains), std::move(postprocessor),
                                                  std::move(decision), final_frame_sink,
-                                                 sst::pipeline::PipelineConfig{}, &raw_capture_sink);
+                                                 sst::pipeline::PipelineConfig{}, &raw_capture_sink,
+                                                 &overlay_sink);
     dispatcher.Register(std::make_shared<sst::control::RawCaptureHandler>(raw_capture_sink));
 
     // On-demand thumbnail: snapshot the latest pipeline frame + encode to JPEG

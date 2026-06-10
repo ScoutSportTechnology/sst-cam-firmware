@@ -7,6 +7,7 @@
 
 #include "domain/buffer/services/materialize-frame.hpp"
 #include "domain/decision/models/camera-choice.hpp"
+#include "domain/overlay/services/frame-compositor.hpp"
 
 namespace sst::pipeline {
 
@@ -20,13 +21,15 @@ PipelineOrchestrator::PipelineOrchestrator(
     std::vector<CameraChain> cameras,
     std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
     std::unique_ptr<sst::decision::IDecision> decision, sst::buffer::IFrameSink& sink,
-    PipelineConfig config, sst::storage::IRawCaptureSink* raw_sink)
+    PipelineConfig config, sst::storage::IRawCaptureSink* raw_sink,
+    sst::overlay::IOverlayFrameSource* overlay_source)
     : cameras_(std::move(cameras)),
       postprocessor_(std::move(postprocessor)),
       decision_(std::move(decision)),
       sink_(sink),
       config_(config),
-      raw_sink_(raw_sink) {
+      raw_sink_(raw_sink),
+      overlay_source_(overlay_source) {
     slots_.reserve(cameras_.size());
     for (std::size_t i = 0; i < cameras_.size(); ++i) {
         slots_.push_back(
@@ -163,6 +166,17 @@ auto PipelineOrchestrator::ConsumerLoop() -> void {
         auto final_frame = postprocessor_->Process(chosen.source_frame, choice->crop);
         if (!final_frame) {
             continue;
+        }
+        // Composite the current overlay (when present) onto the final BGR frame
+        // before fan-out, so recording + RTSP + RTMP all carry identical pixels.
+        // A fully-transparent overlay blends to a clean frame; nullopt (no
+        // overlay yet, or unsupported format) leaves the frame untouched.
+        if (overlay_source_ != nullptr) {
+            if (auto overlay = overlay_source_->LatestOverlay()) {
+                if (auto composited = sst::overlay::CompositeOverlay(*final_frame, *overlay)) {
+                    final_frame = std::move(composited);
+                }
+            }
         }
         {
             // Retain the latest final frame for on-demand snapshots. It already
