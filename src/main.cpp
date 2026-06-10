@@ -39,6 +39,7 @@
 #include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/control/services/handlers/thumbnail.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
+#include "app/decision/services/static_decision/static-decision.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
@@ -60,6 +61,7 @@ constexpr const char* kVideoRootFallback = "/var/lib/sst/cam/videos";
 namespace sst::runtime_defaults {
 
 constexpr std::uint16_t kCamera0Index = 0;
+constexpr std::uint16_t kCamera1Index = 1;
 constexpr std::uint32_t kOverlayWidth = 1280;   // matches postprocess output
 constexpr std::uint32_t kOverlayHeight = 720;
 constexpr std::uint32_t kPreviewPort = 8554;    // RTSP preview (wifi.proto)
@@ -203,13 +205,24 @@ auto main() -> int {
     sst::buffer::FanOutSink final_frame_sink(
         std::vector<sst::buffer::IFrameSink*>{&recording_service, &streaming_service});
 
+    // Two camera chains (sensor-id 0 and 1). Both run; StaticDecision presents
+    // camera 0 full-frame (the intelligence seam), camera 1 ages out unchosen
+    // but stays live so raw dual capture can tap it.
     const sst::capture::CameraConfig camera_cfg{};
-    auto capture = std::make_unique<sst::capture::GStreamerAdapter>(
-        camera_cfg, cfg.device.model.value_or(""), sst::runtime_defaults::kCamera0Index);
-    auto preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>();
+    const std::string device_model = cfg.device.model.value_or("");
+    std::vector<sst::pipeline::CameraChain> camera_chains;
+    camera_chains.push_back(sst::pipeline::CameraChain{
+        .capture = std::make_unique<sst::capture::GStreamerAdapter>(
+            camera_cfg, device_model, sst::runtime_defaults::kCamera0Index),
+        .preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>()});
+    camera_chains.push_back(sst::pipeline::CameraChain{
+        .capture = std::make_unique<sst::capture::GStreamerAdapter>(
+            camera_cfg, device_model, sst::runtime_defaults::kCamera1Index),
+        .preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>()});
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
-    sst::pipeline::PipelineOrchestrator pipeline(std::move(capture), std::move(preprocessor),
-                                                 std::move(postprocessor), final_frame_sink);
+    auto decision = std::make_unique<sst::decision::StaticDecision>();
+    sst::pipeline::PipelineOrchestrator pipeline(std::move(camera_chains), std::move(postprocessor),
+                                                 std::move(decision), final_frame_sink);
 
     // On-demand thumbnail: snapshot the latest pipeline frame + encode to JPEG
     // in memory. Registered here (after the pipeline exists) but before the BLE

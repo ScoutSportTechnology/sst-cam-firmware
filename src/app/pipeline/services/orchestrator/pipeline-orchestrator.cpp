@@ -1,24 +1,37 @@
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 
+#include <cstddef>
 #include <utility>
 
 #include <spdlog/spdlog.h>
 
 #include "domain/buffer/services/materialize-frame.hpp"
-#include "domain/processing/models/crop-rect.hpp"
+#include "domain/decision/models/camera-choice.hpp"
 
 namespace sst::pipeline {
 
+namespace {
+// The consumer waits on this camera's slot to pace the loop. Camera 0 is the
+// statically-chosen camera, so pacing on it matches the demo's cadence.
+constexpr std::size_t kCadenceCamera = 0;
+}  // namespace
+
 PipelineOrchestrator::PipelineOrchestrator(
-    std::unique_ptr<sst::capture::ICaptureFrame> capture,
-    std::unique_ptr<sst::processing::IPreprocessor> preprocessor,
+    std::vector<CameraChain> cameras,
     std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
-    sst::buffer::IFrameSink& sink, PipelineConfig config)
-    : capture_(std::move(capture)),
-      preprocessor_(std::move(preprocessor)),
+    std::unique_ptr<sst::decision::IDecision> decision, sst::buffer::IFrameSink& sink,
+    PipelineConfig config)
+    : cameras_(std::move(cameras)),
       postprocessor_(std::move(postprocessor)),
+      decision_(std::move(decision)),
       sink_(sink),
-      config_(config) {}
+      config_(config) {
+    slots_.reserve(cameras_.size());
+    for (std::size_t i = 0; i < cameras_.size(); ++i) {
+        slots_.push_back(
+            std::make_unique<sst::buffer::LatestOnlySlot<sst::processing::FrameBundle>>());
+    }
+}
 
 PipelineOrchestrator::~PipelineOrchestrator() {
     if (running_) {
@@ -31,77 +44,116 @@ auto PipelineOrchestrator::Start() -> bool {
     if (running_) {
         return true;
     }
-
-    capture_->Start();
-    if (!capture_->IsRunning()) {
-        spdlog::error("PipelineOrchestrator::Start: capture failed to start");
+    if (cameras_.empty()) {
+        spdlog::error("PipelineOrchestrator::Start: no cameras configured");
         return false;
     }
 
+    for (std::size_t i = 0; i < cameras_.size(); ++i) {
+        cameras_[i].capture->Start();
+        if (!cameras_[i].capture->IsRunning()) {
+            spdlog::error("PipelineOrchestrator::Start: camera {} failed to start", i);
+            // Roll back any captures already started so we never leave half the
+            // cameras running on a failed Start().
+            for (std::size_t j = 0; j < i; ++j) {
+                cameras_[j].capture->Stop();
+            }
+            return false;
+        }
+    }
+
     running_ = true;
-    producer_thread_ = std::thread(&PipelineOrchestrator::ProducerLoop, this);
+    producer_threads_.reserve(cameras_.size());
+    for (std::size_t i = 0; i < cameras_.size(); ++i) {
+        producer_threads_.emplace_back(&PipelineOrchestrator::ProducerLoop, this, i);
+    }
     consumer_thread_ = std::thread(&PipelineOrchestrator::ConsumerLoop, this);
-    spdlog::info("PipelineOrchestrator: started");
+    spdlog::info("PipelineOrchestrator: started with {} camera(s)", cameras_.size());
     return true;
 }
 
 auto PipelineOrchestrator::Stop() -> void {
-    std::thread to_join_producer;
-    std::thread to_join_consumer;
+    std::vector<std::thread> producers_to_join;
+    std::thread consumer_to_join;
     {
         std::lock_guard lock(mtx_);
         if (!running_) {
             return;
         }
         running_ = false;
-        slot_.Close();
-        to_join_producer = std::move(producer_thread_);
-        to_join_consumer = std::move(consumer_thread_);
+        for (auto& slot : slots_) {
+            slot->Close();
+        }
+        producers_to_join = std::move(producer_threads_);
+        producer_threads_.clear();
+        consumer_to_join = std::move(consumer_thread_);
     }
-    if (to_join_producer.joinable()) {
-        to_join_producer.join();
+    for (auto& producer : producers_to_join) {
+        if (producer.joinable()) {
+            producer.join();
+        }
     }
-    if (to_join_consumer.joinable()) {
-        to_join_consumer.join();
+    if (consumer_to_join.joinable()) {
+        consumer_to_join.join();
     }
-    capture_->Stop();
+    for (auto& camera : cameras_) {
+        camera.capture->Stop();
+    }
     spdlog::info("PipelineOrchestrator: stopped");
 }
 
 auto PipelineOrchestrator::IsRunning() const -> bool { return running_; }
 
-auto PipelineOrchestrator::ProducerLoop() -> void {
+auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
+    auto& capture = *cameras_[camera_index].capture;
+    auto& preprocessor = *cameras_[camera_index].preprocessor;
+    auto& slot = *slots_[camera_index];
+
     while (running_) {
-        auto raw = capture_->Capture();
+        auto raw = capture.Capture();
         if (!raw) {
             std::this_thread::sleep_for(config_.capture_idle_sleep);
             continue;
         }
-        auto bundle = preprocessor_->Process(*raw);
+        auto bundle = preprocessor.Process(*raw);
         if (!bundle) {
             // Preprocess failure is logged inside Process(); drop and continue.
             continue;
         }
         // Materialize the source plane bytes off the GstBuffer so the appsink
-        // slot is freed before we hand the bundle to the consumer thread.
+        // slot is freed before the bundle crosses to the consumer thread.
         bundle->source_frame = sst::buffer::MaterializeFrame(bundle->source_frame);
-        slot_.Push(std::move(*bundle));
+        slot.Push(std::move(*bundle));
     }
 }
 
 auto PipelineOrchestrator::ConsumerLoop() -> void {
     while (running_) {
-        auto bundle = slot_.Pop(config_.consumer_pop_timeout);
-        if (!bundle) {
+        // Block on the cadence camera so the loop runs at capture rate; sample
+        // every other camera non-blocking. Each tick consumes the latest bundle
+        // from each slot — unchosen ones are dropped (aged out) here.
+        std::vector<std::optional<sst::processing::FrameBundle>> latest(cameras_.size());
+        latest[kCadenceCamera] = slots_[kCadenceCamera]->Pop(config_.consumer_pop_timeout);
+        for (std::size_t i = 0; i < cameras_.size(); ++i) {
+            if (i != kCadenceCamera) {
+                latest[i] = slots_[i]->TryPop();
+            }
+        }
+
+        auto choice = decision_->Decide(latest);
+        if (!choice) {
             continue;
         }
-        const sst::processing::CropRect full_frame{
-            .x = 0,
-            .y = 0,
-            .width = bundle->source_frame.geometry.width,
-            .height = bundle->source_frame.geometry.height,
-        };
-        auto final_frame = postprocessor_->Process(bundle->source_frame, full_frame);
+        if (choice->camera_index >= latest.size() || !latest[choice->camera_index].has_value()) {
+            // Decision named a camera with no frame this tick — skip rather than
+            // dereference nothing. (StaticDecision never does this.)
+            spdlog::warn("PipelineOrchestrator: decision chose camera {} with no frame; skipping",
+                         choice->camera_index);
+            continue;
+        }
+
+        const auto& chosen = *latest[choice->camera_index];
+        auto final_frame = postprocessor_->Process(chosen.source_frame, choice->crop);
         if (!final_frame) {
             continue;
         }

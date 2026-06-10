@@ -12,6 +12,7 @@
 
 #include "app/buffer/ports/frame-sink.hpp"
 #include "app/capture/ports/frame-src.hpp"
+#include "app/decision/services/static_decision/static-decision.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
@@ -24,6 +25,8 @@ namespace {
 using sst::buffer::IFrameSink;
 using sst::capture::Frame;
 using sst::capture::ICaptureFrame;
+using sst::decision::StaticDecision;
+using sst::pipeline::CameraChain;
 using sst::pipeline::PipelineConfig;
 using sst::pipeline::PipelineOrchestrator;
 using sst::processing::CropRect;
@@ -39,18 +42,26 @@ using sst::processing::IPreprocessor;
 
 class FakeCapture final : public ICaptureFrame {
    public:
+    FakeCapture() = default;
+    // Per-camera geometry lets dual-camera tests tell which camera's frame
+    // reached postprocess. `stall` makes Capture() always return nullopt (the
+    // camera produces nothing) without stopping the producer thread.
+    FakeCapture(std::uint32_t width, std::uint32_t height, bool stall = false)
+        : width_(width), height_(height), stall_(stall) {}
+
     auto Start() -> void override { running_ = true; }
     auto Stop() -> void override { running_ = false; }
     [[nodiscard]] auto IsRunning() const -> bool override { return running_; }
 
     auto Capture() -> std::optional<Frame> override {
-        if (!running_) {
+        if (!running_ || stall_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             return std::nullopt;
         }
         Frame frame;
         frame.frame_id = next_id_.fetch_add(1);
         frame.format = sst::common::PixelFormat::NV12;
-        frame.geometry = {.width = 640, .height = 360};
+        frame.geometry = {.width = width_, .height = height_};
         // Match real GStreamerAdapter behavior: pace at ~30fps so the producer
         // doesn't spin on Capture() in the test, and to give the consumer a
         // chance to drain the slot between pushes.
@@ -59,6 +70,9 @@ class FakeCapture final : public ICaptureFrame {
     }
 
    private:
+    std::uint32_t width_{640};
+    std::uint32_t height_{360};
+    bool stall_{false};
     std::atomic<bool> running_{false};
     std::atomic<std::uint64_t> next_id_{0};
 };
@@ -126,6 +140,29 @@ class CountingSink final : public IFrameSink {
     sst::capture::FrameGeometry last_geometry{};
 };
 
+// ── Construction helpers ─────────────────────────────────────────────
+//
+// The orchestrator is non-movable, so we build the camera-chain vector with
+// these helpers and pass it straight into the constructor. Single-camera tests
+// use OneCamera + a real StaticDecision (deterministic: cam 0 full-frame).
+
+auto OneCamera(std::unique_ptr<ICaptureFrame> capture,
+               std::unique_ptr<IPreprocessor> preprocessor) -> std::vector<CameraChain> {
+    std::vector<CameraChain> chains;
+    chains.push_back(
+        CameraChain{.capture = std::move(capture), .preprocessor = std::move(preprocessor)});
+    return chains;
+}
+
+auto TwoCameras(std::unique_ptr<ICaptureFrame> cam0, std::unique_ptr<IPreprocessor> pre0,
+                std::unique_ptr<ICaptureFrame> cam1, std::unique_ptr<IPreprocessor> pre1)
+    -> std::vector<CameraChain> {
+    std::vector<CameraChain> chains;
+    chains.push_back(CameraChain{.capture = std::move(cam0), .preprocessor = std::move(pre0)});
+    chains.push_back(CameraChain{.capture = std::move(cam1), .preprocessor = std::move(pre1)});
+    return chains;
+}
+
 // Spin up the orchestrator with fast polling so tests run in well under a
 // second. Real production timings are 5/100ms; tests use 1/20ms.
 auto FastConfig() -> PipelineConfig {
@@ -138,12 +175,11 @@ auto FastConfig() -> PipelineConfig {
 // ── Tests ────────────────────────────────────────────────────────────
 
 TEST(PipelineOrchestratorTest, StartIsIdempotentAndReturnsRunning) {
-    auto capture = std::make_unique<FakeCapture>();
-    auto preprocessor = std::make_unique<FakePreprocessor>();
-    auto postprocessor = std::make_unique<FakePostprocessor>();
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::move(capture), std::move(preprocessor),
-                                      std::move(postprocessor), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
 
     EXPECT_FALSE(orchestrator.IsRunning());
     EXPECT_TRUE(orchestrator.Start());
@@ -167,10 +203,10 @@ TEST(PipelineOrchestratorTest, FailsToStartWhenCaptureFailsToStart) {
     };
 
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<StuckCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::make_unique<FakePostprocessor>(), sink,
-                                      FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<StuckCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
     EXPECT_FALSE(orchestrator.Start());
     EXPECT_FALSE(orchestrator.IsRunning());
 }
@@ -181,9 +217,9 @@ TEST(PipelineOrchestratorTest, EndToEndFlowProducesPostprocessedFrames) {
     auto* preprocessor = preprocessor_owner.get();
     auto* postprocessor = postprocessor_owner.get();
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::move(preprocessor_owner),
-                                      std::move(postprocessor_owner), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::move(preprocessor_owner)),
+        std::move(postprocessor_owner), std::make_unique<StaticDecision>(), sink, FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
     // Run for ~300ms — at 33ms/frame in FakeCapture that's ~9 frames captured
@@ -200,26 +236,91 @@ TEST(PipelineOrchestratorTest, EndToEndFlowProducesPostprocessedFrames) {
     EXPECT_EQ(last_geom.height, 720U);
 }
 
-// U9: before any frame is produced, the snapshot source has nothing — the
+// U3: both cameras run, but the static decision routes only camera 0 to
+// postprocess. Camera 1 has a distinct geometry; if any cam-1 bundle reached
+// postprocess the recorded source geometry would show 800x600.
+TEST(PipelineOrchestratorTest, OnlyChosenCameraReachesPostprocess) {
+    auto postprocessor_owner = std::make_unique<FakePostprocessor>();
+    auto* postprocessor = postprocessor_owner.get();
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(640, 360), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(800, 600), std::make_unique<FakePreprocessor>()),
+        std::move(postprocessor_owner), std::make_unique<StaticDecision>(), sink, FastConfig());
+
+    ASSERT_TRUE(orchestrator.Start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    orchestrator.Stop();
+
+    ASSERT_GT(postprocessor->process_calls, 0);
+    // Every postprocessed frame came from camera 0 (640x360) — camera 1's
+    // 800x600 bundles aged out unchosen.
+    EXPECT_EQ(postprocessor->last_source_geometry.width, 640U);
+    EXPECT_EQ(postprocessor->last_source_geometry.height, 360U);
+    EXPECT_EQ(postprocessor->last_crop.width, 640U);
+    EXPECT_EQ(postprocessor->last_crop.height, 360U);
+}
+
+// U3: if camera 1 stalls (produces no frames), the consumer still serves
+// camera 0 — no deadlock, frames keep reaching the sink.
+TEST(PipelineOrchestratorTest, OneCameraStallingDoesNotBlockTheOther) {
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(640, 360), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(800, 600, /*stall=*/true),
+                   std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
+
+    ASSERT_TRUE(orchestrator.Start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    orchestrator.Stop();
+
+    auto [pushes, last_id, last_format, last_geom] = sink.Snapshot();
+    EXPECT_GT(pushes, 0) << "camera 0 should keep flowing while camera 1 stalls";
+    EXPECT_FALSE(orchestrator.IsRunning());
+}
+
+// U3: Start/Stop must spawn and join both producer threads + the consumer
+// cleanly, repeatedly.
+TEST(PipelineOrchestratorTest, DualCameraStartStopCyclesCleanly) {
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(640, 360), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(800, 600), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
+
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(orchestrator.Start());
+        EXPECT_TRUE(orchestrator.IsRunning());
+        std::this_thread::sleep_for(std::chrono::milliseconds(60));
+        orchestrator.Stop();
+        EXPECT_FALSE(orchestrator.IsRunning());
+    }
+}
+
+// before any frame is produced, the snapshot source has nothing — the
 // thumbnail handler turns this into a ResponseStatus::ERROR.
 TEST(PipelineOrchestratorTest, GrabLatestIsEmptyBeforeAnyFrame) {
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
     EXPECT_FALSE(orchestrator.GrabLatest().has_value());
 }
 
-// U9: once the consumer has produced final frames, GrabLatest() returns the
-// latest post-processed frame (BGR8, output geometry) — an owned snapshot the
-// thumbnail path can encode after the call returns. Poll (instead of a fixed
-// sleep) so the test isn't flaky under load: the first frame is normally ready
-// within ~one capture period, but we allow up to ~2s.
+// once the consumer has produced final frames, GrabLatest() returns the latest
+// post-processed frame (BGR8, output geometry) — an owned snapshot the thumbnail
+// path can encode after the call returns. Poll (instead of a fixed sleep) so the
+// test isn't flaky under load.
 TEST(PipelineOrchestratorTest, GrabLatestReturnsLatestFinalFrame) {
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
 
@@ -245,9 +346,10 @@ TEST(PipelineOrchestratorTest, GrabLatestReturnsLatestFinalFrame) {
 // (sanitizers catch any data race on the shared latest-frame slot).
 TEST(PipelineOrchestratorTest, ConcurrentGrabLatestAndStopIsSafe) {
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::make_unique<FakePostprocessor>(), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
 
@@ -278,17 +380,17 @@ TEST(PipelineOrchestratorTest, PostprocessorReceivesFullFrameCrop) {
     auto postprocessor_owner = std::make_unique<FakePostprocessor>();
     auto* postprocessor = postprocessor_owner.get();
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::move(postprocessor_owner), sink, FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::move(postprocessor_owner), std::make_unique<StaticDecision>(), sink, FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
     orchestrator.Stop();
 
     ASSERT_GT(postprocessor->process_calls, 0);
-    // Default v1 behavior is "no AI yet, full-frame crop" — so the crop must
-    // exactly cover the source frame.
+    // Static decision is "no AI yet, full-frame crop" — so the crop must exactly
+    // cover the source frame.
     EXPECT_EQ(postprocessor->last_crop.x, 0U);
     EXPECT_EQ(postprocessor->last_crop.y, 0U);
     EXPECT_EQ(postprocessor->last_crop.width, postprocessor->last_source_geometry.width);
@@ -300,10 +402,10 @@ TEST(PipelineOrchestratorTest, PreprocessRefusalsDoNotStallPipeline) {
     preprocessor_owner->refuse_after_n_ = 2;  // first 2 succeed, rest refuse
     auto* preprocessor = preprocessor_owner.get();
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::move(preprocessor_owner),
-                                      std::make_unique<FakePostprocessor>(), sink,
-                                      FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::move(preprocessor_owner)),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
 
     ASSERT_TRUE(orchestrator.Start());
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -319,30 +421,27 @@ TEST(PipelineOrchestratorTest, PreprocessRefusalsDoNotStallPipeline) {
 
 TEST(PipelineOrchestratorTest, StopWithoutStartIsHarmless) {
     CountingSink sink;
-    PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                      std::make_unique<FakePreprocessor>(),
-                                      std::make_unique<FakePostprocessor>(), sink,
-                                      FastConfig());
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+        FastConfig());
     orchestrator.Stop();  // no-op
     EXPECT_FALSE(orchestrator.IsRunning());
 }
 
 TEST(PipelineOrchestratorTest, DestructorStopsRunningPipeline) {
-    auto postprocessor_owner = std::make_unique<FakePostprocessor>();
-    auto* postprocessor = postprocessor_owner.get();
     CountingSink sink;
     {
-        PipelineOrchestrator orchestrator(std::make_unique<FakeCapture>(),
-                                          std::make_unique<FakePreprocessor>(),
-                                          std::move(postprocessor_owner), sink, FastConfig());
+        PipelineOrchestrator orchestrator(
+            OneCamera(std::make_unique<FakeCapture>(), std::make_unique<FakePreprocessor>()),
+            std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), sink,
+            FastConfig());
         ASSERT_TRUE(orchestrator.Start());
         std::this_thread::sleep_for(std::chrono::milliseconds(120));
         // No explicit Stop(); destructor must clean up cleanly.
     }
-    // postprocessor pointer is unsafe to use here (it was owned by the
-    // orchestrator). The test simply asserts we got here without hangs / data
-    // races caught by sanitizers.
-    (void)postprocessor;
+    // The test asserts we got here without hangs / data races caught by
+    // sanitizers.
     SUCCEED();
 }
 

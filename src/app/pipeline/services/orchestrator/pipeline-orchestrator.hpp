@@ -6,9 +6,11 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include "app/buffer/ports/frame-sink.hpp"
 #include "app/capture/ports/frame-src.hpp"
+#include "app/decision/ports/decision.hpp"
 #include "app/pipeline/ports/frame-snapshot-source.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
@@ -19,36 +21,49 @@
 namespace sst::pipeline {
 
 struct PipelineConfig {
-    // Polling interval used by the producer when Capture() returns nullopt
+    // Polling interval used by a producer when Capture() returns nullopt
     // (no new frame ready). Tight enough to not miss frames at 30+ fps,
     // loose enough not to spin a core when the camera is idle.
     std::chrono::milliseconds capture_idle_sleep{5};
-    // Bound on how long the consumer waits for a new bundle before checking
-    // its run flag. Keeps shutdown latency low.
+    // Bound on how long the consumer waits for a new bundle from the cadence
+    // camera before re-evaluating. Keeps shutdown latency low.
     std::chrono::milliseconds consumer_pop_timeout{100};
 };
 
-// Single-camera pipeline orchestrator. Owns two threads:
+// One capture → preprocess chain for a single camera. The orchestrator owns the
+// chain, runs a producer thread per chain, and materializes each frame before
+// it enters that camera's slot.
+struct CameraChain {
+    std::unique_ptr<sst::capture::ICaptureFrame> capture;
+    std::unique_ptr<sst::processing::IPreprocessor> preprocessor;
+};
+
+// Multi-camera pipeline orchestrator. Owns one producer thread per camera plus
+// a single consumer thread:
 //
-//   producer: ICaptureFrame::Capture() in a loop → IPreprocessor::Process →
-//             buffer::MaterializeFrame(source) → push to LatestOnlySlot.
+//   producer[i]: ICaptureFrame::Capture() loop → IPreprocessor::Process →
+//                buffer::MaterializeFrame(source) → push to slots_[i].
 //
-//   consumer: pop from slot → IPostprocessor::Process(source, full-frame crop)
-//             → IFrameSink::Push.
+//   consumer:    block on the cadence camera's slot (camera 0), sample every
+//                other camera non-blocking, call IDecision::Decide(per-camera
+//                latest) → postprocess the chosen camera's bundle with the
+//                returned crop → IFrameSink::Push.
 //
-// The full-frame crop is the "no-AI" default. Once the AI/physics/decision
-// modules land they replace the crop selection, slotting in between the
-// LatestOnlySlot pop and the postprocessor call.
+// The IDecision port is the intelligence seam: StaticDecision selects camera 0
+// full-frame today; the AI/physics/decision stack implements the same port
+// later. Both cameras run regardless of which is chosen — unchosen bundles age
+// out of their LatestOnlySlot, and the second camera being live is what makes
+// raw dual capture (U6) possible.
 //
-// Threading: producer and consumer are independent threads. The
-// LatestOnlySlot drops older bundles on overrun, decoupling capture cadence
-// from postprocess+sink cadence so a slow downstream sink can't back-pressure
-// the camera.
+// Cadence note: the consumer waits on camera 0's slot, since the static policy
+// always presents camera 0. If camera 0 stalls, the consumer wakes every
+// consumer_pop_timeout, the decision returns nullopt, and it retries — no
+// deadlock, and other cameras' frames simply age out.
 class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
    public:
-    PipelineOrchestrator(std::unique_ptr<sst::capture::ICaptureFrame> capture,
-                         std::unique_ptr<sst::processing::IPreprocessor> preprocessor,
+    PipelineOrchestrator(std::vector<CameraChain> cameras,
                          std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
+                         std::unique_ptr<sst::decision::IDecision> decision,
                          sst::buffer::IFrameSink& sink, PipelineConfig config = PipelineConfig{});
 
     ~PipelineOrchestrator() override;
@@ -58,9 +73,11 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     PipelineOrchestrator(PipelineOrchestrator&&) = delete;
     auto operator=(PipelineOrchestrator&&) -> PipelineOrchestrator& = delete;
 
-    // Idempotent. Starts the underlying capture, then spawns both threads.
+    // Idempotent. Starts every camera's capture, then spawns the producer
+    // threads and the consumer. Returns false (and stops anything started) if
+    // any camera fails to start.
     auto Start() -> bool;
-    // Idempotent. Signals both threads to exit, joins them, stops the capture.
+    // Idempotent. Signals all threads to exit, joins them, stops every capture.
     auto Stop() -> void;
     [[nodiscard]] auto IsRunning() const -> bool;
 
@@ -70,20 +87,22 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     [[nodiscard]] auto GrabLatest() -> std::optional<sst::capture::Frame> override;
 
    private:
-    auto ProducerLoop() -> void;
+    auto ProducerLoop(std::size_t camera_index) -> void;
     auto ConsumerLoop() -> void;
 
-    std::unique_ptr<sst::capture::ICaptureFrame> capture_;
-    std::unique_ptr<sst::processing::IPreprocessor> preprocessor_;
+    std::vector<CameraChain> cameras_;
     std::unique_ptr<sst::processing::IPostprocessor> postprocessor_;
+    std::unique_ptr<sst::decision::IDecision> decision_;
     sst::buffer::IFrameSink& sink_;
     PipelineConfig config_;
 
-    sst::buffer::LatestOnlySlot<sst::processing::FrameBundle> slot_;
+    // One slot per camera. unique_ptr because LatestOnlySlot is non-movable and
+    // we size the vector at construction from the camera count.
+    std::vector<std::unique_ptr<sst::buffer::LatestOnlySlot<sst::processing::FrameBundle>>> slots_;
 
     mutable std::mutex mtx_;
     std::atomic<bool> running_{false};
-    std::thread producer_thread_;
+    std::vector<std::thread> producer_threads_;
     std::thread consumer_thread_;
 
     // Latest final frame for on-demand snapshots (thumbnail). Guarded by its own
