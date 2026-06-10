@@ -23,17 +23,23 @@ auto FrameByteSize(const sst::capture::Frame& frame) -> std::size_t {
 }
 
 auto BuildLaunch(const sst::streaming::AppStreamConfig& cfg) -> std::string {
+    // Software H.264: the Orin Nano has no NVENC. x264enc reads system memory,
+    // so the nvvidconv→NVMM hop is dropped (appsrc already provides BGR system
+    // memory). do-timestamp=true stamps PTS on arrival — required for x264enc,
+    // which (unlike nvv4l2h264enc) corrupts the stream on absent/invalid PTS.
+    // x264enc bitrate is in kbit/s (nvv4l2h264enc used bit/s). gst-rtsp-server
+    // shares one encode across all viewers (set_shared), so this CPU cost is
+    // paid once regardless of viewer count.
     return fmt::format(
         "( appsrc name={src} is-live=true format=time do-timestamp=true "
         "    caps=\"video/x-raw,format=BGR,width={w},height={h},framerate={fps}/1\" "
-        "  ! videoconvert ! nvvidconv "
-        "  ! \"video/x-raw(memory:NVMM),format=NV12,width={w},height={h},framerate={fps}/1\" "
-        "  ! nvv4l2h264enc bitrate={br} insert-sps-pps=true iframeinterval={fps} "
-        "                  maxperf-enable=true "
-        "  ! h264parse "
+        "  ! videoconvert "
+        "  ! x264enc speed-preset=ultrafast tune=zerolatency bitrate={brk} key-int-max={gik} "
+        "  ! h264parse config-interval=1 "
         "  ! rtph264pay name=pay0 pt=96 config-interval=1 )",
         fmt::arg("src", kAppsrcName), fmt::arg("w", cfg.width), fmt::arg("h", cfg.height),
-        fmt::arg("fps", cfg.framerate), fmt::arg("br", cfg.bitrate_kbps * 1000));
+        fmt::arg("fps", cfg.framerate), fmt::arg("brk", cfg.bitrate_kbps),
+        fmt::arg("gik", cfg.framerate * 2));
 }
 
 }  // namespace
@@ -199,9 +205,11 @@ auto GstRtspAppStreamServer::Push(const sst::capture::Frame& frame) -> void {
     }
     gst_buffer_unmap(gst_buf, &map);
 
-    GST_BUFFER_PTS(gst_buf) = GST_CLOCK_TIME_NONE;
-    GST_BUFFER_DTS(gst_buf) = GST_CLOCK_TIME_NONE;
-    GST_BUFFER_DURATION(gst_buf) = GST_CLOCK_TIME_NONE;
+    // Leave the buffer timestamps unset: the appsrc is configured with
+    // do-timestamp=true, so it stamps a valid running-time PTS on each buffer as
+    // it is pushed. Forcing GST_CLOCK_TIME_NONE here defeats that and corrupts
+    // the x264enc software-encoded stream (nvv4l2h264enc tolerated it; x264enc
+    // does not).
 
     (void)gst_app_src_push_buffer(target, gst_buf);
     gst_object_unref(target);

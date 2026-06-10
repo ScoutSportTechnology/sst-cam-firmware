@@ -29,11 +29,18 @@ PKGS=(
   # gst-rtsp-server: companion-app RTSP server library
   "pool/universe/g/gst-rtsp-server1.0/libgstrtspserver-1.0-0_1.20.1-1_arm64.deb"
   "pool/universe/g/gst-rtsp-server1.0/libgstrtspserver-1.0-dev_1.20.1-1_arm64.deb"
-  # gst-plugins-bad: ships rtmpsink (needed for YouTube/Twitch/Facebook/Instagram/
-  # custom RTMP+RTMPS push). flvmux/h264parse/mp4mux/qtdemux/concat/splitmuxsink
-  # are in plugins-good which is already part of the base sysroot.
+  # gst-plugins-bad: ships rtmp2sink (RTMP/RTMPS push to YouTube/Twitch/etc) and
+  # voaacenc (AAC for the silent audio track platforms require). flvmux/h264parse/
+  # mp4mux/qtdemux/concat/splitmuxsink are in plugins-good (base sysroot).
   "pool/universe/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.20.3-0ubuntu1.1_arm64.deb"
   "pool/universe/g/gst-plugins-bad1.0/libgstreamer-plugins-bad1.0-0_1.20.3-0ubuntu1.1_arm64.deb"
+  # gst-plugins-ugly + libx264: x264enc software H.264 encoder. The Orin Nano has
+  # no NVENC (nvv4l2h264enc is absent), so recording/preview/RTMP all encode on
+  # CPU via x264enc, which lives in plugins-ugly (NOT plugins-bad) and links
+  # libx264. Without this the pipelines build green (gst_parse_launch resolves
+  # elements at runtime) but fail to reach PLAYING on-device.
+  "pool/universe/g/gst-plugins-ugly1.0/gstreamer1.0-plugins-ugly_1.20.1-1_arm64.deb"
+  "pool/universe/x/x264/libx264-163_0.163.3060+git5db6aa6-2build1_arm64.deb"
   # protobuf 3.12.4 runtime + dev headers for the sst-cam-proto contract.
   # Pinned to jammy 3.12.4 to match the host protoc installed in the Dockerfile
   # (generated-code ABI is keyed on the upstream protobuf version, 3012004).

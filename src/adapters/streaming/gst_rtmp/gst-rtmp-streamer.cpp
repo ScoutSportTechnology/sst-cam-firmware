@@ -38,19 +38,27 @@ auto BuildLocation(const sst::streaming::PlatformStreamConfig& cfg) -> std::stri
 }
 
 auto BuildLaunch(const sst::streaming::PlatformStreamConfig& cfg) -> std::string {
+    // Software H.264 (the Orin Nano has no NVENC): x264enc reads system memory,
+    // so the nvvidconv→NVMM hop is dropped. rtmp2sink replaces the deprecated
+    // rtmpsink — it takes a clean location URL (no embedded " live=1"). The
+    // uplink queue is leaky-downstream + non-blocking so a stalled RTMP socket
+    // can never back-pressure the capture/encode path. x264enc bitrate is in
+    // kbit/s. do-timestamp=true on the appsrc supplies valid PTS (x264enc
+    // requires it). flvmux is named so U9 can attach a silent AAC audio pad
+    // (platforms like YouTube require an audio track). A pad-blocking bus-error
+    // reconnect is handled in U9 (rtmp2sink has no auto-reconnect).
     return fmt::format(
         "appsrc name={src} is-live=true format=time do-timestamp=true "
         "  caps=\"video/x-raw,format=BGR,width={w},height={h},framerate={fps}/1\" "
-        " ! videoconvert ! nvvidconv "
-        " ! \"video/x-raw(memory:NVMM),format=NV12,width={w},height={h},framerate={fps}/1\" "
-        " ! nvv4l2h264enc bitrate={br} insert-sps-pps=true iframeinterval={fps} "
-        "                 maxperf-enable=true "
-        " ! h264parse "
-        " ! flvmux streamable=true "
-        " ! rtmpsink location=\"{loc} live=1\" sync=false ",
+        " ! videoconvert "
+        " ! x264enc speed-preset=ultrafast tune=zerolatency bitrate={brk} key-int-max={gik} "
+        " ! h264parse config-interval=-1 "
+        " ! queue leaky=downstream max-size-buffers=3 "
+        " ! flvmux name=mux streamable=true "
+        " ! rtmp2sink location=\"{loc}\" sync=false ",
         fmt::arg("src", kAppsrcName), fmt::arg("w", cfg.width), fmt::arg("h", cfg.height),
-        fmt::arg("fps", cfg.framerate), fmt::arg("br", cfg.bitrate_kbps * 1000),
-        fmt::arg("loc", BuildLocation(cfg)));
+        fmt::arg("fps", cfg.framerate), fmt::arg("brk", cfg.bitrate_kbps),
+        fmt::arg("gik", cfg.framerate * 2), fmt::arg("loc", BuildLocation(cfg)));
 }
 
 }  // namespace
@@ -181,9 +189,9 @@ auto GstRtmpStreamer::Push(const sst::capture::Frame& frame) -> void {
     }
     gst_buffer_unmap(gst_buf, &map);
 
-    GST_BUFFER_PTS(gst_buf) = GST_CLOCK_TIME_NONE;
-    GST_BUFFER_DTS(gst_buf) = GST_CLOCK_TIME_NONE;
-    GST_BUFFER_DURATION(gst_buf) = GST_CLOCK_TIME_NONE;
+    // Leave timestamps unset so the do-timestamp=true appsrc stamps a valid
+    // running-time PTS. Forcing GST_CLOCK_TIME_NONE corrupts the x264enc
+    // software-encoded stream (nvv4l2h264enc tolerated it; x264enc does not).
 
     (void)gst_app_src_push_buffer(GST_APP_SRC(src), gst_buf);
     gst_object_unref(src);

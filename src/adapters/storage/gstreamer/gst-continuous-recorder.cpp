@@ -16,6 +16,12 @@ namespace {
 constexpr const char* kAppsrcName = "src";
 constexpr const char* kEncoderName = "enc";
 constexpr int kFramerate = 30;
+// Software H.264 (x264enc) tuning. The Orin Nano has no NVENC, so encode runs on
+// CPU; ultrafast + zerolatency keeps it within the dual-camera CPU budget. Dial
+// kBitrateKbps / capture resolution down if on-device CPU measurement (M0)
+// shows three concurrent encodes don't sustain.
+constexpr int kBitrateKbps = 8000;
+constexpr int kKeyIntMax = kFramerate * 2;
 
 auto GstFormatFor(sst::common::PixelFormat fmt) -> const char* {
     switch (fmt) {
@@ -47,13 +53,20 @@ auto GstContinuousRecorder::Start(const std::filesystem::path& output_mp4) -> bo
         return false;
     }
 
-    // NVENC encode chain. nvvidconv + nvv4l2h264enc exist only on the Jetson, so
-    // this launch fails in the dev container — the recorder is hardware-bound.
+    // Software H.264 encode chain. The Orin Nano has no NVENC (nvv4l2h264enc
+    // does not resolve on this silicon), so encode runs on CPU via x264enc;
+    // x264enc reads system memory, so the nvvidconv/NVMM hop is dropped. The
+    // x264enc element lives in gstreamer1.0-plugins-ugly — gst_parse_launch
+    // resolves elements at runtime, so a missing plugin fails here (logged), not
+    // at container build time. config-interval=-1 makes h264parse repeat
+    // SPS/PPS so the MP4 is seekable/decodable from any keyframe.
     const std::string desc = fmt::format(
         "appsrc name={src} is-live=true format=time do-timestamp=true ! "
-        "videoconvert ! nvvidconv ! nvv4l2h264enc name={enc} insert-sps-pps=true ! "
-        "h264parse ! mp4mux ! filesink location={loc}",
+        "videoconvert ! x264enc name={enc} speed-preset=ultrafast tune=zerolatency "
+        "bitrate={kbps} key-int-max={gik} ! "
+        "h264parse config-interval=-1 ! mp4mux ! filesink location={loc}",
         fmt::arg("src", kAppsrcName), fmt::arg("enc", kEncoderName),
+        fmt::arg("kbps", kBitrateKbps), fmt::arg("gik", kKeyIntMax),
         fmt::arg("loc", output_mp4.string()));
 
     GError* err = nullptr;

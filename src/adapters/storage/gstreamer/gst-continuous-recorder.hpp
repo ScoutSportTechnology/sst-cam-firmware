@@ -12,9 +12,10 @@
 
 namespace sst::adapters::storage {
 
-// Single continuous-MP4 recorder (KTD6, hardware-bound — NVENC).
+// Single continuous-MP4 recorder. Software H.264 (the Orin Nano has no NVENC);
+// still hardware-bound for tests (needs a live GStreamer pipeline + x264enc).
 //
-//   appsrc → videoconvert → nvvidconv → nvv4l2h264enc → h264parse → mp4mux → filesink
+//   appsrc → videoconvert → x264enc → h264parse → mp4mux → filesink
 //
 // Pause stops feeding the muxer; Resume forces a key-unit and feeds the SAME
 // file again (drop-to-IDR). Stop sends EOS and waits for the muxer to write a
