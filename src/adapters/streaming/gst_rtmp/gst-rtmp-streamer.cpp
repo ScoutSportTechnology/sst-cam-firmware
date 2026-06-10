@@ -1,7 +1,9 @@
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 
+#include <chrono>
 #include <cstring>
 #include <string>
+#include <thread>
 
 #include <gst/app/gstappsrc.h>
 
@@ -48,14 +50,17 @@ auto BuildLaunch(const sst::streaming::PlatformStreamConfig& cfg) -> std::string
     // (platforms like YouTube require an audio track). A pad-blocking bus-error
     // reconnect is handled in U9 (rtmp2sink has no auto-reconnect).
     return fmt::format(
+        "flvmux name=mux streamable=true ! rtmp2sink location=\"{loc}\" sync=false "
         "appsrc name={src} is-live=true format=time do-timestamp=true "
         "  caps=\"video/x-raw,format=BGR,width={w},height={h},framerate={fps}/1\" "
         " ! videoconvert "
         " ! x264enc speed-preset=ultrafast tune=zerolatency bitrate={brk} key-int-max={gik} "
         " ! h264parse config-interval=-1 "
-        " ! queue leaky=downstream max-size-buffers=3 "
-        " ! flvmux name=mux streamable=true "
-        " ! rtmp2sink location=\"{loc}\" sync=false ",
+        " ! queue leaky=downstream max-size-buffers=3 ! mux.video "
+        // Silent AAC track — YouTube et al. reject video-only FLV. Both pads must
+        // produce timestamped buffers or flvmux stalls (is-live + do-timestamp).
+        "audiotestsrc is-live=true wave=silence do-timestamp=true "
+        " ! audioconvert ! voaacenc ! aacparse ! queue ! mux.audio ",
         fmt::arg("src", kAppsrcName), fmt::arg("w", cfg.width), fmt::arg("h", cfg.height),
         fmt::arg("fps", cfg.framerate), fmt::arg("brk", cfg.bitrate_kbps),
         fmt::arg("gik", cfg.framerate * 2), fmt::arg("loc", BuildLocation(cfg)));
@@ -71,6 +76,33 @@ GstRtmpStreamer::~GstRtmpStreamer() {
     }
 }
 
+auto GstRtmpStreamer::BuildAndPlayLocked() -> bool {
+    const std::string launch = BuildLaunch(config_);
+    GError* err = nullptr;
+    pipeline_ = gst_parse_launch(launch.c_str(), &err);
+    if (err != nullptr) {
+        spdlog::error("GstRtmpStreamer: parse failed: {}", err->message);
+        g_error_free(err);
+        Teardown();
+        return false;
+    }
+    if (pipeline_ == nullptr) {
+        return false;
+    }
+    appsrc_ = gst_bin_get_by_name(GST_BIN(pipeline_), kAppsrcName);
+    if (appsrc_ == nullptr) {
+        spdlog::error("GstRtmpStreamer: appsrc not found");
+        Teardown();
+        return false;
+    }
+    if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+        spdlog::error("GstRtmpStreamer: PLAYING transition failed");
+        Teardown();
+        return false;
+    }
+    return true;
+}
+
 auto GstRtmpStreamer::Start(const sst::streaming::PlatformStreamConfig& config) -> bool {
     std::lock_guard lock(mtx_);
     if (running_) {
@@ -83,34 +115,63 @@ auto GstRtmpStreamer::Start(const sst::streaming::PlatformStreamConfig& config) 
     config_ = config;
     spdlog::info("GstRtmpStreamer::Start {}", config_);
 
-    const std::string launch = BuildLaunch(config_);
-    GError* err = nullptr;
-    pipeline_ = gst_parse_launch(launch.c_str(), &err);
-    if (err != nullptr) {
-        spdlog::error("GstRtmpStreamer::Start: parse failed: {}", err->message);
-        g_error_free(err);
-        Teardown();
-        return false;
-    }
-    if (pipeline_ == nullptr) {
-        return false;
-    }
-    appsrc_ = gst_bin_get_by_name(GST_BIN(pipeline_), kAppsrcName);
-    if (appsrc_ == nullptr) {
-        spdlog::error("GstRtmpStreamer::Start: appsrc not found");
-        Teardown();
-        return false;
-    }
-    if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-        spdlog::error("GstRtmpStreamer::Start: PLAYING transition failed");
-        Teardown();
+    if (!BuildAndPlayLocked()) {
         return false;
     }
     running_ = true;
+    // Watch for uplink errors and rebuild the RTMP pipeline in place (rtmp2sink
+    // has no auto-reconnect). Isolated to this branch — RTSP/capture are unaffected.
+    watching_ = true;
+    watcher_ = std::thread(&GstRtmpStreamer::WatcherLoop, this);
     return true;
 }
 
+auto GstRtmpStreamer::WatcherLoop() -> void {
+    while (watching_.load()) {
+        GstBus* bus = nullptr;
+        {
+            std::lock_guard lock(mtx_);
+            if (pipeline_ != nullptr) {
+                bus = gst_element_get_bus(pipeline_);
+            }
+        }
+        if (bus == nullptr) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+        GstMessage* msg =
+            gst_bus_timed_pop_filtered(bus, 200 * GST_MSECOND, GST_MESSAGE_ERROR);
+        gst_object_unref(bus);
+        if (msg == nullptr) {
+            continue;  // timeout, no error — keep watching
+        }
+        gst_message_unref(msg);
+
+        // Uplink error: rebuild the pipeline from the same config. Skip if Stop()
+        // has begun (watching_ cleared) so we don't race teardown.
+        std::lock_guard lock(mtx_);
+        if (!watching_.load() || !running_.load()) {
+            break;
+        }
+        spdlog::warn("GstRtmpStreamer: RTMP bus error — rebuilding uplink");
+        if (pipeline_ != nullptr) {
+            gst_element_set_state(pipeline_, GST_STATE_NULL);
+        }
+        Teardown();
+        if (!BuildAndPlayLocked()) {
+            spdlog::error("GstRtmpStreamer: reconnect failed; will retry on next tick");
+        }
+    }
+}
+
 auto GstRtmpStreamer::Stop() -> void {
+    // Stop the watcher first (outside mtx_) so its reconnect path can't race the
+    // teardown below.
+    watching_ = false;
+    if (watcher_.joinable()) {
+        watcher_.join();
+    }
+
     std::lock_guard lock(mtx_);
     if (!running_) {
         return;
