@@ -12,8 +12,8 @@ struct fmt::formatter<sst::network::RecordingSummary> {
     auto format(const sst::network::RecordingSummary& r, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(),
                               "RecordingSummary{{id={}, size={} bytes, started_at={}, "
-                              "duration={}s, thumbnail={}}}",
+                              "duration={}s, thumbnail={}, is_raw={}, camera_index={}, group={}}}",
                               r.recording_id, r.size_bytes, r.started_at_unix, r.duration_s,
-                              r.thumbnail_id);
+                              r.thumbnail_id, r.is_raw, r.camera_index, r.capture_group_id);
     }
 };

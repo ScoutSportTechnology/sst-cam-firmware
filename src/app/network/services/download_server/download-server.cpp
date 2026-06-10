@@ -7,6 +7,7 @@
 #include <spdlog/spdlog.h>
 
 #include "domain/common/utils/uuid.hpp"
+#include "domain/storage/services/raw-capture-naming.hpp"
 
 namespace sst::network {
 
@@ -14,6 +15,7 @@ namespace fs = std::filesystem;
 
 namespace {
 constexpr const char* kMp4Extension = ".mp4";
+constexpr const char* kRawExtension = ".nv12";
 
 auto LastWriteUnix(const fs::path& path) -> std::uint64_t {
     std::error_code ec;
@@ -41,12 +43,30 @@ auto DownloadServer::Enumerate() const -> std::vector<RecordingSummary> {
     for (auto it = fs::recursive_directory_iterator(video_root_, ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         const fs::path& path = it->path();
-        if (!it->is_regular_file(ec) || path.extension() != kMp4Extension) {
+        if (!it->is_regular_file(ec)) {
             continue;
         }
+        const auto ext = path.extension();
         RecordingSummary summary;
-        summary.recording_id = path.stem().string();
-        summary.thumbnail_id = summary.recording_id;
+        if (ext == kMp4Extension) {
+            // Final-match recording: is_raw stays false, raw identity unset.
+            summary.recording_id = path.stem().string();
+            summary.thumbnail_id = summary.recording_id;
+        } else if (ext == kRawExtension) {
+            // Raw dual-camera file: parse identity from the filename so the app
+            // can group the cam-0/cam-1 pair by capture_group_id.
+            const auto identity =
+                sst::storage::raw_capture_naming::ParseFileName(path.filename().string());
+            if (!identity) {
+                continue;  // a .nv12 that isn't a raw-capture file we wrote
+            }
+            summary.recording_id = path.stem().string();
+            summary.is_raw = true;
+            summary.camera_index = identity->camera_index;
+            summary.capture_group_id = identity->capture_group_id;
+        } else {
+            continue;
+        }
         std::error_code size_ec;
         summary.size_bytes = static_cast<std::uint64_t>(fs::file_size(path, size_ec));
         summary.started_at_unix = LastWriteUnix(path);
@@ -64,7 +84,8 @@ auto DownloadServer::ResolveRecordingPath(const std::string& recording_id) const
     for (auto it = fs::recursive_directory_iterator(video_root_, ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         const fs::path& path = it->path();
-        if (it->is_regular_file(ec) && path.extension() == kMp4Extension &&
+        const auto ext = path.extension();
+        if (it->is_regular_file(ec) && (ext == kMp4Extension || ext == kRawExtension) &&
             path.stem().string() == recording_id) {
             return path;
         }

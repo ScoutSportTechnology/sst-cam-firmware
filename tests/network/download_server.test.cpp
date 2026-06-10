@@ -21,6 +21,8 @@
 #include <thread>
 
 #include "adapters/network/http/http-download-server.hpp"
+#include "domain/storage/models/raw-capture-identity.hpp"
+#include "domain/storage/services/raw-capture-naming.hpp"
 #include "httplib.h"
 
 namespace fs = std::filesystem;
@@ -46,6 +48,16 @@ auto WriteRecording(const fs::path& root, const std::string& match, const std::s
     out << body;
 }
 
+// Write a raw dual-camera file under the naming convention.
+auto WriteRawFile(const fs::path& root, const std::string& group, std::uint32_t camera_index,
+                  const std::string& body) -> void {
+    fs::create_directories(root);
+    const auto name = sst::storage::raw_capture_naming::FileName(
+        sst::storage::RawCaptureIdentity{.capture_group_id = group, .camera_index = camera_index});
+    std::ofstream out(root / name, std::ios::binary);
+    out << body;
+}
+
 // Enumeration finds MP4s on disk with their sizes.
 TEST(DownloadServerTest, EnumeratesRecordings) {
     const fs::path root = MakeRoot();
@@ -61,6 +73,42 @@ TEST(DownloadServerTest, EnumeratesRecordings) {
         EXPECT_EQ(r.thumbnail_id, r.recording_id);
     }
     EXPECT_EQ(total, 10U);
+    fs::remove_all(root);
+}
+
+// Raw capture files enumerate as a pair sharing capture_group_id with distinct
+// camera_index + is_raw=true; final recordings stay is_raw=false. A raw file
+// also resolves to a download token.
+TEST(DownloadServerTest, EnumeratesRawCapturePairAndFinalRecording) {
+    const fs::path root = MakeRoot();
+    WriteRecording(root, "match-final", "final-bytes");
+    WriteRawFile(root, "grp-9", 0, "cam0-raw-bytes");
+    WriteRawFile(root, "grp-9", 1, "cam1-raw-bytes");
+    DownloadServer server(root, [] { return std::uint64_t{0}; });
+
+    auto recs = server.Enumerate();
+    ASSERT_EQ(recs.size(), 3U);
+
+    int raw_count = 0;
+    int final_count = 0;
+    for (const auto& r : recs) {
+        if (r.is_raw) {
+            ++raw_count;
+            EXPECT_EQ(r.capture_group_id, "grp-9");
+            EXPECT_TRUE(r.camera_index == 0U || r.camera_index == 1U);
+        } else {
+            ++final_count;
+            EXPECT_EQ(r.recording_id, "match-final");
+            EXPECT_TRUE(r.capture_group_id.empty());
+        }
+    }
+    EXPECT_EQ(raw_count, 2);
+    EXPECT_EQ(final_count, 1);
+
+    // A raw file is downloadable too (token resolves by stem).
+    auto token = server.MintToken("raw__grp-9__cam0", /*ttl=*/60);
+    EXPECT_TRUE(token.has_value());
+
     fs::remove_all(root);
 }
 
