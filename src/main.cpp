@@ -38,9 +38,11 @@
 #include "app/control/services/handlers/session.handler.hpp"
 #include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/control/services/handlers/thumbnail.handler.hpp"
+#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/decision/services/static_decision/static-decision.hpp"
 #include "app/network/services/download_server/download-server.hpp"
+#include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 #include "app/session/services/session_cleanup/session-cleanup.hpp"
@@ -221,8 +223,17 @@ auto main() -> int {
         .preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>()});
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
     auto decision = std::make_unique<sst::decision::StaticDecision>();
+
+    // Raw dual-camera capture sink — taps both materialized camera chains,
+    // independent of the final recording. Writes per-camera raw files under the
+    // video root.
+    sst::adapters::storage::FilesystemRawCaptureSink raw_capture_sink(
+        cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
+
     sst::pipeline::PipelineOrchestrator pipeline(std::move(camera_chains), std::move(postprocessor),
-                                                 std::move(decision), final_frame_sink);
+                                                 std::move(decision), final_frame_sink,
+                                                 sst::pipeline::PipelineConfig{}, &raw_capture_sink);
+    dispatcher.Register(std::make_shared<sst::control::RawCaptureHandler>(raw_capture_sink));
 
     // On-demand thumbnail: snapshot the latest pipeline frame + encode to JPEG
     // in memory. Registered here (after the pipeline exists) but before the BLE

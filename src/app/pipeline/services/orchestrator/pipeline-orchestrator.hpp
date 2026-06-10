@@ -14,6 +14,7 @@
 #include "app/pipeline/ports/frame-snapshot-source.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
+#include "app/storage/ports/raw-capture-sink.hpp"
 #include "domain/buffer/services/latest-only-slot.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/processing/models/frame-bundle.hpp"
@@ -61,10 +62,14 @@ struct CameraChain {
 // deadlock, and other cameras' frames simply age out.
 class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
    public:
+    // raw_sink is optional (may be null): when set, every camera's materialized
+    // bundle is forked to it before being moved into the slot, so raw dual
+    // capture taps the same frames the decision path consumes.
     PipelineOrchestrator(std::vector<CameraChain> cameras,
                          std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
                          std::unique_ptr<sst::decision::IDecision> decision,
-                         sst::buffer::IFrameSink& sink, PipelineConfig config = PipelineConfig{});
+                         sst::buffer::IFrameSink& sink, PipelineConfig config = PipelineConfig{},
+                         sst::storage::IRawCaptureSink* raw_sink = nullptr);
 
     ~PipelineOrchestrator() override;
 
@@ -95,6 +100,7 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     std::unique_ptr<sst::decision::IDecision> decision_;
     sst::buffer::IFrameSink& sink_;
     PipelineConfig config_;
+    sst::storage::IRawCaptureSink* raw_sink_;
 
     // One slot per camera. unique_ptr because LatestOnlySlot is non-movable and
     // we size the vector at construction from the camera count.

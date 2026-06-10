@@ -20,12 +20,13 @@ PipelineOrchestrator::PipelineOrchestrator(
     std::vector<CameraChain> cameras,
     std::unique_ptr<sst::processing::IPostprocessor> postprocessor,
     std::unique_ptr<sst::decision::IDecision> decision, sst::buffer::IFrameSink& sink,
-    PipelineConfig config)
+    PipelineConfig config, sst::storage::IRawCaptureSink* raw_sink)
     : cameras_(std::move(cameras)),
       postprocessor_(std::move(postprocessor)),
       decision_(std::move(decision)),
       sink_(sink),
-      config_(config) {
+      config_(config),
+      raw_sink_(raw_sink) {
     slots_.reserve(cameras_.size());
     for (std::size_t i = 0; i < cameras_.size(); ++i) {
         slots_.push_back(
@@ -123,6 +124,12 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
         // Materialize the source plane bytes off the GstBuffer so the appsink
         // slot is freed before the bundle crosses to the consumer thread.
         bundle->source_frame = sst::buffer::MaterializeFrame(bundle->source_frame);
+        // Fork the materialized frame to raw capture BEFORE the std::move below
+        // (tapping after the move would read a moved-from bundle). The sink
+        // copies what it needs and no-ops cheaply when not capturing.
+        if (raw_sink_ != nullptr) {
+            raw_sink_->PushCamera(static_cast<std::uint32_t>(camera_index), bundle->source_frame);
+        }
         slot.Push(std::move(*bundle));
     }
 }
