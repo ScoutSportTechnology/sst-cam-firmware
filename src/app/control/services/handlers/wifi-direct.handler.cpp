@@ -1,13 +1,19 @@
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include "domain/streaming/models/app-stream-config.hpp"
+
 namespace sst::control {
 
 WifiDirectHandler::WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
-                                     IDhcpServer& dhcp, std::uint32_t preview_port,
-                                     std::uint32_t download_port)
+                                     IDhcpServer& dhcp,
+                                     sst::streaming::IStreamingService& streaming,
+                                     std::uint32_t preview_port, std::uint32_t download_port)
     : session_(session),
       wifi_(wifi),
       dhcp_(dhcp),
+      streaming_(streaming),
       preview_port_(preview_port),
       download_port_(download_port) {}
 
@@ -49,6 +55,19 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
         resp.set_error_message("WiFi Direct group up but session not ready to accept it");
         return resp;
+    }
+
+    // Start the RTSP preview now that the group + DHCP are up, bound to the
+    // group-owner IP so it is reachable only over the phone link (R22).
+    // StopAppStream runs on disconnect via SessionCleanup. A preview failure is
+    // degraded-but-not-fatal: the group, credentials, and download path still
+    // work, so we log and return the group response rather than rolling back.
+    sst::streaming::AppStreamConfig stream_cfg;
+    stream_cfg.address = group->group_owner_ip;
+    stream_cfg.port = static_cast<std::uint16_t>(preview_port_);
+    if (!streaming_.StartAppStream(stream_cfg)) {
+        spdlog::warn("WifiDirectHandler: RTSP preview failed to start on {}:{} (preview degraded)",
+                     stream_cfg.address, preview_port_);
     }
 
     resp.set_status(sst_cam::ResponseStatus::OK);

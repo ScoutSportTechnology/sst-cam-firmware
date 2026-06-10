@@ -174,8 +174,8 @@ auto main() -> int {
         }));
     dispatcher.Register(std::make_shared<sst::control::SessionHandler>(session_manager));
     dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
-        session_manager, wifi_manager, dhcp_server, sst::runtime_defaults::kPreviewPort,
-        sst::runtime_defaults::kDownloadPort));
+        session_manager, wifi_manager, dhcp_server, streaming_service,
+        sst::runtime_defaults::kPreviewPort, sst::runtime_defaults::kDownloadPort));
     dispatcher.Register(std::make_shared<sst::control::OverlayHandler>(session_manager,
                                                                        overlay_controller, NowMs));
     auto match_handler =

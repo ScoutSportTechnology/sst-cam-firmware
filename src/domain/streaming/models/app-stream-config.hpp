@@ -8,7 +8,8 @@ namespace sst::streaming {
 // Always-on, low-res RTSP stream the companion app picks up over WiFi-Direct.
 // Consumed via appsrc by GstRtspAppStreamServer — the device pushes
 // post-processed frames (BGR8) into the server's appsrc, the server encodes
-// with NVENC and serves under `mount_point` on `port`.
+// with software H.264 (x264enc; the Orin Nano has no NVENC) and serves under
+// `mount_point` on `port`.
 struct AppStreamConfig {
     static constexpr std::uint32_t kDefaultWidth = 854;
     static constexpr std::uint32_t kDefaultHeight = 480;

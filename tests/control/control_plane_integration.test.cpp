@@ -4,9 +4,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "app/control/ports/dhcp-server.hpp"
 #include "app/control/ports/wifi-manager.hpp"
@@ -19,6 +21,7 @@
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 #include "app/session/ports/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
+#include "app/streaming/ports/streaming-service.hpp"
 #include "bluetooth.pb.h"
 
 namespace {
@@ -66,6 +69,20 @@ class FakeSink final : public overlay::IOverlaySink {
    public:
     auto PushFrame(const overlay::RgbaImage&) -> void override {}
 };
+class FakeStreaming final : public streaming::IStreamingService {
+   public:
+    auto StartAppStream(const streaming::AppStreamConfig&) -> bool override { return true; }
+    auto StopAppStream() -> bool override { return true; }
+    [[nodiscard]] auto IsAppStreamRunning() const -> bool override { return false; }
+    auto StartPlatformStream(const streaming::PlatformStreamConfig&) -> bool override {
+        return true;
+    }
+    auto StopPlatformStream(std::int64_t) -> bool override { return true; }
+    [[nodiscard]] auto ListActivePlatformStreams() const
+        -> std::vector<streaming::ActivePlatformStream> override {
+        return {};
+    }
+};
 
 auto Corr(const std::string& id) { return id; }
 
@@ -76,11 +93,13 @@ TEST(ControlPlaneIntegrationTest, RoutesFullLifecycleToReady) {
     FakeDhcp dhcp;
     FakeRenderer renderer;
     FakeSink sink;
+    FakeStreaming streaming;
     overlay::OverlayController controller(renderer, sink, 64, 64);
 
     control::CommandDispatcher dispatcher;
     dispatcher.Register(std::make_shared<control::SessionHandler>(sm));
-    dispatcher.Register(std::make_shared<control::WifiDirectHandler>(sm, wifi, dhcp, 8554, 8080));
+    dispatcher.Register(
+        std::make_shared<control::WifiDirectHandler>(sm, wifi, dhcp, streaming, 8554, 8080));
     dispatcher.Register(std::make_shared<control::OverlayHandler>(
         sm, controller, [] { return std::uint64_t{0}; }));
 
