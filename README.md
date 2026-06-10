@@ -1,8 +1,23 @@
-# ScoutCamera Firmware
+# SST Cam Firmware
 
-**On-device firmware for ScoutCamera — an open-source AI-assisted sports camera (work in progress).**
+**On-device firmware for the SST Cam — an open-source AI-assisted sports camera (work in progress).**
 
-This repository contains the firmware and runtime stack that runs directly on the camera hardware.
+This repository contains the firmware and runtime stack that runs directly on the camera hardware (NVIDIA Jetson Orin Nano). It speaks the shared [`sst-cam-proto`](https://github.com/ScoutSportTechnology/sst-cam-proto) wire contract to the [mobile app](https://github.com/ScoutSportTechnology/sst-cam-app) over BLE (control) and WiFi Direct (preview + downloads).
+
+---
+
+## Roadmap
+
+System-wide arc — this repo's slice marked per phase. Module-level detail in
+[Module status](#module-status) below.
+
+| Phase | Theme | Firmware status |
+| ----- | ----- | --------------- |
+| 1 | **Contract & scaffolding** — wire spec, dev container, hardware bring-up | ✅ done |
+| 2 | **Connect & control** — BLE/WiFi modules, command handling, telemetry | ✅ done |
+| 3 | **Capture & transfer** — dual-camera capture, buffers, recording, preview | 🚧 capture + buffer + processing built; pipeline orchestration / storage / streaming next |
+| 4 | **Intelligence** — AI tracking, physics, camera/crop decision | ⬜ not started |
+| 5 | **Broadcast** — overlays, streaming output | ⬜ not started |
 
 ---
 
@@ -55,7 +70,7 @@ The Python implementation is deprecated and no longer maintained.
 
 End-to-end intended flow:
 
-```
+```text
        per-camera (×2)                                       shared            chosen frame only        parallel        outputs
 ─────────────────────────────────────────────────────  ┌───────────────┐   ┌──────────────────┐   ┌─────────────┐   ┌──────────┐
                                                        │               │   │                  │   │             │   │ storage  │
@@ -132,6 +147,14 @@ If you are building your own unit, the STL files can be shared upon request.
 - Feedback and ideas are welcome
 - Code reviews and performance suggestions are appreciated
 - If you are experimenting with similar Jetson hardware setups, sharing results is encouraged
+
+---
+
+## Related repos
+
+- [`sst-cam-app`](https://github.com/ScoutSportTechnology/sst-cam-app) — Flutter companion app (BLE control + WiFi preview)
+- [`sst-cam-proto`](https://github.com/ScoutSportTechnology/sst-cam-proto) — shared BLE/WiFi wire contract (consumed as a submodule at `proto/`)
+- [`sst-cam-emulator`](https://github.com/ScoutSportTechnology/sst-cam-emulator) — cross-stack bridge to test app ↔ firmware without a Jetson
 
 ---
 
