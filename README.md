@@ -15,7 +15,7 @@ System-wide arc — this repo's slice marked per phase. Module-level detail in
 | ----- | ----- | --------------- |
 | 1 | **Contract & scaffolding** — wire spec, dev container, hardware bring-up | ✅ done |
 | 2 | **Connect & control** — BLE/WiFi modules, command handling, telemetry | ✅ done |
-| 3 | **Capture & transfer** — dual-camera capture, buffers, recording, preview | 🚧 capture + buffer + processing built; pipeline orchestration / storage / streaming next |
+| 3 | **Capture & transfer** — dual-camera capture, buffers, recording, preview | 🚧 capture + buffer + processing + orchestration + storage + streaming + overlay built (single-cam, software-encode + dual-cam + decision seam + raw capture = hardware-demo work) |
 | 4 | **Intelligence** — AI tracking, physics, camera/crop decision | ⬜ not started |
 | 5 | **Broadcast** — overlays, streaming output | ⬜ not started |
 
@@ -105,22 +105,23 @@ cam 1 ─► capture ─► preprocess ─► materialize ─► buf ─►│  
 Built and working:
 
 - [x] **Config** — JSON device / calibration / storage configs
-- [x] **Database** — SQLite + per-entity repositories + seeding
 - [x] **Capture** — GStreamer adapter for dual IMX477
 - [x] **Buffer** — `LatestOnlySlot`, `DropOldestRing`, plus a `MaterializeFrame` helper so producers can release the GstBuffer the moment a frame enters a downstream buffer
 - [x] **Network / control** — WiFi and Bluetooth BLE modules
 - [x] **Processing** — `IPreprocessor` / `IPostprocessor` ports + OpenCV adapter (Grayscale / Binary / RGB AI modes; crop + resize + format-convert post)
+- [x] **Pipeline orchestration** — `PipelineOrchestrator` wires capture → preprocess → materialize → buffer → postprocess → fan-out (two worker threads). Single-camera + inline full-frame crop today; the dual-camera + `IDecision` seam is the hardware-demo work
+- [x] **Storage** — `RecordingService` + GStreamer recorder write MP4s; `DownloadServer` enumerates them and mints TTL tokens
+- [x] **Streaming** — `StreamingService` fans out to RTSP app-stream + RTMP adapters (RTSP not yet started in production)
+- [x] **Overlay** — cairo renderer + GStreamer compositor + proto→domain mapper, built but not yet wired into the final-frame path
 
 Not started:
 
-- [ ] **Pipeline orchestration** — per-camera worker threads that wire capture → preprocess → materialize → buffer, and the shared threads for AI → physics → decision → postprocess
+- [ ] **Decision** — picks which camera's frame + crop / zoom rect; hands off to postprocess (hardware demo adds a static cam-0 `StaticDecision` behind the `IDecision` port)
 - [ ] **AI / tracking** — TensorRT model + adapter; field and ball first, players + jersey numbers later. One inference per camera
 - [ ] **Physics** — ball trajectory / world-coordinate projection from both cameras' detections
-- [ ] **Decision** — picks which camera's frame + crop / zoom rect; hands off to postprocess
-- [ ] **Overlay** — banner / scoreboard / event-info overlays, runs in parallel; storage + streaming composite it on top when enabled
-- [ ] **Storage** — local recording / archive of (optionally overlaid) final frames
-- [ ] **Streaming** — network output (RTSP / HLS / etc.) of (optionally overlaid) final frames
 - [ ] **Microphone** — MAX4466 dual-mic integration
+
+> No database module exists (no SQLite, no `db/`); recordings are filesystem-enumerated. The Orin Nano has no NVENC — encode is software `x264enc` (see CLAUDE.md).
 
 ---
 

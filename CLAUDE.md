@@ -42,7 +42,7 @@ ctest --preset test
 
 **Compilation is the first test.** Before declaring any change done, run `cmake --build --preset debug` (or `--preset test`) and ensure it builds clean. If you cannot make the binary build, you have not finished. Do not hand work back as done while the tree is broken.
 
-**Tests are isolated.** A test for module X must spawn its own dependencies (DB, config, GStreamer pipeline, …), not reach into the app's wiring or borrow state from another test. If your test for a recording-service touches the database, it opens its own SQLite instance (`:memory:` or a per-test temp file) and seeds it explicitly. No shared `DbManager` between tests, no fixtures bleeding through, no "the previous test left this row in place." Each test must be runnable in any order, alone, repeatedly.
+**Tests are isolated.** A test for module X must spawn its own dependencies (config, GStreamer pipeline, temp storage dir, …), not reach into the app's wiring or borrow state from another test. A recording-service test writes to its own per-test temp directory and enumerates that, never a shared one. No fixtures bleeding through, no "the previous test left this file in place." Each test must be runnable in any order, alone, repeatedly.
 
 Tests must verify behaviour end-to-end at the **module** boundary: feed real inputs through the public port and assert the real outputs (a file on disk, a row in DB, a frame on a loopback socket). Mocks are for things outside the module (network endpoints, hardware that isn't on the test machine), not for the module's own collaborators.
 
@@ -121,37 +121,40 @@ Per-stage notes:
 - **Storage**: writes the (optionally overlaid) final frames to disk — local recording / archive.
 - **Streaming**: sends the (optionally overlaid) final frames over the network — RTSP / HLS / etc.
 
-Storage and streaming consume the same final buffer in parallel; either can be enabled or disabled independently. Capture threads do minimal work and never block on downstream. Buffers are bounded and drop old data. Threads/orchestration: TBD — modules currently expose pure ports; the worker threads that wire them together haven't been built yet.
+Storage and streaming consume the same final buffer in parallel; either can be enabled or disabled independently. Capture threads do minimal work and never block on downstream. Buffers are bounded and drop old data. `PipelineOrchestrator` already runs the producer/consumer worker threads (single-camera, inline full-frame crop); the AI → physics → decision shared stages are not built yet — the hardware demo adds the `IDecision` seam and the second camera.
 
 ## Module status
 
 Built and working:
 
 - [x] **Config** — JSON-loaded device/calibration/storage configs (`src/{domain,app,adapters}/config/`).
-- [x] **Database** — SQLite + per-entity repositories + `DbSeeder` (`src/{domain,app,adapters}/db/`).
 - [x] **Capture** — GStreamer adapter for dual IMX477 (`src/adapters/capture/frame/gstreamer/`).
 - [x] **Buffer** — `LatestOnlySlot<T>`, `DropOldestRing<T>`, plus `MaterializeFrame` for releasing GstBuffer-backed frames at the buffer boundary (`src/domain/buffer/`).
 - [x] **Network / control** — WiFi and Bluetooth BLE control modules.
 - [x] **Processing** — `IPreprocessor` / `IPostprocessor` ports + OpenCV adapter (Grayscale / Binary / RGB AI modes; crop + resize + format-convert post). `FrameBundle`, `CropRect`, `ColorMode` (`src/{domain,app,adapters}/processing/`).
+- [x] **Pipeline orchestration** — `PipelineOrchestrator` (`src/app/pipeline/services/orchestrator/`) wires capture → preprocess → materialize → buffer → postprocess → fan-out via two worker threads (`ProducerLoop`/`ConsumerLoop`). Single-camera with an inline full-frame crop today; the `IDecision` seam and second camera are the hardware-demo work.
+- [x] **Storage** — `RecordingService` (`src/app/storage/services/recording_service/`) + GStreamer continuous recorder write MP4s to disk; `DownloadServer` enumerates them and mints TTL download tokens.
+- [x] **Streaming** — `StreamingService` (`src/app/streaming/services/streaming_service/`) fans out to an RTSP app-stream server + RTMP streamer (`src/adapters/streaming/`). RTSP `StartAppStream` has no production caller yet (hardware-demo work).
+- [x] **Overlay** — `OverlayHandler`, cairo renderer, GStreamer compositor, proto→domain mapper (`src/{domain,app,adapters}/overlay/`). Built but **not yet wired into the final-frame production path**.
 
 Not started:
 
-- [ ] **Pipeline orchestration** — per-camera worker threads that wire capture → preprocess → materialize → buffer, and the shared threads for AI → physics → decision → postprocess.
+- [ ] **Decision** — picks which camera's frame + crop / zoom rect; hands off to postprocess. (The hardware demo adds a static cam-0 `StaticDecision` behind the `IDecision` port — the intelligence seam.)
 - [ ] **AI / tracking** — TensorRT model + adapter; field and ball first, players + jersey numbers later. One inference per camera.
 - [ ] **Physics** — ball trajectory / world-coordinate projection from both cameras' detections.
-- [ ] **Decision** — picks which camera's frame + crop / zoom rect; hands off to postprocess.
-- [ ] **Overlay** — banner / scoreboard / event-info overlays, runs in parallel; storage + streaming composite it on top of the final frame when enabled.
-- [ ] **Storage** — local recording / archive of (optionally overlaid) final frames.
-- [ ] **Streaming** — network output (RTSP / HLS / etc.) of (optionally overlaid) final frames.
 - [ ] **Microphone** — MAX4466 dual-mic integration.
 
-## Database
+> **No database module.** There is no SQLite/DB module in `src/` and no `db/` directory. Recording metadata is enumerated directly from the filesystem (`DownloadServer` over the MP4 files in `cfg.storage.video`). Earlier docs claimed a SQLite + `DbSeeder` module — that was never built.
 
-SQLite at `/var/lib/sst/cam/data.db`. Schema in `db/schema.sql`, migrations in `db/migrations/`. WAL mode, foreign keys on. JSON blobs used for intrinsic matrices, event payloads, and camera arrays. Seeding done in C++ via `DbSeeder` (`src/app/db/services/db_seeder/`).
+> **No hardware H.264 encoder on the Orin Nano.** The Jetson Orin Nano has no NVENC; `nvv4l2h264enc` does not resolve on this silicon. Recording, RTSP preview, and RTMP must use software encode (`x264enc speed-preset=ultrafast tune=zerolatency`, reading system memory — no `nvvidconv`/NVMM hop). Element resolution happens at `gst_parse_launch` runtime, so a missing `x264enc` keeps the container build green and fails only on-device — `x264enc` lives in `gstreamer1.0-plugins-ugly` (add to the sysroot, not the already-installed *bad*).
+
+## Persistence
+
+No database. Config is JSON-loaded (`src/{domain,app,adapters}/config/`); recordings are MP4 files on disk under `cfg.storage.video`, enumerated directly by `DownloadServer`. There is no SQLite, no `db/` directory, and no `DbSeeder` — do not add one for the hardware demo (filesystem enumeration is the contract).
 
 ## Models
 
-Every domain model (struct/class in `src/domain/<module>/models/`) must ship a `fmt::formatter` specialization so it can be logged via `spdlog`/`fmt`. Place formatters in `src/domain/<module>/models/formatter/<model>-fmt.hpp` and re-export them from a sibling `_fmt.hpp` aggregator (see [src/domain/config/models/formatter/](src/domain/config/models/formatter/) and [src/domain/db/models/formatter/](src/domain/db/models/formatter/) for the pattern). When you add or rename a model, add/update its formatter in the same change.
+Every domain model (struct/class in `src/domain/<module>/models/`) must ship a `fmt::formatter` specialization so it can be logged via `spdlog`/`fmt`. Place formatters in `src/domain/<module>/models/formatter/<model>-fmt.hpp` and re-export them from a sibling `_fmt.hpp` aggregator (see [src/domain/config/models/formatter/](src/domain/config/models/formatter/) and [src/domain/processing/models/formatter/](src/domain/processing/models/formatter/) for the pattern). When you add or rename a model, add/update its formatter in the same change.
 
 ## Documented solutions
 
