@@ -19,7 +19,8 @@ class DeviceHandler final : public ICommandHandler {
     using FlagProvider = std::function<bool()>;
 
     DeviceHandler(sst::config::DeviceData device, ISystemStats& stats,
-                  FlagProvider is_recording, FlagProvider is_streaming);
+                  FlagProvider is_recording, FlagProvider is_streaming,
+                  FlagProvider is_raw_capturing);
 
     auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -32,6 +33,7 @@ class DeviceHandler final : public ICommandHandler {
     ISystemStats& stats_;
     FlagProvider is_recording_;
     FlagProvider is_streaming_;
+    FlagProvider is_raw_capturing_;
 };
 
 }  // namespace sst::control

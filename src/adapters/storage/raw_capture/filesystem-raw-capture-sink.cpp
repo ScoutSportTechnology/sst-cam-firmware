@@ -17,13 +17,16 @@ namespace {
 constexpr std::size_t kQueueCapacity = 8;
 constexpr std::chrono::milliseconds kPopTimeout{100};
 
-auto WriteFramePlanes(std::ofstream& file, const sst::capture::Frame& frame) -> void {
+// Returns false if the stream is in a failed state after writing (e.g. disk
+// full) so the caller can surface it instead of silently truncating the file.
+auto WriteFramePlanes(std::ofstream& file, const sst::capture::Frame& frame) -> bool {
     for (const auto& plane : frame.planes) {
         if (plane.data != nullptr && plane.size > 0) {
             file.write(reinterpret_cast<const char*>(plane.data),
                        static_cast<std::streamsize>(plane.size));
         }
     }
+    return static_cast<bool>(file);
 }
 }  // namespace
 
@@ -85,23 +88,40 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id) -> boo
 
 auto FilesystemRawCaptureSink::PushCamera(std::uint32_t camera_index,
                                           const sst::capture::Frame& frame) -> void {
-    if (!capturing_.load() || camera_index >= writers_.size()) {
+    // try_to_lock keeps the contract's non-blocking guarantee: if Start/Stop
+    // holds mtx_, drop this frame rather than stall the capture thread — the
+    // same drop-oldest discipline the ring already applies under backpressure.
+    // Holding the lock for the O(1) index + ring.Push (itself lock-free) closes
+    // the data race with Stop(), which used to clear writers_ while this read it
+    // unlocked (use-after-free on a runtime STOP mid-capture).
+    std::unique_lock lock(mtx_, std::try_to_lock);
+    if (!lock.owns_lock() || !capturing_.load() || camera_index >= writers_.size()) {
         return;
     }
     // Copy shares the frame's owner shared_ptr (no pixel copy); the ring keeps
-    // the bytes alive until the writer thread drains them. Non-blocking: the
-    // ring drops its oldest frame instead of stalling this (capture) thread.
+    // the bytes alive until the writer thread drains them.
     writers_[camera_index]->ring.Push(frame);
 }
 
 auto FilesystemRawCaptureSink::Stop() -> bool {
-    std::lock_guard lock(mtx_);
-    if (!capturing_.load()) {
-        return false;
+    // Flip state and detach the writers under the lock (O(1) move), then do the
+    // slow join/drain/close work on the local copy OUTSIDE the lock so PushCamera
+    // never contends with a thread join. After the move, writers_ is empty and
+    // capturing_ is false, so concurrent PushCamera calls no-op safely.
+    std::vector<std::unique_ptr<CameraWriter>> draining;
+    std::string group_id;
+    {
+        std::lock_guard lock(mtx_);
+        if (!capturing_.load()) {
+            return false;
+        }
+        capturing_.store(false);  // PushCamera no-ops from here
+        draining = std::move(writers_);
+        group_id = std::move(capture_group_id_);
+        capture_group_id_.clear();
     }
-    capturing_.store(false);  // PushCamera no-ops from here
 
-    for (auto& writer : writers_) {
+    for (auto& writer : draining) {
         writer->stopping.store(true);
         writer->ring.Close();  // wake the blocked Pop
         if (writer->thread.joinable()) {
@@ -114,24 +134,30 @@ auto FilesystemRawCaptureSink::Stop() -> bool {
         writer->file.flush();
         writer->file.close();
     }
-    spdlog::info("RawCaptureSink: stopped group={}", capture_group_id_);
-    writers_.clear();
-    capture_group_id_.clear();
+    spdlog::info("RawCaptureSink: stopped group={}", group_id);
     return true;
 }
 
 auto FilesystemRawCaptureSink::IsCapturing() const -> bool { return capturing_.load(); }
 
 auto FilesystemRawCaptureSink::WriterLoop(CameraWriter* writer) -> void {
+    bool write_failed = false;
+    const auto write = [&](const sst::capture::Frame& frame) {
+        if (!WriteFramePlanes(writer->file, frame) && !write_failed) {
+            write_failed = true;  // log once — a failed stream stays failed
+            spdlog::error(
+                "RawCaptureSink: write failed (disk full?) — raw file is being truncated");
+        }
+    };
     while (!writer->stopping.load()) {
         auto frame = writer->ring.Pop(kPopTimeout);
         if (frame) {
-            WriteFramePlanes(writer->file, *frame);
+            write(*frame);
         }
     }
     // Drain whatever arrived before stopping was observed.
     while (auto frame = writer->ring.TryPop()) {
-        WriteFramePlanes(writer->file, *frame);
+        write(*frame);
     }
 }
 

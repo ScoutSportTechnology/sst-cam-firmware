@@ -1,5 +1,6 @@
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <string>
@@ -127,6 +128,14 @@ auto GstRtmpStreamer::Start(const sst::streaming::PlatformStreamConfig& config) 
 }
 
 auto GstRtmpStreamer::WatcherLoop() -> void {
+    using namespace std::chrono;
+    // Capped exponential backoff so a permanently-down endpoint can't spin into a
+    // reconnect storm (was an unbounded ~5 rebuilds/sec). Reset to base on a
+    // healthy tick or a successful reconnect.
+    constexpr auto kBaseBackoff = milliseconds(500);
+    constexpr auto kMaxBackoff = milliseconds(8000);
+    auto backoff = kBaseBackoff;
+
     while (watching_.load()) {
         GstBus* bus = nullptr;
         {
@@ -135,31 +144,45 @@ auto GstRtmpStreamer::WatcherLoop() -> void {
                 bus = gst_element_get_bus(pipeline_);
             }
         }
-        if (bus == nullptr) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            continue;
-        }
-        GstMessage* msg =
-            gst_bus_timed_pop_filtered(bus, 200 * GST_MSECOND, GST_MESSAGE_ERROR);
-        gst_object_unref(bus);
-        if (msg == nullptr) {
-            continue;  // timeout, no error — keep watching
-        }
-        gst_message_unref(msg);
 
-        // Uplink error: rebuild the pipeline from the same config. Skip if Stop()
-        // has begun (watching_ cleared) so we don't race teardown.
+        if (bus != nullptr) {
+            GstMessage* msg =
+                gst_bus_timed_pop_filtered(bus, 200 * GST_MSECOND, GST_MESSAGE_ERROR);
+            gst_object_unref(bus);
+            if (msg == nullptr) {
+                backoff = kBaseBackoff;  // healthy tick — uplink is alive
+                continue;
+            }
+            gst_message_unref(msg);
+            spdlog::warn("GstRtmpStreamer: RTMP bus error — rebuilding uplink");
+        }
+        // bus == nullptr means a prior rebuild failed (pipeline torn down). There
+        // is no bus to surface a future error, so retry the rebuild ourselves
+        // rather than spin idle — otherwise the uplink would stay dead while
+        // IsRunning() still reported true.
+
+        // Back off before (re)building. Sleep in short slices so Stop() — which
+        // clears watching_ then joins — stays responsive.
+        for (auto waited = milliseconds(0); watching_.load() && waited < backoff;
+             waited += milliseconds(100)) {
+            std::this_thread::sleep_for(milliseconds(100));
+        }
+
         std::lock_guard lock(mtx_);
         if (!watching_.load() || !running_.load()) {
             break;
         }
-        spdlog::warn("GstRtmpStreamer: RTMP bus error — rebuilding uplink");
         if (pipeline_ != nullptr) {
             gst_element_set_state(pipeline_, GST_STATE_NULL);
         }
         Teardown();
-        if (!BuildAndPlayLocked()) {
-            spdlog::error("GstRtmpStreamer: reconnect failed; will retry on next tick");
+        if (BuildAndPlayLocked()) {
+            backoff = kBaseBackoff;
+            spdlog::info("GstRtmpStreamer: uplink reconnected");
+        } else {
+            backoff = std::min(backoff * 2, kMaxBackoff);
+            spdlog::error("GstRtmpStreamer: reconnect failed; retrying in {} ms",
+                          backoff.count());
         }
     }
 }
@@ -216,8 +239,13 @@ auto GstRtmpStreamer::Teardown() -> void {
 auto GstRtmpStreamer::Push(const sst::capture::Frame& frame) -> void {
     GstElement* src = nullptr;
     {
-        std::lock_guard lock(mtx_);
-        if (!running_ || appsrc_ == nullptr) {
+        // try_to_lock: never block the shared fan-out thread. A reconnect holds
+        // mtx_ across a blocking GST_STATE_NULL teardown + rebuild; without this
+        // a stalled RTMP uplink would stall StreamingService::Push and degrade
+        // the otherwise-independent RTSP preview. Dropping RTMP frames while the
+        // uplink is down is correct — there is nowhere to send them.
+        std::unique_lock lock(mtx_, std::try_to_lock);
+        if (!lock.owns_lock() || !running_ || appsrc_ == nullptr) {
             return;
         }
         src = appsrc_;

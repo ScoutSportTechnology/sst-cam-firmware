@@ -54,7 +54,8 @@ auto TelemetryCommand() -> sst_cam::Command {
 // R8: GetDeviceInfo returns the configured identity + a non-zero protocol_version.
 TEST(DeviceHandlerTest, DeviceInfoReturnsIdentityAndProtocolVersion) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; });
+    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; },
+                          [] { return false; });
 
     auto resp = handler.Handle(DeviceInfoCommand());
 
@@ -67,10 +68,13 @@ TEST(DeviceHandlerTest, DeviceInfoReturnsIdentityAndProtocolVersion) {
     EXPECT_GT(resp.device_info().protocol_version(), 0U);
 }
 
-// is_recording / is_streaming reflect the injected providers.
-TEST(DeviceHandlerTest, TelemetryReflectsRecordingAndStreamingFlags) {
+// is_recording / is_streaming / is_raw_capturing reflect the injected providers,
+// each independently (is_raw_capturing is wire field 14, set independently of
+// is_recording — the app reads it to show raw-capture running state).
+TEST(DeviceHandlerTest, TelemetryReflectsRecordingStreamingAndRawCapturingFlags) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return true; }, [] { return false; });
+    DeviceHandler handler(MakeDevice(), stats, [] { return true; }, [] { return false; },
+                          [] { return true; });
 
     auto resp = handler.Handle(TelemetryCommand());
 
@@ -80,13 +84,17 @@ TEST(DeviceHandlerTest, TelemetryReflectsRecordingAndStreamingFlags) {
     EXPECT_EQ(resp.telemetry().uptime_seconds(), 12345U);
     EXPECT_TRUE(resp.telemetry().is_recording());
     EXPECT_FALSE(resp.telemetry().is_streaming());
+    // Set independently of is_recording (which is true here): proves field 14 is
+    // wired, not mirroring is_recording.
+    EXPECT_TRUE(resp.telemetry().is_raw_capturing());
 }
 
 // R7: the handler never reads stats / produces telemetry unless a command is
 // dispatched — no background polling, no unsolicited push.
 TEST(DeviceHandlerTest, NoTelemetryWithoutACommand) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; });
+    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; },
+                          [] { return false; });
 
     EXPECT_EQ(stats.reads, 0);  // nothing read until asked
 

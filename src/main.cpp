@@ -164,6 +164,14 @@ auto main() -> int {
     // ── System stats (telemetry source) ────────────────────────────────
     sst::adapters::control::ProcSystemStats system_stats(video_root);
 
+    // Raw dual-camera capture sink — taps both materialized camera chains,
+    // independent of the final recording. Writes per-camera raw files under the
+    // video root. Constructed here (ahead of the pipeline that pushes into it)
+    // so DeviceHandler can report its IsCapturing() state as is_raw_capturing
+    // telemetry.
+    sst::adapters::storage::FilesystemRawCaptureSink raw_capture_sink(
+        cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
+
     // ── Control plane: dispatcher + per-concern handlers ───────────────
     sst::control::CommandDispatcher dispatcher;
 
@@ -175,7 +183,8 @@ auto main() -> int {
         },
         [&streaming_service] {
             return !streaming_service.ListActivePlatformStreams().empty();
-        }));
+        },
+        [&raw_capture_sink] { return raw_capture_sink.IsCapturing(); }));
     dispatcher.Register(std::make_shared<sst::control::SessionHandler>(session_manager));
     dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, dhcp_server, streaming_service,
@@ -225,12 +234,6 @@ auto main() -> int {
         .preprocessor = std::make_unique<sst::adapters::processing::OpenCvPreprocessor>()});
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
     auto decision = std::make_unique<sst::decision::StaticDecision>();
-
-    // Raw dual-camera capture sink — taps both materialized camera chains,
-    // independent of the final recording. Writes per-camera raw files under the
-    // video root.
-    sst::adapters::storage::FilesystemRawCaptureSink raw_capture_sink(
-        cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
 
     sst::pipeline::PipelineOrchestrator pipeline(std::move(camera_chains), std::move(postprocessor),
                                                  std::move(decision), final_frame_sink,

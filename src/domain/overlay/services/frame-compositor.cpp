@@ -27,6 +27,15 @@ auto CompositeOverlay(const sst::capture::Frame& source, const RgbaImage& overla
     if (overlay.width == 0 || overlay.height == 0 || overlay.pixels.empty()) {
         return std::nullopt;  // nothing to draw
     }
+    // The blend loop indexes overlay.pixels via stride/width; a malformed overlay
+    // (stride narrower than a full RGBA row, or a buffer shorter than
+    // stride*height) would read out of bounds. Reject it rather than trust the
+    // caller. Max read offset is (height-1)*stride + (width-1)*4 + 3, which is
+    // < stride*height once both conditions below hold.
+    if (overlay.stride < static_cast<std::size_t>(overlay.width) * kRgbaBytesPerPixel ||
+        overlay.pixels.size() < static_cast<std::size_t>(overlay.stride) * overlay.height) {
+        return std::nullopt;
+    }
 
     const std::uint32_t src_stride = source.planes[0].stride;
     const auto* src = source.planes[0].data;
