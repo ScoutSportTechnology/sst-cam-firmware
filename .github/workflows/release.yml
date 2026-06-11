@@ -1,0 +1,123 @@
+# =============================================================================
+# Manual, no-PR release. Click "Run workflow" to cut a release: resolve a
+# version, create the tag + GitHub Release, then cross-build the production
+# binary inside the devcontainer and attach it to the Release.
+#
+# Why workflow_dispatch instead of release-please: the org disables "Allow GitHub
+# Actions to create and approve pull requests", so GITHUB_TOKEN cannot open a
+# release PR. Tagging + releasing is contents:write (allowed) and the "Release
+# Tags" ruleset permits compliant semver tags — no PAT / GitHub App needed.
+#
+# KNOWN RISK (same as ci.yml): a hosted runner may lack the disk/time to unpack
+# the ~37 GB L4T sysroot — a self-hosted runner may be required.
+# =============================================================================
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact version tag, e.g. v1.2.3 (leave empty to auto-bump)"
+        required: false
+        default: ""
+      bump:
+        description: "Bump level when version is empty"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IN_VERSION" ]; then
+            tag="$IN_VERSION"
+          else
+            latest="$(git tag -l 'v*' --sort=-v:refname | head -1)"
+            latest="${latest:-v0.0.0}"
+            ver="${latest#v}"
+            MA="${ver%%.*}"; rest="${ver#*.}"; MI="${rest%%.*}"; PA="${rest##*.}"
+            case "$IN_BUMP" in
+              major) MA=$((MA+1)); MI=0; PA=0 ;;
+              minor) MI=$((MI+1)); PA=0 ;;
+              patch) PA=$((PA+1)) ;;
+            esac
+            tag="v${MA}.${MI}.${PA}"
+          fi
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::invalid version '$tag'"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      - name: Create tag + GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --target "$GITHUB_SHA" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes
+
+  build-and-upload:
+    name: cross-build release binary
+    needs: tag-release
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.tag-release.outputs.tag }}
+    steps:
+      - name: Checkout (with proto submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
+
+      - name: cmake release preset + build
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          push: never
+          runCmd: |
+            set -euo pipefail
+            cmake --preset release
+            cmake --build --preset release
+            file build/release/bin/sst_cam_firmware
+            test -x build/release/bin/sst_cam_firmware
+
+      - name: Stage versioned asset
+        id: asset
+        run: |
+          set -euo pipefail
+          asset="sst_cam_firmware-${TAG}-aarch64"
+          cp build/release/bin/sst_cam_firmware "${asset}"
+          echo "path=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: ${{ steps.asset.outputs.path }}
+          fail_on_unmatched_files: true
