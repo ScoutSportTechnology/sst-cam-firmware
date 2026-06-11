@@ -3,7 +3,7 @@ from conan.tools.cmake import cmake_layout
 
 class SstCamFirmwareConan(ConanFile):
     name = "sst-cam-firmware"
-    version = "0.1.0"
+    version = "0.1.0"  # x-release-please-version
     package_type = "application"
 
     settings = "os", "arch", "compiler", "build_type"

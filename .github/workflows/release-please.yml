@@ -1,0 +1,33 @@
+# =============================================================================
+# release-please — maintain a release PR from Conventional Commits on main;
+# merging it tags vX.Y.Z and cuts a GitHub Release that release.yml builds into.
+#
+# !!! TOKEN: uses RELEASE_PLEASE_TOKEN (an org GitHub App installation token),
+# NOT the default GITHUB_TOKEN. Two reasons:
+#   1. Recursion guard: events triggered by the default GITHUB_TOKEN do NOT
+#      trigger further workflows, so a tag/release it creates would NOT fire
+#      release.yml. An App token's events DO trigger downstream workflows.
+#   2. The tag ruleset (release-tags) only lets the org App (a bypass actor,
+#      added via the GitHub UI) push protected `v*` tags.
+# The App must be created/installed and its token exposed as the
+# RELEASE_PLEASE_TOKEN secret before this workflow can cut releases (external).
+# =============================================================================
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
