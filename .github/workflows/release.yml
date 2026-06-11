@@ -97,9 +97,9 @@ jobs:
       - name: cmake release preset + build
         uses: devcontainers/ci@v0.3
         with:
-          imageName: ghcr.io/${{ github.repository }}/devcontainer
-          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
-          push: never
+          # Build the devcontainer locally — no ghcr imageName/cacheFrom (needs
+          # registry login + push perms; was failing at `docker tag ghcr.io/...`).
+          # Deferred caching optimization.
           runCmd: |
             set -euo pipefail
             cmake --preset release
