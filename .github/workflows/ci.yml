@@ -170,12 +170,16 @@ jobs:
           # ghcr image caching needs registry login + push perms and was failing
           # at `docker tag ... ghcr.io/...`; deferred as an optimization. Each run
           # rebuilds the image (sysroot unpack ~13 min, observed to fit the runner).
-          # Hardware-bound tests (real IMX477/BlueZ/radio/live GStreamer) are
-          # expected to fail in the cross-compile container — see CLAUDE.md.
-          # This gate runs the full ctest suite; if hardware tests are present
-          # and red, scope them out with a ctest label/-E filter here.
+          # Hardware-bound tests (real IMX477 / BlueZ / radio / live GStreamer)
+          # are expected to fail in the cross-compile container — see CLAUDE.md.
+          # They are NOT yet tagged with a CTest LABEL, so we exclude the known
+          # hardware-bound test names by regex (-E) here.
+          # DURABLE FIX (firmware owner): add `set_tests_properties(... PROPERTIES
+          # LABELS hardware)` (or a gtest naming convention) and switch this to
+          # `ctest -LE hardware`, so new hardware tests are excluded automatically.
           runCmd: |
             set -euo pipefail
             cmake --preset test
             cmake --build --preset test
-            QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test --output-on-failure
+            QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test --output-on-failure \
+              -E 'CaptureSingleFrameAndLog|AdvertisesOnRealBluez|FormsAutonomousGroupOwner|HttpServesByteRangeWithBearerToken'
