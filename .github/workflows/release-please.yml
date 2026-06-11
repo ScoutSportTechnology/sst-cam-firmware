@@ -1,16 +1,16 @@
 # =============================================================================
 # release-please — maintain a release PR from Conventional Commits on main;
-# merging it tags vX.Y.Z and cuts a GitHub Release that release.yml builds into.
+# merging it tags vX.Y.Z and cuts a GitHub Release.
 #
-# !!! TOKEN: uses RELEASE_PLEASE_TOKEN (an org GitHub App installation token),
-# NOT the default GITHUB_TOKEN. Two reasons:
-#   1. Recursion guard: events triggered by the default GITHUB_TOKEN do NOT
-#      trigger further workflows, so a tag/release it creates would NOT fire
-#      release.yml. An App token's events DO trigger downstream workflows.
-#   2. The tag ruleset (release-tags) only lets the org App (a bypass actor,
-#      added via the GitHub UI) push protected `v*` tags.
-# The App must be created/installed and its token exposed as the
-# RELEASE_PLEASE_TOKEN secret before this workflow can cut releases (external).
+# The cross-build is CHAINED here (build-and-upload job, gated on release-please's
+# `releases_created` output) rather than in a separate `release: published`
+# workflow. This sidesteps the GITHUB_TOKEN recursion guard — no App token or
+# bypass actor is needed: the build runs in the same run that cut the release,
+# and creating a compliant v* tag is allowed by the "Release Tags" ruleset
+# (it blocks delete/update/force-push + enforces naming, not creation).
+#
+# Default GITHUB_TOKEN. Needs "Allow GitHub Actions to create and approve pull
+# requests" enabled on the repo (set via API at setup).
 # =============================================================================
 name: release-please
 
@@ -25,9 +25,65 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.rp.outputs.releases_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: rp
+        uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  build-and-upload:
+    name: cross-build release binary
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    # KNOWN RISK (same as ci.yml): a GitHub-hosted runner may not have the
+    # disk/time to unpack the ~37 GB L4T sysroot — a self-hosted runner may be
+    # required. To be validated on the first tagged run.
+    steps:
+      - name: Checkout (with proto submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
+
+      - name: cmake release preset + build
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          push: never
+          runCmd: |
+            set -euo pipefail
+            cmake --preset release
+            cmake --build --preset release
+            # Sanity: confirm the produced binary is aarch64 ELF.
+            file build/release/bin/sst_cam_firmware
+            test -x build/release/bin/sst_cam_firmware
+
+      - name: Stage versioned asset
+        id: asset
+        run: |
+          set -euo pipefail
+          asset="sst_cam_firmware-${TAG}-aarch64"
+          cp build/release/bin/sst_cam_firmware "${asset}"
+          echo "path=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: ${{ steps.asset.outputs.path }}
+          fail_on_unmatched_files: true
