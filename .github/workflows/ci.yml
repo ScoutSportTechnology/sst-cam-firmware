@@ -46,6 +46,18 @@ jobs:
     name: format
     runs-on: ubuntu-latest
     steps:
+      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
+      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
+      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
+      # runner is required (see header note).
+      - name: Free up disk space (host)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Checkout (with proto submodule)
         uses: actions/checkout@v4
         with:
@@ -75,6 +87,18 @@ jobs:
     name: tidy
     runs-on: ubuntu-latest
     steps:
+      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
+      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
+      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
+      # runner is required (see header note).
+      - name: Free up disk space (host)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Checkout (with proto submodule)
         uses: actions/checkout@v4
         with:
@@ -114,6 +138,18 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
+      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
+      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
+      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
+      # runner is required (see header note).
+      - name: Free up disk space (host)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Checkout (with proto submodule)
         uses: actions/checkout@v4
         with:

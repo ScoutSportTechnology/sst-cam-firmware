@@ -81,6 +81,16 @@ jobs:
     env:
       TAG: ${{ needs.tag-release.outputs.tag }}
     steps:
+      # Reclaim ~30GB so the JetPack base image + L4T sysroot fit on a hosted
+      # runner (else ENOSPC). Self-hosted runner needed if this still fails.
+      - name: Free up disk space (host)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Checkout (with proto submodule)
         uses: actions/checkout@v4
         with:
