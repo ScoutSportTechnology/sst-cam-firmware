@@ -9,6 +9,10 @@
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
+  "features": {
+    // `just` task runner — backs the repo's justfile (build/test recipes).
+    "ghcr.io/guiyomh/features/just:0": {}
+  },
   // ${localEnv}/${localWorkspaceFolder} tokens only work in devcontainer.json,
   // so the host Conan cache and the .bashrc bind live here, not in compose.
   "mounts": [
