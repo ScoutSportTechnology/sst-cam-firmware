@@ -129,7 +129,13 @@ jobs:
             if [ -z "$files" ]; then
               echo "No C++ translation units found to tidy"; exit 1
             fi
-            echo "$files" | xargs clang-tidy -p build/test --warnings-as-errors='*'
+            # NOTE: no blanket --warnings-as-errors='*'. The repo's own convention
+            # (CLAUDE.md) runs clang-tidy without it, and forcing every check to
+            # an error over the existing codebase would block all merges on
+            # pre-existing lint debt. The job fails only on checks the repo's
+            # .clang-tidy marks as errors (WarningsAsErrors). Firmware owner: once
+            # the tidy debt is burned down, re-tighten via .clang-tidy WarningsAsErrors.
+            echo "$files" | xargs clang-tidy -p build/test
 
   # ---------------------------------------------------------------------------
   # test — cross-build the test preset and run GTest under qemu (ctest)

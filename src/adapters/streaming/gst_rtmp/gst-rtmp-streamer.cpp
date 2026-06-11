@@ -1,15 +1,14 @@
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 
+#include <fmt/format.h>
+#include <gst/app/gstappsrc.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <string>
 #include <thread>
-
-#include <gst/app/gstappsrc.h>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 #include "domain/streaming/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
@@ -146,8 +145,7 @@ auto GstRtmpStreamer::WatcherLoop() -> void {
         }
 
         if (bus != nullptr) {
-            GstMessage* msg =
-                gst_bus_timed_pop_filtered(bus, 200 * GST_MSECOND, GST_MESSAGE_ERROR);
+            GstMessage* msg = gst_bus_timed_pop_filtered(bus, 200 * GST_MSECOND, GST_MESSAGE_ERROR);
             gst_object_unref(bus);
             if (msg == nullptr) {
                 backoff = kBaseBackoff;  // healthy tick — uplink is alive
@@ -181,8 +179,7 @@ auto GstRtmpStreamer::WatcherLoop() -> void {
             spdlog::info("GstRtmpStreamer: uplink reconnected");
         } else {
             backoff = std::min(backoff * 2, kMaxBackoff);
-            spdlog::error("GstRtmpStreamer: reconnect failed; retrying in {} ms",
-                          backoff.count());
+            spdlog::error("GstRtmpStreamer: reconnect failed; retrying in {} ms", backoff.count());
         }
     }
 }

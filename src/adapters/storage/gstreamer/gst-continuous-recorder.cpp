@@ -1,11 +1,11 @@
 #include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
 
-#include <cstring>
-
 #include <fmt/format.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/video/video.h>
 #include <spdlog/spdlog.h>
+
+#include <cstring>
 
 #include "domain/common/models/pixel-format.hpp"
 
@@ -25,14 +25,22 @@ constexpr int kKeyIntMax = kFramerate * 2;
 
 auto GstFormatFor(sst::common::PixelFormat fmt) -> const char* {
     switch (fmt) {
-        case sst::common::PixelFormat::BGR8: return "BGR";
-        case sst::common::PixelFormat::RGB8: return "RGB";
-        case sst::common::PixelFormat::BGRA8: return "BGRA";
-        case sst::common::PixelFormat::RGBA8: return "RGBA";
-        case sst::common::PixelFormat::GRAY8: return "GRAY8";
-        case sst::common::PixelFormat::NV12: return "NV12";
-        case sst::common::PixelFormat::I420: return "I420";
-        case sst::common::PixelFormat::YUYV: return "YUY2";
+        case sst::common::PixelFormat::BGR8:
+            return "BGR";
+        case sst::common::PixelFormat::RGB8:
+            return "RGB";
+        case sst::common::PixelFormat::BGRA8:
+            return "BGRA";
+        case sst::common::PixelFormat::RGBA8:
+            return "RGBA";
+        case sst::common::PixelFormat::GRAY8:
+            return "GRAY8";
+        case sst::common::PixelFormat::NV12:
+            return "NV12";
+        case sst::common::PixelFormat::I420:
+            return "I420";
+        case sst::common::PixelFormat::YUYV:
+            return "YUY2";
     }
     return "BGR";
 }
@@ -65,9 +73,8 @@ auto GstContinuousRecorder::Start(const std::filesystem::path& output_mp4) -> bo
         "videoconvert ! x264enc name={enc} speed-preset=ultrafast tune=zerolatency "
         "bitrate={kbps} key-int-max={gik} ! "
         "h264parse config-interval=-1 ! mp4mux ! filesink location={loc}",
-        fmt::arg("src", kAppsrcName), fmt::arg("enc", kEncoderName),
-        fmt::arg("kbps", kBitrateKbps), fmt::arg("gik", kKeyIntMax),
-        fmt::arg("loc", output_mp4.string()));
+        fmt::arg("src", kAppsrcName), fmt::arg("enc", kEncoderName), fmt::arg("kbps", kBitrateKbps),
+        fmt::arg("gik", kKeyIntMax), fmt::arg("loc", output_mp4.string()));
 
     GError* err = nullptr;
     pipeline_ = gst_parse_launch(desc.c_str(), &err);
@@ -112,9 +119,9 @@ auto GstContinuousRecorder::Resume() -> void {
     if (encoder_ != nullptr) {
         GstPad* sink = gst_element_get_static_pad(encoder_, "sink");
         if (sink != nullptr) {
-            gst_pad_send_event(sink, gst_video_event_new_downstream_force_key_unit(
-                                         GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE,
-                                         GST_CLOCK_TIME_NONE, TRUE, 1));
+            gst_pad_send_event(
+                sink, gst_video_event_new_downstream_force_key_unit(
+                          GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, GST_CLOCK_TIME_NONE, TRUE, 1));
             gst_object_unref(sink);
         }
     }
@@ -162,11 +169,11 @@ auto GstContinuousRecorder::Push(const sst::capture::Frame& frame) -> void {
         return;
     }
     if (!caps_set_) {
-        GstCaps* caps = gst_caps_new_simple(
-            "video/x-raw", "format", G_TYPE_STRING, GstFormatFor(frame.format), "width",
-            G_TYPE_INT, static_cast<int>(frame.geometry.width), "height", G_TYPE_INT,
-            static_cast<int>(frame.geometry.height), "framerate", GST_TYPE_FRACTION, kFramerate, 1,
-            nullptr);
+        GstCaps* caps =
+            gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, GstFormatFor(frame.format),
+                                "width", G_TYPE_INT, static_cast<int>(frame.geometry.width),
+                                "height", G_TYPE_INT, static_cast<int>(frame.geometry.height),
+                                "framerate", GST_TYPE_FRACTION, kFramerate, 1, nullptr);
         gst_app_src_set_caps(GST_APP_SRC(appsrc_), caps);
         gst_caps_unref(caps);
         caps_set_ = true;

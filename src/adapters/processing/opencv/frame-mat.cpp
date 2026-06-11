@@ -5,10 +5,9 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <optional>
 #include <vector>
-
-#include <opencv2/core.hpp>
 
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/memory-type.hpp"
@@ -36,15 +35,14 @@ auto WrapNv12(const sst::capture::Frame& f) -> std::optional<cv::Mat> {
         return std::nullopt;
     }
 
-    const bool contiguous = (y.stride == w) && (uv.stride == w) &&
-                            (y.data + y.size == uv.data);
+    const bool contiguous = (y.stride == w) && (uv.stride == w) && (y.data + y.size == uv.data);
 
     const int total_rows = static_cast<int>(h) + static_cast<int>(h) / 2;
 
     if (contiguous) {
         // Non-owning Mat over the input memory.
-        return cv::Mat(total_rows, static_cast<int>(w), CV_8UC1,
-                       const_cast<std::uint8_t*>(y.data), y.stride);
+        return cv::Mat(total_rows, static_cast<int>(w), CV_8UC1, const_cast<std::uint8_t*>(y.data),
+                       y.stride);
     }
 
     // Fallback: allocate compact (H*3/2 x W) CV_8UC1 and row-copy.

@@ -2,10 +2,9 @@
 // GStreamer plugins (appsrc/compositor) — expected to FAIL in the cross-compile
 // container, passes on-device.
 
-#include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
-
 #include <gtest/gtest.h>
 
+#include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
 #include "domain/overlay/models/render-scene.hpp"
 
 namespace {

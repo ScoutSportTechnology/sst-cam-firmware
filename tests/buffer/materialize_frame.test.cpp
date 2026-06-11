@@ -1,5 +1,3 @@
-#include "domain/buffer/services/materialize-frame.hpp"
-
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -8,6 +6,7 @@
 #include <memory>
 #include <vector>
 
+#include "domain/buffer/services/materialize-frame.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
@@ -17,8 +16,8 @@ namespace sst::buffer {
 namespace {
 
 // Builds a 1-plane BGR8 Frame whose owner pins a vector<uint8_t>.
-auto MakeBgr8Frame(std::uint32_t w, std::uint32_t h, std::uint8_t b, std::uint8_t g,
-                   std::uint8_t r) -> sst::capture::Frame {
+auto MakeBgr8Frame(std::uint32_t w, std::uint32_t h, std::uint8_t b, std::uint8_t g, std::uint8_t r)
+    -> sst::capture::Frame {
     auto buf = std::make_shared<std::vector<std::uint8_t>>(static_cast<std::size_t>(w) * h * 3);
     for (std::size_t i = 0; i < buf->size(); i += 3) {
         (*buf)[i + 0] = b;
@@ -42,8 +41,8 @@ auto MakeBgr8Frame(std::uint32_t w, std::uint32_t h, std::uint8_t b, std::uint8_
 
 // Builds a 2-plane NV12 Frame with optional row-stride padding (>= width).
 // Y plane filled with `y`, UV plane filled with alternating u, v.
-auto MakeNv12Frame(std::uint32_t w, std::uint32_t h, std::uint8_t y, std::uint8_t u,
-                   std::uint8_t v, std::uint32_t stride = 0) -> sst::capture::Frame {
+auto MakeNv12Frame(std::uint32_t w, std::uint32_t h, std::uint8_t y, std::uint8_t u, std::uint8_t v,
+                   std::uint32_t stride = 0) -> sst::capture::Frame {
     if (stride == 0) {
         stride = w;
     }

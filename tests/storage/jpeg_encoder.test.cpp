@@ -1,30 +1,29 @@
 // OpenCV in-memory JPEG encoder (U9). Runs in-container (CPU OpenCV). Encodes a
 // frame to JPEG bytes for the on-demand BLE ThumbnailRequest path.
 
-#include "adapters/storage/opencv/opencv-jpeg-encoder.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <opencv2/imgcodecs.hpp>
 #include <vector>
 
-#include <opencv2/imgcodecs.hpp>
-
+#include "adapters/storage/opencv/opencv-jpeg-encoder.hpp"
 #include "domain/capture/models/frame.hpp"
 
 namespace {
 
 using sst::adapters::storage::OpenCvJpegEncoder;
 
-auto MakeBgrFrame(int w, int h, std::uint8_t value) -> std::pair<sst::capture::Frame,
-                                                                  std::vector<std::uint8_t>> {
+auto MakeBgrFrame(int w, int h, std::uint8_t value)
+    -> std::pair<sst::capture::Frame, std::vector<std::uint8_t>> {
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(w) * h * 3, value);
     sst::capture::Frame frame;
     frame.geometry = {.width = static_cast<std::uint32_t>(w),
                       .height = static_cast<std::uint32_t>(h)};
     frame.format = sst::common::PixelFormat::BGR8;
-    frame.planes.push_back(
-        {.stride = static_cast<std::uint32_t>(w * 3), .data = pixels.data(), .size = pixels.size()});
+    frame.planes.push_back({.stride = static_cast<std::uint32_t>(w * 3),
+                            .data = pixels.data(),
+                            .size = pixels.size()});
     return {frame, std::move(pixels)};
 }
 

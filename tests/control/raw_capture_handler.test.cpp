@@ -1,10 +1,9 @@
-#include "app/control/services/handlers/raw-capture.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string>
 
+#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/storage/ports/raw-capture-sink.hpp"
 #include "bluetooth.pb.h"
 #include "domain/capture/models/frame.hpp"

@@ -1,8 +1,8 @@
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
 
-#include <utility>
-
 #include <spdlog/spdlog.h>
+
+#include <utility>
 
 #include "domain/streaming/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 

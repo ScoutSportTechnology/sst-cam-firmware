@@ -1,11 +1,11 @@
 #pragma once
 
+#include <gst/gst.h>
+
 #include <atomic>
 #include <filesystem>
 #include <mutex>
 #include <string>
-
-#include <gst/gst.h>
 
 #include "app/storage/ports/continuous-recorder.hpp"
 #include "domain/capture/models/frame.hpp"

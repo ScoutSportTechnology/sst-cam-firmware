@@ -20,7 +20,7 @@ struct fmt::formatter<sst::buffer::BufferStats> {
                               "  popped={},\n"
                               "  dropped={}\n"
                               "}}",
-                              stats.policy, stats.capacity, stats.depth, stats.pushed,
-                              stats.popped, stats.dropped);
+                              stats.policy, stats.capacity, stats.depth, stats.pushed, stats.popped,
+                              stats.dropped);
     }
 };

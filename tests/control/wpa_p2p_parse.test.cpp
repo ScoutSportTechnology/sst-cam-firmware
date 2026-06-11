@@ -1,8 +1,8 @@
 // wpa_supplicant P2P event parsing (U12, R23). Pure — faked ctrl_iface text.
 
-#include "adapters/control/wifi/wpa_supplicant/wpa-p2p-parse.hpp"
-
 #include <gtest/gtest.h>
+
+#include "adapters/control/wifi/wpa_supplicant/wpa-p2p-parse.hpp"
 
 namespace {
 
@@ -23,8 +23,7 @@ TEST(WpaP2pParseTest, ParsesGroupStartedEvent) {
 TEST(WpaP2pParseTest, ParseQuotedFieldAndInterface) {
     EXPECT_EQ(ParseQuotedField("a ssid=\"hi there\" b", "ssid").value_or(""), "hi there");
     EXPECT_FALSE(ParseQuotedField("no field here", "ssid").has_value());
-    EXPECT_EQ(ParseGroupInterface("P2P-GROUP-STARTED p2p-wlan0-3 GO").value_or(""),
-              "p2p-wlan0-3");
+    EXPECT_EQ(ParseGroupInterface("P2P-GROUP-STARTED p2p-wlan0-3 GO").value_or(""), "p2p-wlan0-3");
 }
 
 TEST(WpaP2pParseTest, IncompleteEventRejected) {

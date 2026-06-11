@@ -1,10 +1,10 @@
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 
-#include <cstring>
-#include <string>
-
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
+
+#include <cstring>
+#include <string>
 
 #include "domain/streaming/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 

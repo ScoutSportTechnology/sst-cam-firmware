@@ -1,5 +1,6 @@
 #include "adapters/control/system/proc-system-stats.hpp"
 
+#include <spdlog/spdlog.h>
 #include <sys/sysinfo.h>
 
 #include <algorithm>
@@ -9,8 +10,6 @@
 #include <system_error>
 #include <thread>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 namespace sst::adapters::control {
 
@@ -64,7 +63,7 @@ auto ProcSystemStats::Read() const -> sst::control::SystemStats {
     }
 
     // RAM + uptime — from sysinfo(2).
-    struct sysinfo info{};
+    struct sysinfo info {};
     if (sysinfo(&info) == 0) {
         stats.uptime_seconds = static_cast<std::uint64_t>(info.uptime);
         const std::uint64_t total = static_cast<std::uint64_t>(info.totalram) * info.mem_unit;

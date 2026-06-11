@@ -1,10 +1,10 @@
 #include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
 
-#include <system_error>
+#include <spdlog/spdlog.h>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <spdlog/spdlog.h>
+#include <system_error>
 
 namespace sst::adapters::storage {
 

@@ -1,13 +1,13 @@
 #pragma once
 
+#include <sdbus-c++/sdbus-c++.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
-
-#include <sdbus-c++/sdbus-c++.h>
 
 #include "adapters/control/ble/bluez/chunk-assembler.hpp"
 #include "adapters/control/ble/bluez/gatt-application.hpp"

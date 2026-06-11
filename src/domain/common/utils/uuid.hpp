@@ -1,11 +1,11 @@
 #pragma once
 
+#include <fmt/format.h>
+
 #include <array>
 #include <cstdint>
 #include <random>
 #include <string>
-
-#include <fmt/format.h>
 
 namespace sst::common::utils {
 

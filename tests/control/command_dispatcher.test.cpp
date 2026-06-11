@@ -5,14 +5,13 @@
 // correlation_id; unknown commands return UNSUPPORTED; throwing handlers
 // return ERROR.
 
-#include "app/control/services/dispatcher/command-dispatcher.hpp"
-
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
+#include "app/control/services/dispatcher/command-dispatcher.hpp"
 #include "bluetooth.pb.h"
 
 namespace {

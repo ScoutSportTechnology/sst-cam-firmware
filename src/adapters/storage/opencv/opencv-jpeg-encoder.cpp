@@ -1,11 +1,11 @@
 #include "adapters/storage/opencv/opencv-jpeg-encoder.hpp"
 
-#include <algorithm>
-#include <utility>
+#include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
-#include <spdlog/spdlog.h>
+#include <utility>
 
 namespace sst::adapters::storage {
 

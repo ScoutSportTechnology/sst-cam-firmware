@@ -1,9 +1,9 @@
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <system_error>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 namespace sst::adapters::storage {
 

@@ -29,8 +29,7 @@ class IDecision {
     IDecision(IDecision&&) = delete;
     auto operator=(IDecision&&) -> IDecision& = delete;
 
-    virtual auto Decide(
-        const std::vector<std::optional<sst::processing::FrameBundle>>& cameras)
+    virtual auto Decide(const std::vector<std::optional<sst::processing::FrameBundle>>& cameras)
         -> std::optional<CameraChoice> = 0;
 };
 

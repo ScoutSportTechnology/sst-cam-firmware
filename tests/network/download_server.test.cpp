@@ -8,8 +8,6 @@
 // emulator) does not run the threaded accept loop, so it fails here, like the
 // other on-device e2e tests. It is committed and run for real on the device.
 
-#include "app/network/services/download_server/download-server.hpp"
-
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -21,6 +19,7 @@
 #include <thread>
 
 #include "adapters/network/http/http-download-server.hpp"
+#include "app/network/services/download_server/download-server.hpp"
 #include "domain/storage/models/raw-capture-identity.hpp"
 #include "domain/storage/services/raw-capture-naming.hpp"
 #include "httplib.h"
@@ -142,17 +141,15 @@ TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
     const std::string body = "0123456789ABCDEF";
     WriteRecording(root, "match-a", body);
     DownloadServer downloads(root, [] {
-        return static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                              std::chrono::system_clock::now().time_since_epoch())
+                                              .count());
     });
     auto token = downloads.MintToken("match-a", 3600);
     ASSERT_TRUE(token.has_value());
 
     sst::adapters::network::HttpDownloadServer http(
-        "127.0.0.1", 0,
-        [&downloads](const std::string& t) { return downloads.ValidateToken(t); });
+        "127.0.0.1", 0, [&downloads](const std::string& t) { return downloads.ValidateToken(t); });
     ASSERT_TRUE(http.Start());
     const std::uint16_t port = http.BoundPort();
     ASSERT_GT(port, 0);
@@ -184,17 +181,15 @@ TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
     }
     // Valid token -> 200 + full body.
     {
-        auto res = client.Get("/recordings/match-a",
-                              {{"Authorization", "Bearer " + token->token}});
+        auto res = client.Get("/recordings/match-a", {{"Authorization", "Bearer " + token->token}});
         ASSERT_TRUE(res);
         EXPECT_EQ(res->status, 200);
         EXPECT_EQ(res->body, body);
     }
     // Valid token + Range -> 206 + slice.
     {
-        auto res = client.Get("/recordings/match-a",
-                              {{"Authorization", "Bearer " + token->token},
-                               {"Range", "bytes=4-7"}});
+        auto res = client.Get("/recordings/match-a", {{"Authorization", "Bearer " + token->token},
+                                                      {"Range", "bytes=4-7"}});
         ASSERT_TRUE(res);
         EXPECT_EQ(res->status, 206);
         EXPECT_EQ(res->body, "4567");

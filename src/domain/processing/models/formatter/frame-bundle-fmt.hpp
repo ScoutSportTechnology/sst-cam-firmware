@@ -11,8 +11,7 @@ struct fmt::formatter<sst::processing::FrameBundle> {
 
     template <typename FormatContext>
     auto format(const sst::processing::FrameBundle& b, FormatContext& ctx) const {
-        return fmt::format_to(ctx.out(),
-                              "FrameBundle{{src={}x{} {} id={}, ai={}x{} {}}}",
+        return fmt::format_to(ctx.out(), "FrameBundle{{src={}x{} {} id={}, ai={}x{} {}}}",
                               b.source_frame.geometry.width, b.source_frame.geometry.height,
                               b.source_frame.format, b.source_frame.frame_id,
                               b.ai_frame.geometry.width, b.ai_frame.geometry.height,

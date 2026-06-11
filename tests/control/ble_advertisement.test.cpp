@@ -52,8 +52,7 @@ TEST(BleAdvertisementTest, GattUuidsMatchContract) {
 // Hardware-bound (fails in-container, passes on-device with real BlueZ):
 // the transport brings up advertising + the GATT app on the system bus.
 TEST(BleAdvertisementTest, AdvertisesOnRealBluez) {
-    sst::adapters::control::BluezBleTransport transport(
-        sst::control::MakeAdvertisedName(1));
+    sst::adapters::control::BluezBleTransport transport(sst::control::MakeAdvertisedName(1));
     transport.Start();
     EXPECT_TRUE(transport.IsRunning())
         << "BlueZ advertising did not come up (expected to fail off-device)";

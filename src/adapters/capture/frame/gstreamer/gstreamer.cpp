@@ -15,10 +15,10 @@
 #include <vector>
 
 #include "app/capture/ports/frame-src.hpp"
+#include "domain/capture/models/camera-config.hpp"
 #include "domain/common/models/memory-type.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/utils/get-timestamp.hpp"
-#include "domain/capture/models/camera-config.hpp"
 #include "domain/config/utils/parse-model-version.hpp"
 
 namespace sst::capture {

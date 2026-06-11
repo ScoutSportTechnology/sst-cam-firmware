@@ -57,8 +57,7 @@ TEST(StaticDecisionTest, ReturnsNulloptWhenCamera0Absent) {
     StaticDecision decision;
     // Camera 0 has no frame this tick; camera 1 does. Static policy serves only
     // camera 0, so there is nothing to present.
-    std::vector<std::optional<FrameBundle>> cameras = {std::nullopt,
-                                                       BundleWithGeometry(1280, 720)};
+    std::vector<std::optional<FrameBundle>> cameras = {std::nullopt, BundleWithGeometry(1280, 720)};
     EXPECT_FALSE(decision.Decide(cameras).has_value());
 }
 

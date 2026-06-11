@@ -1,8 +1,8 @@
 #include "app/storage/services/recording_service/recording-service.hpp"
 
-#include <utility>
-
 #include <spdlog/spdlog.h>
+
+#include <utility>
 
 #include "domain/storage/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
@@ -90,8 +90,7 @@ auto RecordingService::Stop() -> StopRecordingResult {
     if (last_frame_ && !thumbnail_path_.empty()) {
         thumb = thumbnail_writer_->Write(*last_frame_, thumbnail_path_);
         if (!thumb) {
-            spdlog::warn("RecordingService: thumbnail write failed ({})",
-                         thumbnail_path_.string());
+            spdlog::warn("RecordingService: thumbnail write failed ({})", thumbnail_path_.string());
         }
     }
 

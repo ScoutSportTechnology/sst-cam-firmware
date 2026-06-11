@@ -1,6 +1,5 @@
 #pragma once
 #include <nlohmann/json.hpp>
-
 #include <vector>
 
 #include "adapters/config/json/json-opt.hpp"
@@ -40,8 +39,7 @@ inline void from_json(const json& jsonObject, CalibrationMicrophoneDeviceData& v
 inline void from_json(const json& jsonObject, CalibrationMicrophonesData& values) {
     json_get_opt(jsonObject, "noise_reduction", values.noise_reduction);
     if (jsonObject.contains("device") && !jsonObject.at("device").is_null()) {
-        values.device =
-            jsonObject.at("device").get<std::vector<CalibrationMicrophoneDeviceData>>();
+        values.device = jsonObject.at("device").get<std::vector<CalibrationMicrophoneDeviceData>>();
     }
 }
 

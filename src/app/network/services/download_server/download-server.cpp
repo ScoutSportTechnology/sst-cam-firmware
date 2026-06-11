@@ -1,10 +1,10 @@
 #include "app/network/services/download_server/download-server.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <system_error>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 #include "domain/common/utils/uuid.hpp"
 #include "domain/storage/services/raw-capture-naming.hpp"

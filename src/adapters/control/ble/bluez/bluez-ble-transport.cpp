@@ -1,11 +1,11 @@
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <spdlog/spdlog.h>
 
 #include "app/control/services/chunk-ack/chunk-ack.hpp"
 #include "bluetooth.pb.h"
@@ -135,25 +135,23 @@ auto BluezBleTransport::OnRawCommand(std::vector<std::uint8_t> bytes) -> void {
 auto BluezBleTransport::BuildAdvertisement() -> void {
     adv_obj_ = sdbus::createObject(*connection_, adv_path_);
 
-    adv_obj_->registerProperty("Type")
-        .onInterface(kIfaceLeAdv)
-        .withGetter([] { return std::string{"peripheral"}; });
-    adv_obj_->registerProperty("ServiceUUIDs")
-        .onInterface(kIfaceLeAdv)
-        .withGetter([] {
-            return std::vector<std::string>{
-                std::string{sst::control::BootstrapDefaults::kGattServiceUuid}};
-        });
-    adv_obj_->registerProperty("LocalName")
-        .onInterface(kIfaceLeAdv)
-        .withGetter([this] { return advertised_name_; });
-    adv_obj_->registerProperty("Includes")
-        .onInterface(kIfaceLeAdv)
-        .withGetter([] { return std::vector<std::string>{"tx-power"}; });
+    adv_obj_->registerProperty("Type").onInterface(kIfaceLeAdv).withGetter([] {
+        return std::string{"peripheral"};
+    });
+    adv_obj_->registerProperty("ServiceUUIDs").onInterface(kIfaceLeAdv).withGetter([] {
+        return std::vector<std::string>{
+            std::string{sst::control::BootstrapDefaults::kGattServiceUuid}};
+    });
+    adv_obj_->registerProperty("LocalName").onInterface(kIfaceLeAdv).withGetter([this] {
+        return advertised_name_;
+    });
+    adv_obj_->registerProperty("Includes").onInterface(kIfaceLeAdv).withGetter([] {
+        return std::vector<std::string>{"tx-power"};
+    });
 
-    adv_obj_->registerMethod("Release")
-        .onInterface(kIfaceLeAdv)
-        .implementedAs([] { spdlog::info("LEAdvertisement1.Release called"); });
+    adv_obj_->registerMethod("Release").onInterface(kIfaceLeAdv).implementedAs([] {
+        spdlog::info("LEAdvertisement1.Release called");
+    });
 
     adv_obj_->finishRegistration();
 }
@@ -166,8 +164,7 @@ auto BluezBleTransport::Start() -> void {
     try {
         connection_ = sdbus::createSystemBusConnection();
     } catch (const sdbus::Error& e) {
-        spdlog::error("BluezBleTransport: createSystemBusConnection failed: {}",
-                      e.what());
+        spdlog::error("BluezBleTransport: createSystemBusConnection failed: {}", e.what());
         return;
     }
 
@@ -195,8 +192,7 @@ auto BluezBleTransport::Start() -> void {
         auto adv_proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
         adv_proxy->callMethod("RegisterAdvertisement")
             .onInterface(kIfaceLeAdvManager)
-            .withArguments(sdbus::ObjectPath{adv_path_},
-                           std::map<std::string, sdbus::Variant>{});
+            .withArguments(sdbus::ObjectPath{adv_path_}, std::map<std::string, sdbus::Variant>{});
         advertisement_registered_ = true;
 
         auto gatt_proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
@@ -209,9 +205,9 @@ auto BluezBleTransport::Start() -> void {
         connection_->enterEventLoopAsync();
         running_ = true;
 
-        spdlog::info(
-            "BluezBleTransport: advertising as \"{}\" with service {} on adapter {}",
-            advertised_name_, sst::control::BootstrapDefaults::kGattServiceUuid, adapter_path_);
+        spdlog::info("BluezBleTransport: advertising as \"{}\" with service {} on adapter {}",
+                     advertised_name_, sst::control::BootstrapDefaults::kGattServiceUuid,
+                     adapter_path_);
     } catch (const sdbus::Error& e) {
         spdlog::error("BluezBleTransport::Start failed: {}: {}", e.getName(), e.getMessage());
         Stop();
@@ -219,8 +215,7 @@ auto BluezBleTransport::Start() -> void {
 }
 
 auto BluezBleTransport::Stop() -> void {
-    if (!running_ && !advertisement_registered_ && !application_registered_ &&
-        !connection_) {
+    if (!running_ && !advertisement_registered_ && !application_registered_ && !connection_) {
         return;
     }
     spdlog::info("BluezBleTransport::Stop");
@@ -287,8 +282,7 @@ auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -
     }
     const std::string wire = response.SerializeAsString();
     const std::uint32_t total = assembler_.BeginOutbound(
-        response.correlation_id(), wire,
-        [this](const sst_cam::ChunkedPayload& chunk) {
+        response.correlation_id(), wire, [this](const sst_cam::ChunkedPayload& chunk) {
             // This closure is retained inside the assembler and invoked later by
             // OnAck. By then Stop()/disconnect may have reset gatt_app_; guard
             // against the null deref (the disconnect path also Reset()s the
@@ -301,8 +295,8 @@ auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -
                   response.correlation_id(), static_cast<int>(response.status()), total);
 }
 
-auto BluezBleTransport::SendInboundAck(const std::string& correlation_id,
-                                       std::uint32_t chunk_index) -> void {
+auto BluezBleTransport::SendInboundAck(const std::string& correlation_id, std::uint32_t chunk_index)
+    -> void {
     if (!gatt_app_) {
         spdlog::warn("BluezBleTransport::SendInboundAck: GATT app not active");
         return;

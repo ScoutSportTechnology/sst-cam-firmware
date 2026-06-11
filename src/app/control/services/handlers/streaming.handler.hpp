@@ -24,8 +24,7 @@ class StreamingHandler final : public ICommandHandler {
 
    private:
     auto HandleControl(const sst_cam::StreamingControlCommand& cmd) -> sst_cam::CommandResponse;
-    auto HandleSetConfig(const sst_cam::SetStreamingConfigCommand& cmd)
-        -> sst_cam::CommandResponse;
+    auto HandleSetConfig(const sst_cam::SetStreamingConfigCommand& cmd) -> sst_cam::CommandResponse;
 
     sst::streaming::IStreamingService& streaming_;
 

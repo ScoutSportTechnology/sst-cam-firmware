@@ -1,9 +1,9 @@
 #include "adapters/overlay/gstreamer/gst-overlay-compositor.hpp"
 
-#include <cstring>
-
 #include <gst/app/gstappsrc.h>
 #include <spdlog/spdlog.h>
+
+#include <cstring>
 
 namespace sst::adapters::overlay {
 
@@ -19,12 +19,12 @@ GstOverlayCompositor::GstOverlayCompositor(std::uint32_t width, std::uint32_t he
     // Keep a ref we own; the orchestrator adds this to its bin (U14).
     gst_object_ref_sink(appsrc_);
 
-    GstCaps* caps = gst_caps_new_simple(
-        "video/x-raw", "format", G_TYPE_STRING, "RGBA", "width", G_TYPE_INT,
-        static_cast<int>(width_), "height", G_TYPE_INT, static_cast<int>(height_), "framerate",
-        GST_TYPE_FRACTION, 0, 1, nullptr);
-    g_object_set(appsrc_, "caps", caps, "is-live", TRUE, "format", GST_FORMAT_TIME,
-                 "do-timestamp", TRUE, nullptr);
+    GstCaps* caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "RGBA", "width",
+                                        G_TYPE_INT, static_cast<int>(width_), "height", G_TYPE_INT,
+                                        static_cast<int>(height_), "framerate", GST_TYPE_FRACTION,
+                                        0, 1, nullptr);
+    g_object_set(appsrc_, "caps", caps, "is-live", TRUE, "format", GST_FORMAT_TIME, "do-timestamp",
+                 TRUE, nullptr);
     gst_caps_unref(caps);
 }
 

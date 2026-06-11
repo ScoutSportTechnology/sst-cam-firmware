@@ -7,10 +7,10 @@
 #include <nlohmann/json.hpp>
 #include <utility>
 
-#include "adapters/config/json/serde/calibration.hpp"   // IWYU pragma: keep
-#include "adapters/config/json/serde/device.hpp"        // IWYU pragma: keep
-#include "adapters/config/json/serde/storage.hpp"       // IWYU pragma: keep
-#include "adapters/config/json/serde/wifi-direct.hpp"   // IWYU pragma: keep
+#include "adapters/config/json/serde/calibration.hpp"  // IWYU pragma: keep
+#include "adapters/config/json/serde/device.hpp"       // IWYU pragma: keep
+#include "adapters/config/json/serde/storage.hpp"      // IWYU pragma: keep
+#include "adapters/config/json/serde/wifi-direct.hpp"  // IWYU pragma: keep
 #include "app/config/ports/config-reader.hpp"
 
 namespace sst::config {

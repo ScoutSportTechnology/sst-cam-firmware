@@ -33,8 +33,7 @@ TEST(FanOutSinkTest, PushesToEverySinkInOrder) {
     RecordingSink a;
     RecordingSink b;
     RecordingSink c;
-    sst::buffer::FanOutSink fanout(
-        std::vector<sst::buffer::IFrameSink*>{&a, &b, &c});
+    sst::buffer::FanOutSink fanout(std::vector<sst::buffer::IFrameSink*>{&a, &b, &c});
 
     fanout.Push(MakeFrame(1));
     fanout.Push(MakeFrame(2));
@@ -55,8 +54,7 @@ TEST(FanOutSinkTest, EmptySinkListIsHarmless) {
 
 TEST(FanOutSinkTest, NullPointerEntriesAreSkipped) {
     RecordingSink a;
-    sst::buffer::FanOutSink fanout(
-        std::vector<sst::buffer::IFrameSink*>{nullptr, &a, nullptr});
+    sst::buffer::FanOutSink fanout(std::vector<sst::buffer::IFrameSink*>{nullptr, &a, nullptr});
 
     fanout.Push(MakeFrame(7));
 

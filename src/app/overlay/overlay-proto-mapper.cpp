@@ -8,31 +8,46 @@ namespace {
 
 auto MapShape(sst_cam::OverlayShape s) -> OverlayShape {
     switch (s) {
-        case sst_cam::SHAPE_RECT: return OverlayShape::kRect;
-        case sst_cam::SHAPE_TEXT: return OverlayShape::kText;
-        case sst_cam::SHAPE_CIRCLE: return OverlayShape::kCircle;
-        default: return OverlayShape::kUnknown;
+        case sst_cam::SHAPE_RECT:
+            return OverlayShape::kRect;
+        case sst_cam::SHAPE_TEXT:
+            return OverlayShape::kText;
+        case sst_cam::SHAPE_CIRCLE:
+            return OverlayShape::kCircle;
+        default:
+            return OverlayShape::kUnknown;
     }
 }
 
 auto MapBinding(sst_cam::OverlayBinding b) -> OverlayBinding {
     switch (b) {
-        case sst_cam::BINDING_SCORE_A: return OverlayBinding::kScoreA;
-        case sst_cam::BINDING_SCORE_B: return OverlayBinding::kScoreB;
-        case sst_cam::BINDING_SCORE_VS: return OverlayBinding::kScoreVs;
-        case sst_cam::BINDING_TEAM_A_NAME: return OverlayBinding::kTeamAName;
-        case sst_cam::BINDING_TEAM_B_NAME: return OverlayBinding::kTeamBName;
-        case sst_cam::BINDING_MATCH_CLOCK: return OverlayBinding::kMatchClock;
-        case sst_cam::BINDING_PERIOD_LABEL: return OverlayBinding::kPeriodLabel;
-        default: return OverlayBinding::kStatic;
+        case sst_cam::BINDING_SCORE_A:
+            return OverlayBinding::kScoreA;
+        case sst_cam::BINDING_SCORE_B:
+            return OverlayBinding::kScoreB;
+        case sst_cam::BINDING_SCORE_VS:
+            return OverlayBinding::kScoreVs;
+        case sst_cam::BINDING_TEAM_A_NAME:
+            return OverlayBinding::kTeamAName;
+        case sst_cam::BINDING_TEAM_B_NAME:
+            return OverlayBinding::kTeamBName;
+        case sst_cam::BINDING_MATCH_CLOCK:
+            return OverlayBinding::kMatchClock;
+        case sst_cam::BINDING_PERIOD_LABEL:
+            return OverlayBinding::kPeriodLabel;
+        default:
+            return OverlayBinding::kStatic;
     }
 }
 
 auto MapAlign(sst_cam::TextAlign a) -> TextAlign {
     switch (a) {
-        case sst_cam::TEXT_ALIGN_CENTER: return TextAlign::kCenter;
-        case sst_cam::TEXT_ALIGN_RIGHT: return TextAlign::kRight;
-        default: return TextAlign::kLeft;
+        case sst_cam::TEXT_ALIGN_CENTER:
+            return TextAlign::kCenter;
+        case sst_cam::TEXT_ALIGN_RIGHT:
+            return TextAlign::kRight;
+        default:
+            return TextAlign::kLeft;
     }
 }
 

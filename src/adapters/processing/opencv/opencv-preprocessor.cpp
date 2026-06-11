@@ -1,12 +1,12 @@
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
 
-#include <cstdint>
-#include <optional>
-#include <utility>
+#include <spdlog/spdlog.h>
 
+#include <cstdint>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
-#include <spdlog/spdlog.h>
+#include <optional>
+#include <utility>
 
 #include "adapters/processing/opencv/frame-mat.hpp"
 #include "domain/capture/models/frame.hpp"
@@ -47,8 +47,7 @@ auto OpenCvPreprocessor::Process(const sst::capture::Frame& raw)
         return std::nullopt;
     }
 
-    const cv::Size ai_size{static_cast<int>(config_.ai_width),
-                           static_cast<int>(config_.ai_height)};
+    const cv::Size ai_size{static_cast<int>(config_.ai_width), static_cast<int>(config_.ai_height)};
 
     cv::Mat ai_mat;
     sst::common::PixelFormat ai_format = sst::common::PixelFormat::GRAY8;

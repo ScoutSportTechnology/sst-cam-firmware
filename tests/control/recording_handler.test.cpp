@@ -2,12 +2,11 @@
 // the session lifecycle (U10/U6). Pure — fake IRecordingService + real
 // SessionManager driven through a fake ISessionCleanup.
 
-#include "app/control/services/handlers/recording.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <string>
 
+#include "app/control/services/handlers/recording.handler.hpp"
 #include "app/session/ports/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
 #include "app/storage/ports/recording-service.hpp"
@@ -159,8 +158,7 @@ TEST(RecordingHandlerTest, StopStopsRecorderAndReturnsToReady) {
     FakeRecorder recorder;
     RecordingHandler handler(sm, recorder);
     AdvanceToReady(sm);
-    ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(),
-              sst_cam::ResponseStatus::OK);
+    ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::ResponseStatus::OK);
 
     auto resp = handler.Handle(Cmd(sst_cam::RECORDING_STOP));
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);

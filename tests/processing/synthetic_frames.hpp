@@ -16,8 +16,8 @@ namespace sst::tests::processing {
 // Y plane filled with `y`, UV plane filled with alternating (u, v) pairs.
 // `stride == 0` means stride = w (no row padding).
 inline auto MakeNv12Frame(std::uint32_t w, std::uint32_t h, std::uint8_t y, std::uint8_t u,
-                          std::uint8_t v, std::uint32_t stride = 0,
-                          std::uint64_t frame_id = 1) -> sst::capture::Frame {
+                          std::uint8_t v, std::uint32_t stride = 0, std::uint64_t frame_id = 1)
+    -> sst::capture::Frame {
     if (stride == 0) {
         stride = w;
     }

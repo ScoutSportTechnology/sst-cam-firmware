@@ -1,5 +1,3 @@
-#include "domain/overlay/services/frame-compositor.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -8,6 +6,7 @@
 
 #include "domain/capture/models/frame.hpp"
 #include "domain/overlay/models/render-scene.hpp"
+#include "domain/overlay/services/frame-compositor.hpp"
 
 namespace {
 
@@ -32,7 +31,8 @@ auto MakeBgr(std::uint32_t w, std::uint32_t h, std::uint8_t b, std::uint8_t g, s
     Frame f;
     f.format = sst::common::PixelFormat::BGR8;
     f.geometry = {.width = w, .height = h};
-    f.planes = {sst::capture::FramePlane{.stride = w * 3, .data = buf->data(), .size = buf->size()}};
+    f.planes = {
+        sst::capture::FramePlane{.stride = w * 3, .data = buf->data(), .size = buf->size()}};
     f.owner = buf;
     return {std::move(f), buf};
 }

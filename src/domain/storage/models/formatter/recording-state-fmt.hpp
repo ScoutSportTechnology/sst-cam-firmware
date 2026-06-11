@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstdint>
-
 #include <fmt/format.h>
+
+#include <cstdint>
 
 #include "domain/storage/models/recording-state.hpp"
 

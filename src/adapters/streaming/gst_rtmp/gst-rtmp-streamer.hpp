@@ -1,11 +1,11 @@
 #pragma once
 
+#include <gst/gst.h>
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <thread>
-
-#include <gst/gst.h>
 
 #include "app/streaming/ports/platform-streamer.hpp"
 

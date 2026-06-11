@@ -45,9 +45,10 @@ auto CompositeOverlay(const sst::capture::Frame& source, const RgbaImage& overla
         src, src + static_cast<std::size_t>(src_stride) * fh);
 
     // Uniform aspect-preserving scale + centered letterbox.
-    const double scale = std::min(static_cast<double>(fw) / overlay.width,
-                                  static_cast<double>(fh) / overlay.height);
-    const auto draw_w = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(overlay.width * scale));
+    const double scale =
+        std::min(static_cast<double>(fw) / overlay.width, static_cast<double>(fh) / overlay.height);
+    const auto draw_w =
+        std::max<std::uint32_t>(1, static_cast<std::uint32_t>(overlay.width * scale));
     const auto draw_h =
         std::max<std::uint32_t>(1, static_cast<std::uint32_t>(overlay.height * scale));
     const std::uint32_t off_x = (fw - std::min(fw, draw_w)) / 2;
@@ -59,8 +60,8 @@ auto CompositeOverlay(const sst::capture::Frame& source, const RgbaImage& overla
         const auto sy = std::min(overlay.height - 1, static_cast<std::uint32_t>(dy / scale));
         for (std::uint32_t dx = 0; dx < draw_w && (off_x + dx) < fw; ++dx) {
             const auto sx = std::min(overlay.width - 1, static_cast<std::uint32_t>(dx / scale));
-            const std::size_t op =
-                static_cast<std::size_t>(sy) * overlay.stride + static_cast<std::size_t>(sx) * kRgbaBytesPerPixel;
+            const std::size_t op = static_cast<std::size_t>(sy) * overlay.stride +
+                                   static_cast<std::size_t>(sx) * kRgbaBytesPerPixel;
             const std::uint8_t r = overlay.pixels[op + 0];
             const std::uint8_t g = overlay.pixels[op + 1];
             const std::uint8_t b = overlay.pixels[op + 2];
@@ -81,8 +82,8 @@ auto CompositeOverlay(const sst::capture::Frame& source, const RgbaImage& overla
     sst::capture::Frame out = source;  // copies metadata (id, geometry, timestamp)
     out.memory = sst::common::MemoryType::CPU;
     const auto* base = out_bytes->data();
-    out.planes = {sst::capture::FramePlane{
-        .stride = src_stride, .data = base, .size = out_bytes->size()}};
+    out.planes = {
+        sst::capture::FramePlane{.stride = src_stride, .data = base, .size = out_bytes->size()}};
     out.owner = out_bytes;  // keep the blended bytes alive for the frame's lifetime
     return out;
 }

@@ -1,8 +1,8 @@
 #include "adapters/control/ble/bluez/gatt-application.hpp"
 
-#include <utility>
-
 #include <spdlog/spdlog.h>
+
+#include <utility>
 
 namespace sst::adapters::control {
 
@@ -14,8 +14,7 @@ constexpr const char* kIfaceGattService = "org.bluez.GattService1";
 constexpr const char* kIfaceGattChar = "org.bluez.GattCharacteristic1";
 
 using ManagedObjects =
-    std::map<sdbus::ObjectPath,
-             std::map<std::string, std::map<std::string, sdbus::Variant>>>;
+    std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
 
 }  // namespace
 
@@ -55,8 +54,8 @@ auto GattApplication::BuildRoot() -> void {
             std::map<std::string, sdbus::Variant> cmd_props;
             cmd_props.emplace("UUID", sdbus::Variant{command_char_uuid_});
             cmd_props.emplace("Service", sdbus::Variant{sdbus::ObjectPath{service_path_}});
-            cmd_props.emplace("Flags", sdbus::Variant{std::vector<std::string>{
-                                          "write-without-response"}});
+            cmd_props.emplace("Flags",
+                              sdbus::Variant{std::vector<std::string>{"write-without-response"}});
             out[sdbus::ObjectPath{command_char_path_}][kIfaceGattChar] = std::move(cmd_props);
 
             std::map<std::string, sdbus::Variant> resp_props;
@@ -74,12 +73,12 @@ auto GattApplication::BuildRoot() -> void {
 auto GattApplication::BuildService() -> void {
     service_obj_ = sdbus::createObject(connection_, service_path_);
 
-    service_obj_->registerProperty("UUID")
-        .onInterface(kIfaceGattService)
-        .withGetter([this] { return service_uuid_; });
-    service_obj_->registerProperty("Primary")
-        .onInterface(kIfaceGattService)
-        .withGetter([] { return true; });
+    service_obj_->registerProperty("UUID").onInterface(kIfaceGattService).withGetter([this] {
+        return service_uuid_;
+    });
+    service_obj_->registerProperty("Primary").onInterface(kIfaceGattService).withGetter([] {
+        return true;
+    });
 
     service_obj_->finishRegistration();
 }
@@ -87,15 +86,15 @@ auto GattApplication::BuildService() -> void {
 auto GattApplication::BuildCommandChar() -> void {
     command_obj_ = sdbus::createObject(connection_, command_char_path_);
 
-    command_obj_->registerProperty("UUID")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] { return command_char_uuid_; });
-    command_obj_->registerProperty("Service")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] { return sdbus::ObjectPath{service_path_}; });
-    command_obj_->registerProperty("Flags")
-        .onInterface(kIfaceGattChar)
-        .withGetter([] { return std::vector<std::string>{"write-without-response"}; });
+    command_obj_->registerProperty("UUID").onInterface(kIfaceGattChar).withGetter([this] {
+        return command_char_uuid_;
+    });
+    command_obj_->registerProperty("Service").onInterface(kIfaceGattChar).withGetter([this] {
+        return sdbus::ObjectPath{service_path_};
+    });
+    command_obj_->registerProperty("Flags").onInterface(kIfaceGattChar).withGetter([] {
+        return std::vector<std::string>{"write-without-response"};
+    });
 
     // BlueZ calls WriteValue(ay value, a{sv} options) on the GATT characteristic.
     command_obj_->registerMethod("WriteValue")
@@ -121,27 +120,23 @@ auto GattApplication::BuildCommandChar() -> void {
 auto GattApplication::BuildResponseChar() -> void {
     response_obj_ = sdbus::createObject(connection_, response_char_path_);
 
-    response_obj_->registerProperty("UUID")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] { return response_char_uuid_; });
-    response_obj_->registerProperty("Service")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] { return sdbus::ObjectPath{service_path_}; });
-    response_obj_->registerProperty("Flags")
-        .onInterface(kIfaceGattChar)
-        .withGetter([] { return std::vector<std::string>{"notify"}; });
-    response_obj_->registerProperty("Value")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] {
-            std::lock_guard lock(mtx_);
-            return response_value_;
-        });
-    response_obj_->registerProperty("Notifying")
-        .onInterface(kIfaceGattChar)
-        .withGetter([this] {
-            std::lock_guard lock(mtx_);
-            return notifying_;
-        });
+    response_obj_->registerProperty("UUID").onInterface(kIfaceGattChar).withGetter([this] {
+        return response_char_uuid_;
+    });
+    response_obj_->registerProperty("Service").onInterface(kIfaceGattChar).withGetter([this] {
+        return sdbus::ObjectPath{service_path_};
+    });
+    response_obj_->registerProperty("Flags").onInterface(kIfaceGattChar).withGetter([] {
+        return std::vector<std::string>{"notify"};
+    });
+    response_obj_->registerProperty("Value").onInterface(kIfaceGattChar).withGetter([this] {
+        std::lock_guard lock(mtx_);
+        return response_value_;
+    });
+    response_obj_->registerProperty("Notifying").onInterface(kIfaceGattChar).withGetter([this] {
+        std::lock_guard lock(mtx_);
+        return notifying_;
+    });
 
     response_obj_->registerMethod("ReadValue")
         .onInterface(kIfaceGattChar)
@@ -150,21 +145,17 @@ auto GattApplication::BuildResponseChar() -> void {
             return response_value_;
         });
 
-    response_obj_->registerMethod("StartNotify")
-        .onInterface(kIfaceGattChar)
-        .implementedAs([this] {
-            std::lock_guard lock(mtx_);
-            notifying_ = true;
-            spdlog::info("GattApplication: StartNotify on response char");
-        });
+    response_obj_->registerMethod("StartNotify").onInterface(kIfaceGattChar).implementedAs([this] {
+        std::lock_guard lock(mtx_);
+        notifying_ = true;
+        spdlog::info("GattApplication: StartNotify on response char");
+    });
 
-    response_obj_->registerMethod("StopNotify")
-        .onInterface(kIfaceGattChar)
-        .implementedAs([this] {
-            std::lock_guard lock(mtx_);
-            notifying_ = false;
-            spdlog::info("GattApplication: StopNotify on response char");
-        });
+    response_obj_->registerMethod("StopNotify").onInterface(kIfaceGattChar).implementedAs([this] {
+        std::lock_guard lock(mtx_);
+        notifying_ = false;
+        spdlog::info("GattApplication: StopNotify on response char");
+    });
 
     response_obj_->finishRegistration();
 }
@@ -181,8 +172,7 @@ auto GattApplication::SendNotification(const std::vector<std::uint8_t>& bytes) -
 
     response_obj_->emitSignal("PropertiesChanged")
         .onInterface(kIfaceProperties)
-        .withArguments(std::string{kIfaceGattChar}, changed,
-                       std::vector<std::string>{});
+        .withArguments(std::string{kIfaceGattChar}, changed, std::vector<std::string>{});
 
     if (!notifying_now) {
         spdlog::debug(

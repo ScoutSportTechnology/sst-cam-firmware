@@ -1,15 +1,13 @@
-#include "adapters/processing/opencv/frame-mat.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
-
 #include <opencv2/core.hpp>
 
+#include "../synthetic_frames.hpp"
+#include "adapters/processing/opencv/frame-mat.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/common/models/timestamp.hpp"
-#include "../synthetic_frames.hpp"
 
 namespace sst::adapters::processing {
 
@@ -68,8 +66,7 @@ TEST(FrameMatTest, WrapNv12CopiesWhenStrided) {
 TEST(FrameMatTest, MakeOwnedFrameProducesCompactStride) {
     cv::Mat src(10, 20, CV_8UC3, cv::Scalar(11, 22, 33));
 
-    auto out = MakeOwnedFrame(src, sst::common::PixelFormat::BGR8, 99,
-                              sst::common::Timestamp{});
+    auto out = MakeOwnedFrame(src, sst::common::PixelFormat::BGR8, 99, sst::common::Timestamp{});
 
     EXPECT_EQ(out.frame_id, 99U);
     EXPECT_EQ(out.format, sst::common::PixelFormat::BGR8);

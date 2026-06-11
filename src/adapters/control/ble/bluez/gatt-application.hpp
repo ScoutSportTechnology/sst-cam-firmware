@@ -1,13 +1,13 @@
 #pragma once
 
+#include <sdbus-c++/sdbus-c++.h>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
-
-#include <sdbus-c++/sdbus-c++.h>
 
 namespace sst::adapters::control {
 
@@ -31,9 +31,9 @@ class GattApplication {
    public:
     using OnCommandBytes = std::function<void(std::vector<std::uint8_t>)>;
 
-    GattApplication(sdbus::IConnection& connection, std::string root_path,
-                    std::string service_uuid, std::string command_char_uuid,
-                    std::string response_char_uuid, OnCommandBytes on_command);
+    GattApplication(sdbus::IConnection& connection, std::string root_path, std::string service_uuid,
+                    std::string command_char_uuid, std::string response_char_uuid,
+                    OnCommandBytes on_command);
     ~GattApplication();
 
     GattApplication(const GattApplication&) = delete;

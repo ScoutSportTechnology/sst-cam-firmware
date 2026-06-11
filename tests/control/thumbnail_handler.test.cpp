@@ -3,8 +3,6 @@
 // real encode path is covered by JpegEncoderTest; here we assert the handler's
 // wiring and the no-frame error path (CLAUDE.md: a real ERROR, not a skeleton).
 
-#include "app/control/services/handlers/thumbnail.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -13,6 +11,7 @@
 #include <vector>
 
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
+#include "app/control/services/handlers/thumbnail.handler.hpp"
 #include "app/pipeline/ports/frame-snapshot-source.hpp"
 #include "app/storage/ports/jpeg-encoder.hpp"
 #include "bluetooth.pb.h"

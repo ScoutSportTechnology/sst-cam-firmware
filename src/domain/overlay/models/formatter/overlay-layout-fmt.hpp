@@ -23,9 +23,8 @@ struct fmt::formatter<sst::overlay::OverlayStyle> {
         return fmt::format_to(ctx.out(),
                               "Style{{fill={}, text={}, opacity={}, radius={}, font={}@{}, "
                               "align={}, weight={}, static=\"{}\"}}",
-                              s.fill_color, s.text_color, s.opacity, s.corner_radius,
-                              s.font_family, s.font_size, s.text_align, s.font_weight,
-                              s.static_text);
+                              s.fill_color, s.text_color, s.opacity, s.corner_radius, s.font_family,
+                              s.font_size, s.text_align, s.font_weight, s.static_text);
     }
 };
 

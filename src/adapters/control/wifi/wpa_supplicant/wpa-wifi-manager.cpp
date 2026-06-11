@@ -1,5 +1,7 @@
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -12,9 +14,6 @@
 #include <cstring>
 #include <string>
 #include <utility>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 #include "adapters/control/wifi/wpa_supplicant/wpa-p2p-parse.hpp"
 #include "domain/network/models/formatter/_fmt.hpp"  // IWYU pragma: keep
@@ -30,8 +29,7 @@ constexpr const char* kGoRole = "GO";
 constexpr int kMaxEventReads = 20;
 
 auto StartsWith(const std::string& s, std::string_view prefix) -> bool {
-    return s.size() >= prefix.size() &&
-           std::memcmp(s.data(), prefix.data(), prefix.size()) == 0;
+    return s.size() >= prefix.size() && std::memcmp(s.data(), prefix.data(), prefix.size()) == 0;
 }
 
 }  // namespace
@@ -54,13 +52,11 @@ auto WpaWifiManager::OpenCtrlSocket() -> bool {
 
     sockaddr_un local{};
     local.sun_family = AF_UNIX;
-    local_path_ = fmt::format("/tmp/wpa_ctrl_{}-{}", ::getpid(),
-                              static_cast<int>(std::rand()));
+    local_path_ = fmt::format("/tmp/wpa_ctrl_{}-{}", ::getpid(), static_cast<int>(std::rand()));
     std::strncpy(local.sun_path, local_path_.c_str(), sizeof(local.sun_path) - 1);
     ::unlink(local.sun_path);
     if (::bind(sock_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
-        spdlog::error("WpaWifiManager: bind({}) failed: {}", local_path_,
-                      std::strerror(errno));
+        spdlog::error("WpaWifiManager: bind({}) failed: {}", local_path_, std::strerror(errno));
         CloseCtrlSocket();
         return false;
     }
@@ -70,8 +66,7 @@ auto WpaWifiManager::OpenCtrlSocket() -> bool {
     const auto remote_path = fmt::format("{}/{}", ctrl_dir_, iface_);
     std::strncpy(remote.sun_path, remote_path.c_str(), sizeof(remote.sun_path) - 1);
     if (::connect(sock_, reinterpret_cast<sockaddr*>(&remote), sizeof(remote)) < 0) {
-        spdlog::error("WpaWifiManager: connect({}) failed: {}", remote_path,
-                      std::strerror(errno));
+        spdlog::error("WpaWifiManager: connect({}) failed: {}", remote_path, std::strerror(errno));
         CloseCtrlSocket();
         return false;
     }
@@ -108,8 +103,7 @@ auto WpaWifiManager::SendCommand(std::string_view cmd) -> std::optional<std::str
     std::array<char, kRecvBufSize> buf{};
     const auto n = ::recv(sock_, buf.data(), buf.size() - 1, 0);
     if (n < 0) {
-        spdlog::error("WpaWifiManager: recv after \"{}\" failed: {}", cmd,
-                      std::strerror(errno));
+        spdlog::error("WpaWifiManager: recv after \"{}\" failed: {}", cmd, std::strerror(errno));
         return std::nullopt;
     }
     return std::string(buf.data(), static_cast<std::size_t>(n));

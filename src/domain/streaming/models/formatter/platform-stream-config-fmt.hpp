@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstdint>
-
 #include <fmt/format.h>
+
+#include <cstdint>
 
 #include "domain/streaming/models/platform-stream-config.hpp"
 
@@ -32,21 +32,20 @@ struct fmt::formatter<sst::streaming::PlatformStreamConfig> {
 
     template <typename FormatContext>
     auto format(const sst::streaming::PlatformStreamConfig& c, FormatContext& ctx) const {
-        return fmt::format_to(
-            ctx.out(),
-            "PlatformStreamConfig{{\n"
-            "  stream_id={},\n"
-            "  name=\"{}\",\n"
-            "  type={},\n"
-            "  url=\"{}\",\n"
-            "  stream_key=\"{}\",\n"
-            "  codec={},\n"
-            "  width={},\n"
-            "  height={},\n"
-            "  framerate={},\n"
-            "  bitrate_kbps={}\n"
-            "}}",
-            c.stream_id, c.name, c.type, c.url, c.stream_key, c.codec, c.width, c.height,
-            c.framerate, c.bitrate_kbps);
+        return fmt::format_to(ctx.out(),
+                              "PlatformStreamConfig{{\n"
+                              "  stream_id={},\n"
+                              "  name=\"{}\",\n"
+                              "  type={},\n"
+                              "  url=\"{}\",\n"
+                              "  stream_key=\"{}\",\n"
+                              "  codec={},\n"
+                              "  width={},\n"
+                              "  height={},\n"
+                              "  framerate={},\n"
+                              "  bitrate_kbps={}\n"
+                              "}}",
+                              c.stream_id, c.name, c.type, c.url, c.stream_key, c.codec, c.width,
+                              c.height, c.framerate, c.bitrate_kbps);
     }
 };

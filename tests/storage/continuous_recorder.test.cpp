@@ -2,8 +2,6 @@
 // Pure — fake recorder + thumbnail writer + disk guard. The real NVENC encode
 // is covered by a hardware-bound test.
 
-#include "app/storage/services/recording_service/recording-service.hpp"
-
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -14,6 +12,7 @@
 #include "app/storage/ports/continuous-recorder.hpp"
 #include "app/storage/ports/disk-guard.hpp"
 #include "app/storage/ports/thumbnail-writer.hpp"
+#include "app/storage/services/recording_service/recording-service.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/storage/models/recording-state.hpp"
 
