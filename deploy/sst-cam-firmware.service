@@ -1,0 +1,30 @@
+# systemd unit for the SST Cam firmware runtime on the Jetson.
+#
+# Install (one-time, on the device):
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin sst-cam
+#   sudo mkdir -p /opt/sst-cam/bin
+#   sudo chown -R sst-cam:sst-cam /opt/sst-cam
+#   sudo cp deploy/sst-cam-firmware.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable sst-cam-firmware
+# (then run deploy/install.sh to place the binary and start the service)
+
+[Unit]
+Description=SST Cam firmware runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Non-root system user; create it as documented above. Hardware access
+# (cameras, GPIO, etc.) may require extra group membership / udev rules on the
+# device — grant those to this user, do NOT run the service as root.
+User=sst-cam
+Group=sst-cam
+WorkingDirectory=/opt/sst-cam
+ExecStart=/opt/sst-cam/bin/sst_cam_firmware
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
