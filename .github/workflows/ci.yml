@@ -1,0 +1,142 @@
+# =============================================================================
+# PR CI — format + tidy + tests, run INSIDE the repo devcontainer.
+#
+# WHY the devcontainer: the Jetson aarch64 cross-build is only correct inside
+# the repo's devcontainer image (custom Bootlin toolchain, the order-sensitive
+# L4T sysroot prep scripts under .devcontainer/sysroot/, host-protoc codegen,
+# OpenCV SONAME pin, Conan cache). We reuse that image via devcontainers/ci
+# rather than re-deriving the toolchain here, so every cross-build gotcha stays
+# solved in exactly one place (see CLAUDE.md).
+#
+# -----------------------------------------------------------------------------
+# !!! KNOWN RISK — VALIDATE ON FIRST RUN !!!
+# -----------------------------------------------------------------------------
+# The devcontainer base image is nvcr.io/nvidia/jetpack-...:6.1 and the first
+# build unpacks a ~37 GB L4T targetfs sysroot (~20 min cold). A standard
+# GitHub-HOSTED runner (~14 GB free disk, 6h wall limit) MAY NOT have the disk
+# headroom or time to unpack the sysroot and build the image. If this job fails
+# on disk-full / timeout during the devcontainer build, the expected remedy is a
+# SELF-HOSTED runner that keeps /l4t/targetfs and the built image warm between
+# runs. This is anticipated and must be measured on the very first CI run.
+#
+# The job names below (`format`, `tidy`, `test`) are the REQUIRED STATUS CHECKS
+# wired into the branch ruleset (U5) — keep them stable.
+# =============================================================================
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save runner time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # format — clang-format dry-run (Google style, .clang-format) over src/+tests/
+  # ---------------------------------------------------------------------------
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with proto submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: clang-format --dry-run --Werror
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          push: never
+          runCmd: |
+            set -euo pipefail
+            files=$(find src tests \
+              \( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \) \
+              -not -path '*/_old/*')
+            if [ -z "$files" ]; then
+              echo "No C++ sources found to format-check"; exit 1
+            fi
+            echo "$files" | xargs clang-format --dry-run --Werror
+
+  # ---------------------------------------------------------------------------
+  # tidy — clang-tidy over a configured preset's compile_commands.json
+  # ---------------------------------------------------------------------------
+  tidy:
+    name: tidy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with proto submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
+
+      - name: clang-tidy (-p build/test)
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          push: never
+          runCmd: |
+            set -euo pipefail
+            # Configure the test preset to generate compile_commands.json.
+            cmake --preset test
+            files=$(find src tests \
+              \( -name '*.cpp' -o -name '*.cc' \) \
+              -not -path '*/_old/*')
+            if [ -z "$files" ]; then
+              echo "No C++ translation units found to tidy"; exit 1
+            fi
+            echo "$files" | xargs clang-tidy -p build/test --warnings-as-errors='*'
+
+  # ---------------------------------------------------------------------------
+  # test — cross-build the test preset and run GTest under qemu (ctest)
+  # ---------------------------------------------------------------------------
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with proto submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
+
+      - name: cmake test preset + build + ctest (qemu)
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          push: never
+          # Hardware-bound tests (real IMX477/BlueZ/radio/live GStreamer) are
+          # expected to fail in the cross-compile container — see CLAUDE.md.
+          # This gate runs the full ctest suite; if hardware tests are present
+          # and red, scope them out with a ctest label/-E filter here.
+          runCmd: |
+            set -euo pipefail
+            cmake --preset test
+            cmake --build --preset test
+            QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test --output-on-failure
