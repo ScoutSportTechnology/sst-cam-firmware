@@ -7,7 +7,7 @@
 
 namespace sst::capture {
 
-//using sst::capture::Frame;
+// using sst::capture::Frame;
 using sst::config::ConfigData;
 
 class ICaptureFrame {

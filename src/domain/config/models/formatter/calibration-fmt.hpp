@@ -33,23 +33,22 @@ struct fmt::formatter<sst::config::CalibrationCamerasData> {
     template <typename FormatContext>
     auto format(const sst::config::CalibrationCamerasData& data, FormatContext& ctx) const {
         using namespace sst::config;
-        return fmt::format_to(ctx.out(),
-                              "CalibrationCamerasData{{\n"
-                              "  exposure={},\n"
-                              "  gain={},\n"
-                              "  white_balance={},\n"
-                              "  focus={},\n"
-                              "  width={},\n"
-                              "  height={},\n"
-                              "  format={},\n"
-                              "  fps={},\n"
-                              "  device={}\n"
-                              "}}",
-                              NumOptToStr(data.exposure), NumOptToStr(data.gain),
-                              NumOptToStr(data.white_balance), NumOptToStr(data.focus),
-                              NumOptToStr(data.width), NumOptToStr(data.height),
-                              NumOptToStr(data.format), NumOptToStr(data.fps),
-                              VecOptToStr(data.device));
+        return fmt::format_to(
+            ctx.out(),
+            "CalibrationCamerasData{{\n"
+            "  exposure={},\n"
+            "  gain={},\n"
+            "  white_balance={},\n"
+            "  focus={},\n"
+            "  width={},\n"
+            "  height={},\n"
+            "  format={},\n"
+            "  fps={},\n"
+            "  device={}\n"
+            "}}",
+            NumOptToStr(data.exposure), NumOptToStr(data.gain), NumOptToStr(data.white_balance),
+            NumOptToStr(data.focus), NumOptToStr(data.width), NumOptToStr(data.height),
+            NumOptToStr(data.format), NumOptToStr(data.fps), VecOptToStr(data.device));
     }
 };
 

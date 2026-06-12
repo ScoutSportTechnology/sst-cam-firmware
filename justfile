@@ -64,6 +64,20 @@ test-only *args:
 ctest:
     @just _run "QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
 
+# --- CI parity ------------------------------------------------------------
+
+# The exact gate CI runs: format-check + tidy + build-test + ctest. Same
+# entrypoint locally and in .github/workflows/ci.yml — keep the two in sync.
+ci-check:
+    @just _run "set -euo pipefail && \
+        srcs=\$(find src tests \\( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \\) -not -path '*/_old/*') && \
+        printf '%s\\n' \"\$srcs\" | xargs clang-format --dry-run --Werror && \
+        cmake --preset test && \
+        tus=\$(find src tests \\( -name '*.cpp' -o -name '*.cc' \\) -not -path '*/_old/*') && \
+        printf '%s\\n' \"\$tus\" | xargs clang-tidy -p build/test --warnings-as-errors='*' && \
+        cmake --build --preset test && \
+        QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
+
 # --- housekeeping ---------------------------------------------------------
 
 # Remove build trees (config + objects; the Conan cache is untouched).

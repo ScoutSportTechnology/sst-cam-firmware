@@ -85,7 +85,7 @@ class FakePreprocessor final : public IPreprocessor {
             return std::nullopt;
         }
         FrameBundle bundle;
-        bundle.source_frame = raw;     // keeps owner shared_ptr (nullptr in test)
+        bundle.source_frame = raw;  // keeps owner shared_ptr (nullptr in test)
         bundle.ai_frame = raw;
         return bundle;
     }
@@ -146,8 +146,8 @@ class CountingSink final : public IFrameSink {
 // these helpers and pass it straight into the constructor. Single-camera tests
 // use OneCamera + a real StaticDecision (deterministic: cam 0 full-frame).
 
-auto OneCamera(std::unique_ptr<ICaptureFrame> capture,
-               std::unique_ptr<IPreprocessor> preprocessor) -> std::vector<CameraChain> {
+auto OneCamera(std::unique_ptr<ICaptureFrame> capture, std::unique_ptr<IPreprocessor> preprocessor)
+    -> std::vector<CameraChain> {
     std::vector<CameraChain> chains;
     chains.push_back(
         CameraChain{.capture = std::move(capture), .preprocessor = std::move(preprocessor)});

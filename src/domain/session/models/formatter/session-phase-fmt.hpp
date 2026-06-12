@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string_view>
-
 #include <fmt/format.h>
+
+#include <string_view>
 
 #include "domain/session/models/session-phase.hpp"
 
@@ -15,12 +15,24 @@ struct fmt::formatter<sst::session::SessionPhase> {
         using sst::session::SessionPhase;
         std::string_view name = "Unknown";
         switch (phase) {
-            case SessionPhase::kIdle: name = "Idle"; break;
-            case SessionPhase::kConnected: name = "Connected"; break;
-            case SessionPhase::kWifiReady: name = "WifiReady"; break;
-            case SessionPhase::kConfigured: name = "Configured"; break;
-            case SessionPhase::kReady: name = "Ready"; break;
-            case SessionPhase::kRecording: name = "Recording"; break;
+            case SessionPhase::kIdle:
+                name = "Idle";
+                break;
+            case SessionPhase::kConnected:
+                name = "Connected";
+                break;
+            case SessionPhase::kWifiReady:
+                name = "WifiReady";
+                break;
+            case SessionPhase::kConfigured:
+                name = "Configured";
+                break;
+            case SessionPhase::kReady:
+                name = "Ready";
+                break;
+            case SessionPhase::kRecording:
+                name = "Recording";
+                break;
         }
         return fmt::format_to(ctx.out(), "{}", name);
     }

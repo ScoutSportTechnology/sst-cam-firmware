@@ -1,9 +1,9 @@
 #include "app/control/services/handlers/thumbnail.handler.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <string>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 namespace sst::control {
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstdint>
-
 #include <gst/gst.h>
+
+#include <cstdint>
 
 #include "app/overlay/ports/overlay-sink.hpp"
 #include "domain/overlay/models/render-scene.hpp"

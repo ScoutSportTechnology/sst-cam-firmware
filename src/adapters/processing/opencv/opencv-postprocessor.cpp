@@ -1,10 +1,10 @@
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 
-#include <optional>
+#include <spdlog/spdlog.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
-#include <spdlog/spdlog.h>
+#include <optional>
 
 #include "adapters/processing/opencv/frame-mat.hpp"
 #include "domain/capture/models/frame.hpp"
@@ -66,9 +66,10 @@ auto OpenCvPostprocessor::Process(const sst::capture::Frame& source,
                                static_cast<int>(crop.width), static_cast<int>(crop.height)));
 
     cv::Mat resized;
-    cv::resize(roi, resized, cv::Size{static_cast<int>(config_.output_width),
-                                      static_cast<int>(config_.output_height)},
-               0, 0, cv::INTER_LINEAR);
+    cv::resize(
+        roi, resized,
+        cv::Size{static_cast<int>(config_.output_width), static_cast<int>(config_.output_height)},
+        0, 0, cv::INTER_LINEAR);
 
     cv::Mat final_mat;
     switch (config_.output_format) {

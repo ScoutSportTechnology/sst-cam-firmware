@@ -1,14 +1,13 @@
-#include "adapters/processing/opencv/opencv-postprocessor.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
+#include "../synthetic_frames.hpp"
+#include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/processing/models/crop-rect.hpp"
 #include "domain/processing/models/postprocess-config.hpp"
-#include "../synthetic_frames.hpp"
 
 namespace sst::adapters::processing {
 

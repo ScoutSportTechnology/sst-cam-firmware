@@ -1,8 +1,7 @@
-#include "domain/storage/services/raw-capture-naming.hpp"
-
 #include <gtest/gtest.h>
 
 #include "domain/storage/models/raw-capture-identity.hpp"
+#include "domain/storage/services/raw-capture-naming.hpp"
 
 namespace {
 

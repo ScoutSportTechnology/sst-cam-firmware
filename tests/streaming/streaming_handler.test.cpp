@@ -1,12 +1,11 @@
 // Streaming control handler (U11, R22). Pure — fake IStreamingService.
 
-#include "app/control/services/handlers/streaming.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
 
+#include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/streaming/ports/streaming-service.hpp"
 #include "bluetooth.pb.h"
 

@@ -20,9 +20,9 @@ namespace sst::control {
 // disconnect).
 class WifiDirectHandler final : public ICommandHandler {
    public:
-    WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
-                      IDhcpServer& dhcp, sst::streaming::IStreamingService& streaming,
-                      std::uint32_t preview_port, std::uint32_t download_port);
+    WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi, IDhcpServer& dhcp,
+                      sst::streaming::IStreamingService& streaming, std::uint32_t preview_port,
+                      std::uint32_t download_port);
 
     auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;

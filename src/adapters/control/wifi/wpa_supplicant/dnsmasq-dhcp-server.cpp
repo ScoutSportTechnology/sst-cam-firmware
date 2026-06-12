@@ -1,5 +1,7 @@
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -8,9 +10,6 @@
 #include <cstring>
 #include <string>
 #include <vector>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 namespace sst::adapters::control {
 
@@ -49,15 +48,10 @@ auto DnsmasqDhcpServer::Start(const std::string& group_interface, const std::str
     }
     if (pid == 0) {
         // Child: exec dnsmasq in the foreground, bound to the group interface.
-        std::array<const char*, 9> argv{"dnsmasq",
-                                        "--keep-in-foreground",
-                                        "--bind-interfaces",
-                                        listen.c_str(),
-                                        "--except-interface=lo",
-                                        range.c_str(),
-                                        router.c_str(),
-                                        "--no-resolv",
-                                        nullptr};
+        std::array<const char*, 9> argv{
+            "dnsmasq",      "--keep-in-foreground",  "--bind-interfaces",
+            listen.c_str(), "--except-interface=lo", range.c_str(),
+            router.c_str(), "--no-resolv",           nullptr};
         ::execvp("dnsmasq", const_cast<char* const*>(argv.data()));
         // Only reached if exec fails.
         ::_exit(127);
@@ -72,8 +66,8 @@ auto DnsmasqDhcpServer::Start(const std::string& group_interface, const std::str
         return false;
     }
     pid_ = pid;
-    spdlog::info("DnsmasqDhcpServer: serving DHCP on {} (go_ip={}, pid={})", group_interface,
-                 go_ip, pid_);
+    spdlog::info("DnsmasqDhcpServer: serving DHCP on {} (go_ip={}, pid={})", group_interface, go_ip,
+                 pid_);
     return true;
 }
 

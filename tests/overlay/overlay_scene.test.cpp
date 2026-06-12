@@ -2,13 +2,12 @@
 // substitution, duration precedence, z-order (U8, R18/R19, AE3).
 // Pure — no rendering.
 
-#include "app/overlay/services/overlay_scene/overlay-scene.hpp"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <string>
 
+#include "app/overlay/services/overlay_scene/overlay-scene.hpp"
 #include "domain/overlay/models/overlay-enums.hpp"
 #include "domain/overlay/models/overlay-layout.hpp"
 

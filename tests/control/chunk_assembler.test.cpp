@@ -3,8 +3,6 @@
 // Pure — no D-Bus. The assembler is the transport-free core of the BLE framing;
 // the BlueZ wiring around it is exercised by a hardware-bound test.
 
-#include "adapters/control/ble/bluez/chunk-assembler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -12,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "adapters/control/ble/bluez/chunk-assembler.hpp"
 #include "app/control/services/chunk-ack/chunk-ack.hpp"
 #include "bluetooth.pb.h"
 
@@ -162,9 +161,9 @@ TEST(ChunkAssemblerTest, ThreeChunkInboundProducesThreeAcks) {
     ChunkAssembler assembler;
     AckSink sink;
 
-    const std::vector<sst_cam::ChunkedPayload> chunks = {
-        MakeChunk("big", 0, 3, "aaa"), MakeChunk("big", 1, 3, "bbb"),
-        MakeChunk("big", 2, 3, "ccc")};
+    const std::vector<sst_cam::ChunkedPayload> chunks = {MakeChunk("big", 0, 3, "aaa"),
+                                                         MakeChunk("big", 1, 3, "bbb"),
+                                                         MakeChunk("big", 2, 3, "ccc")};
     for (const auto& c : chunks) {
         sink.OnInbound(c, assembler);
     }
@@ -205,7 +204,7 @@ TEST(ChunkAssemblerTest, DuplicateInboundIsStillAcked) {
     sink.OnInbound(MakeChunk("d", 0, 2, "aa"), assembler);  // duplicate index 0
     sink.OnInbound(MakeChunk("d", 1, 2, "bb"), assembler);
 
-    EXPECT_EQ(sink.acks.size(), 3U);  // every accepted write is acked, dup included
+    EXPECT_EQ(sink.acks.size(), 3U);            // every accepted write is acked, dup included
     EXPECT_EQ(sink.acks[1].chunk_index(), 0U);  // dup ack well-formed
 }
 
@@ -291,7 +290,7 @@ TEST(ChunkAssemblerTest, OutboundSendClosureToleratesNulledTarget) {
     };
 
     ASSERT_EQ(assembler.BeginOutbound("g", "abcdefgh", send), 2U);  // 8 bytes / 4 -> 2 chunks
-    EXPECT_EQ(gatt->notifications, 1);  // chunk 0 sent immediately
+    EXPECT_EQ(gatt->notifications, 1);                              // chunk 0 sent immediately
 
     // Simulate Stop(): the GATT app is destroyed. The retained closure must not
     // deref a dangling/null target when the next chunk is released.

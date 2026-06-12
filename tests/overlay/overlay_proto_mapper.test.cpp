@@ -7,10 +7,9 @@
 // drop or transparentize the element. See proto/overlay-rendering.md
 // "Element defaults".
 
-#include "app/overlay/overlay-proto-mapper.hpp"
-
 #include <gtest/gtest.h>
 
+#include "app/overlay/overlay-proto-mapper.hpp"
 #include "bluetooth.pb.h"
 #include "domain/overlay/models/overlay-layout.hpp"
 

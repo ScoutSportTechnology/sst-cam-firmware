@@ -1,13 +1,13 @@
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
 
+#include <cairo.h>
+#include <pango/pangocairo.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <string>
-
-#include <cairo.h>
-#include <pango/pangocairo.h>
 
 namespace sst::adapters::overlay {
 

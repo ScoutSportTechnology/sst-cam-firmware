@@ -1,3 +1,4 @@
+#include <spdlog/spdlog.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -8,14 +9,13 @@
 #include <thread>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
 #include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
 #include "adapters/network/http/http-download-server.hpp"
+#include "adapters/overlay/caching/caching-overlay-sink.hpp"
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "adapters/processing/opencv/opencv-preprocessor.hpp"
@@ -23,6 +23,7 @@
 #include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
 #include "adapters/storage/opencv/opencv-jpeg-encoder.hpp"
 #include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
+#include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 #include "app/buffer/services/fan_out_sink/fan-out-sink.hpp"
@@ -33,17 +34,15 @@
 #include "app/control/services/handlers/match-state.handler.hpp"
 #include "app/control/services/handlers/match.handler.hpp"
 #include "app/control/services/handlers/overlay.handler.hpp"
+#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/control/services/handlers/recording.handler.hpp"
 #include "app/control/services/handlers/session.handler.hpp"
 #include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/control/services/handlers/thumbnail.handler.hpp"
-#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/decision/services/static_decision/static-decision.hpp"
 #include "app/network/services/download_server/download-server.hpp"
-#include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
-#include "adapters/overlay/caching/caching-overlay-sink.hpp"
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 #include "app/session/services/session_cleanup/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
@@ -64,10 +63,10 @@ namespace sst::runtime_defaults {
 
 constexpr std::uint16_t kCamera0Index = 0;
 constexpr std::uint16_t kCamera1Index = 1;
-constexpr std::uint32_t kOverlayWidth = 1280;   // matches postprocess output
+constexpr std::uint32_t kOverlayWidth = 1280;  // matches postprocess output
 constexpr std::uint32_t kOverlayHeight = 720;
-constexpr std::uint32_t kPreviewPort = 8554;    // RTSP preview (wifi.proto)
-constexpr std::uint32_t kDownloadPort = 8080;   // HTTP downloads
+constexpr std::uint32_t kPreviewPort = 8554;   // RTSP preview (wifi.proto)
+constexpr std::uint32_t kDownloadPort = 8080;  // HTTP downloads
 constexpr std::uint64_t kDownloadTokenTtlSeconds = 3600;
 constexpr const char* kGroupOwnerIp = "192.168.49.1";
 
@@ -76,17 +75,15 @@ constexpr const char* kGroupOwnerIp = "192.168.49.1";
 namespace {
 
 auto NowMs() -> std::uint64_t {
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
 }
 
 auto NowUnixSeconds() -> std::uint64_t {
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
 }
 
 // Wall-clock epoch milliseconds. Distinct from NowMs (monotonic steady_clock,
@@ -94,10 +91,9 @@ auto NowUnixSeconds() -> std::uint64_t {
 // timestamp the app decodes for MatchState.updated_at and
 // ThumbnailResponse.capture_timestamp, so it must come from system_clock.
 auto NowEpochMs() -> std::uint64_t {
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
 }
 
 }  // namespace
@@ -123,11 +119,10 @@ auto main() -> int {
         std::make_unique<sst::adapters::storage::OpenCvThumbnailWriter>(), disk_guard);
 
     // ── Streaming (RTSP preview + RTMP egress) ─────────────────────────
-    auto app_stream_server =
-        std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
-    sst::streaming::StreamingService streaming_service(
-        std::move(app_stream_server),
-        [] { return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>(); });
+    auto app_stream_server = std::make_unique<sst::adapters::streaming::GstRtspAppStreamServer>();
+    sst::streaming::StreamingService streaming_service(std::move(app_stream_server), [] {
+        return std::make_unique<sst::adapters::streaming::GstRtmpStreamer>();
+    });
 
     // ── WiFi Direct + DHCP ─────────────────────────────────────────────
     sst::adapters::control::WpaWifiManager wifi_manager("wlan0");
@@ -181,16 +176,14 @@ auto main() -> int {
         [&recording_service] {
             return recording_service.CurrentState() != sst::storage::RecordingState::kIdle;
         },
-        [&streaming_service] {
-            return !streaming_service.ListActivePlatformStreams().empty();
-        },
+        [&streaming_service] { return !streaming_service.ListActivePlatformStreams().empty(); },
         [&raw_capture_sink] { return raw_capture_sink.IsCapturing(); }));
     dispatcher.Register(std::make_shared<sst::control::SessionHandler>(session_manager));
     dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, dhcp_server, streaming_service,
         sst::runtime_defaults::kPreviewPort, sst::runtime_defaults::kDownloadPort));
-    dispatcher.Register(std::make_shared<sst::control::OverlayHandler>(session_manager,
-                                                                       overlay_controller, NowMs));
+    dispatcher.Register(
+        std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
         std::make_shared<sst::control::MatchHandler>(session_manager, overlay_controller, NowMs);
     dispatcher.Register(match_handler);
@@ -200,8 +193,8 @@ auto main() -> int {
         std::make_shared<sst::control::RecordingHandler>(session_manager, recording_service));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(streaming_service));
     dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
-        download_server, sst::runtime_defaults::kGroupOwnerIp,
-        sst::runtime_defaults::kDownloadPort, sst::runtime_defaults::kDownloadTokenTtlSeconds));
+        download_server, sst::runtime_defaults::kGroupOwnerIp, sst::runtime_defaults::kDownloadPort,
+        sst::runtime_defaults::kDownloadTokenTtlSeconds));
 
     // ── BLE transport ──────────────────────────────────────────────────
     const std::string advertised_name = sst::control::MakeAdvertisedName(
@@ -235,10 +228,9 @@ auto main() -> int {
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>();
     auto decision = std::make_unique<sst::decision::StaticDecision>();
 
-    sst::pipeline::PipelineOrchestrator pipeline(std::move(camera_chains), std::move(postprocessor),
-                                                 std::move(decision), final_frame_sink,
-                                                 sst::pipeline::PipelineConfig{}, &raw_capture_sink,
-                                                 &overlay_sink);
+    sst::pipeline::PipelineOrchestrator pipeline(
+        std::move(camera_chains), std::move(postprocessor), std::move(decision), final_frame_sink,
+        sst::pipeline::PipelineConfig{}, &raw_capture_sink, &overlay_sink);
     dispatcher.Register(std::make_shared<sst::control::RawCaptureHandler>(raw_capture_sink));
 
     // On-demand thumbnail: snapshot the latest pipeline frame + encode to JPEG

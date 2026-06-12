@@ -100,8 +100,8 @@ TEST(ControlPlaneIntegrationTest, RoutesFullLifecycleToReady) {
     dispatcher.Register(std::make_shared<control::SessionHandler>(sm));
     dispatcher.Register(
         std::make_shared<control::WifiDirectHandler>(sm, wifi, dhcp, streaming, 8554, 8080));
-    dispatcher.Register(std::make_shared<control::OverlayHandler>(
-        sm, controller, [] { return std::uint64_t{0}; }));
+    dispatcher.Register(
+        std::make_shared<control::OverlayHandler>(sm, controller, [] { return std::uint64_t{0}; }));
 
     // The transport signals connect on the first write; simulate it.
     sm.OnConnect();

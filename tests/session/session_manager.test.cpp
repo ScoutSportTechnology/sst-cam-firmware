@@ -5,8 +5,6 @@
 // creation under a temp root, and asserts the disconnect fan-out via a fake
 // ISessionCleanup.
 
-#include "app/session/services/session_manager/session-manager.hpp"
-
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -16,6 +14,7 @@
 #include <string>
 
 #include "app/session/ports/session-cleanup.hpp"
+#include "app/session/services/session_manager/session-manager.hpp"
 #include "domain/session/models/session-config.hpp"
 
 namespace fs = std::filesystem;
@@ -40,11 +39,9 @@ class FakeCleanup final : public sst::session::ISessionCleanup {
 // Unique temp root per test to keep filesystem state isolated (no shared dirs).
 auto MakeTempRoot() -> fs::path {
     static std::atomic<int> counter{0};
-    const auto stamp =
-        std::chrono::steady_clock::now().time_since_epoch().count();
-    fs::path root = fs::temp_directory_path() /
-                    ("sst_session_" + std::to_string(stamp) + "_" +
-                     std::to_string(counter.fetch_add(1)));
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    fs::path root = fs::temp_directory_path() / ("sst_session_" + std::to_string(stamp) + "_" +
+                                                 std::to_string(counter.fetch_add(1)));
     return root;
 }
 
@@ -288,8 +285,8 @@ TEST(SessionManagerTest, DisconnectCleanupIsExceptionSafe) {
     EXPECT_NO_THROW(sm.OnDisconnect());
 
     EXPECT_TRUE(cleanup.finalize_attempted);
-    EXPECT_TRUE(cleanup.stop_streaming);   // ran despite the earlier throw
-    EXPECT_TRUE(cleanup.teardown_wifi);    // ran despite the earlier throw
+    EXPECT_TRUE(cleanup.stop_streaming);         // ran despite the earlier throw
+    EXPECT_TRUE(cleanup.teardown_wifi);          // ran despite the earlier throw
     EXPECT_EQ(sm.Phase(), SessionPhase::kIdle);  // session still reset
 
     fs::remove_all(root);

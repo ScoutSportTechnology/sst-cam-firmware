@@ -54,8 +54,8 @@ TEST(GstreamerAdapter, CaptureSingleFrameAndLog) {
         frame = *captured;
 
         if (prev) {
-            auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          frame->captured_at - prev->captured_at)
+            auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(frame->captured_at -
+                                                                            prev->captured_at)
                           .count();
             if (dt > 0) {
                 constexpr double kMillisecondsPerSecond = 1000.0;

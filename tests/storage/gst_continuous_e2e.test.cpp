@@ -2,13 +2,12 @@
 // NVENC (nvv4l2h264enc/nvvidconv) — expected to FAIL in the container, passes
 // on-device, where it produces a single playable MP4.
 
-#include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
-
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <vector>
 
+#include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
 #include "domain/capture/models/frame.hpp"
 
 namespace fs = std::filesystem;

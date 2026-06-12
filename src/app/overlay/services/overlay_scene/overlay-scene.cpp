@@ -1,9 +1,9 @@
 #include "app/overlay/services/overlay_scene/overlay-scene.hpp"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <utility>
-
-#include <fmt/format.h>
 
 namespace sst::overlay {
 
@@ -39,23 +39,22 @@ auto OverlayScene::SetBindingData(const BindingData& data) -> void { data_ = dat
 
 auto OverlayScene::ActivateBanner(const std::string& template_id,
                                   const std::map<std::string, std::string>& params,
-                                  std::uint32_t duration_s_override, std::uint64_t now_ms)
-    -> bool {
+                                  std::uint32_t duration_s_override, std::uint64_t now_ms) -> bool {
     if (!has_layout_) {
         return false;
     }
-    const auto it = std::find_if(layout_.templates.begin(), layout_.templates.end(),
-                                 [&](const OverlayTemplate& t) { return t.event_type == template_id; });
+    const auto it =
+        std::find_if(layout_.templates.begin(), layout_.templates.end(),
+                     [&](const OverlayTemplate& t) { return t.event_type == template_id; });
     if (it == layout_.templates.end()) {
         return false;
     }
 
     // R19: command duration_s wins; otherwise fall back to the template's
     // duration_ms.
-    const std::uint64_t duration_ms = duration_s_override > 0
-                                          ? static_cast<std::uint64_t>(duration_s_override) *
-                                                kMsPerSecond
-                                          : it->duration_ms;
+    const std::uint64_t duration_ms =
+        duration_s_override > 0 ? static_cast<std::uint64_t>(duration_s_override) * kMsPerSecond
+                                : it->duration_ms;
 
     ActiveBanner banner;
     banner.expires_at_ms = now_ms + duration_ms;
@@ -136,10 +135,9 @@ auto OverlayScene::Build(std::uint64_t now_ms) -> RenderScene {
         }
     }
 
-    std::stable_sort(scene.elements.begin(), scene.elements.end(),
-                     [](const RenderElement& a, const RenderElement& b) {
-                         return a.bounds.z < b.bounds.z;
-                     });
+    std::stable_sort(
+        scene.elements.begin(), scene.elements.end(),
+        [](const RenderElement& a, const RenderElement& b) { return a.bounds.z < b.bounds.z; });
     return scene;
 }
 

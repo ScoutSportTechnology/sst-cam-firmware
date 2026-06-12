@@ -84,9 +84,7 @@ class FakePlatformStreamer final : public IPlatformStreamer {
     [[nodiscard]] auto IsRunning() const -> bool override { return running_; }
     [[nodiscard]] auto Id() const -> std::int64_t override { return config_.stream_id; }
 
-    auto Push(const sst::capture::Frame& /*frame*/) -> void override {
-        ++counters_->push_calls;
-    }
+    auto Push(const sst::capture::Frame& /*frame*/) -> void override { ++counters_->push_calls; }
 
    private:
     PlatformStreamerCounters* counters_;
@@ -102,10 +100,8 @@ struct PlatformStreamerSink {
 
     auto MakeFactory() -> StreamingService::PlatformStreamerFactory {
         return [this] {
-            auto* slot =
-                counters.emplace_back(std::make_unique<PlatformStreamerCounters>()).get();
-            return std::unique_ptr<IPlatformStreamer>(
-                std::make_unique<FakePlatformStreamer>(slot));
+            auto* slot = counters.emplace_back(std::make_unique<PlatformStreamerCounters>()).get();
+            return std::unique_ptr<IPlatformStreamer>(std::make_unique<FakePlatformStreamer>(slot));
         };
     }
 };

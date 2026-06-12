@@ -20,8 +20,8 @@ struct fmt::formatter<sst::overlay::RenderScene> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
     template <typename Ctx>
     auto format(const sst::overlay::RenderScene& s, Ctx& ctx) const {
-        return fmt::format_to(ctx.out(), "RenderScene{{canvas={}x{}, elements={}}}",
-                              s.canvas_width, s.canvas_height, s.elements.size());
+        return fmt::format_to(ctx.out(), "RenderScene{{canvas={}x{}, elements={}}}", s.canvas_width,
+                              s.canvas_height, s.elements.size());
     }
 };
 
@@ -30,7 +30,7 @@ struct fmt::formatter<sst::overlay::RgbaImage> {
     static constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
     template <typename Ctx>
     auto format(const sst::overlay::RgbaImage& i, Ctx& ctx) const {
-        return fmt::format_to(ctx.out(), "RgbaImage{{{}x{} stride={} bytes={}}}", i.width,
-                              i.height, i.stride, i.pixels.size());
+        return fmt::format_to(ctx.out(), "RgbaImage{{{}x{} stride={} bytes={}}}", i.width, i.height,
+                              i.stride, i.pixels.size());
     }
 };

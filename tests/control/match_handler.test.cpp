@@ -1,12 +1,11 @@
 // Match event handler: score/clock/banner -> session + overlay (U9, R18/R20).
 // Pure — real SessionManager + OverlayController with fake renderer/sink/cleanup.
 
-#include "app/control/services/handlers/match.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
+#include "app/control/services/handlers/match.handler.hpp"
 #include "app/overlay/ports/overlay-renderer.hpp"
 #include "app/overlay/ports/overlay-sink.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"

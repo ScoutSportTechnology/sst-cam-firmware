@@ -1,13 +1,13 @@
 #pragma once
 
+#include <gst/app/gstappsrc.h>
+#include <gst/gst.h>
+#include <gst/rtsp-server/rtsp-server.h>
+
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <thread>
-
-#include <gst/app/gstappsrc.h>
-#include <gst/gst.h>
-#include <gst/rtsp-server/rtsp-server.h>
 
 #include "app/streaming/ports/app-stream-server.hpp"
 

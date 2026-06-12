@@ -16,10 +16,8 @@ namespace sst::control {
 // `sst-cam-NNNN` from the device identity in config (see
 // domain/control/utils/advertised-name.hpp).
 struct BootstrapDefaults {
-    static constexpr std::string_view kGattServiceUuid =
-        "a1b2c3d4-0001-0000-8000-00805f9b34fb";
-    static constexpr std::string_view kGattCommandCharUuid =
-        "a1b2c3d4-0011-0000-8000-00805f9b34fb";
+    static constexpr std::string_view kGattServiceUuid = "a1b2c3d4-0001-0000-8000-00805f9b34fb";
+    static constexpr std::string_view kGattCommandCharUuid = "a1b2c3d4-0011-0000-8000-00805f9b34fb";
     static constexpr std::string_view kGattResponseCharUuid =
         "a1b2c3d4-0012-0000-8000-00805f9b34fb";
 

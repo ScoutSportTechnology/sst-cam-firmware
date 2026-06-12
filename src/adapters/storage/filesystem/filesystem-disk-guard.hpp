@@ -14,8 +14,7 @@ namespace sst::adapters::storage {
 // answer (rather than failing on stat of a non-existent path).
 class FilesystemDiskGuard final : public sst::storage::IDiskGuard {
    public:
-    FilesystemDiskGuard(std::filesystem::path root,
-                        std::optional<std::uint64_t> min_free_bytes);
+    FilesystemDiskGuard(std::filesystem::path root, std::optional<std::uint64_t> min_free_bytes);
 
     [[nodiscard]] auto HasEnoughFreeSpace() const -> bool override;
     [[nodiscard]] auto FreeBytes() const -> std::uint64_t override;

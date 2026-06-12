@@ -1,9 +1,9 @@
 #include "adapters/control/ble/bluez/chunk-assembler.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 namespace sst::adapters::control {
 
@@ -95,8 +95,7 @@ auto ChunkAssembler::BeginOutbound(const std::string& correlation_id, const std:
     const std::size_t chunk_size = std::max<std::size_t>(cfg_.max_chunk_payload_bytes, 1);
     // At least one chunk, even for an empty payload.
     const std::uint32_t total =
-        data.empty() ? 1U
-                     : static_cast<std::uint32_t>((data.size() + chunk_size - 1) / chunk_size);
+        data.empty() ? 1U : static_cast<std::uint32_t>((data.size() + chunk_size - 1) / chunk_size);
 
     std::vector<sst_cam::ChunkedPayload> chunks;
     chunks.reserve(total);

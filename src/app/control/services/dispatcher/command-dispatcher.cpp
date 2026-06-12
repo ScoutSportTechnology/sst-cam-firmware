@@ -1,9 +1,9 @@
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <exception>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 namespace sst::control {
 
@@ -16,9 +16,10 @@ auto CommandDispatcher::Register(std::shared_ptr<ICommandHandler> handler) -> vo
         const int key = static_cast<int>(payload_case);
         auto [it, inserted] = handlers_.try_emplace(key, handler);
         if (!inserted) {
-            spdlog::warn("CommandDispatcher::Register: payload case {} already registered — "
-                         "ignoring duplicate",
-                         key);
+            spdlog::warn(
+                "CommandDispatcher::Register: payload case {} already registered — "
+                "ignoring duplicate",
+                key);
         }
     }
 }

@@ -1,5 +1,3 @@
-#include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
-
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -9,6 +7,7 @@
 #include <thread>
 #include <vector>
 
+#include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/storage/models/raw-capture-identity.hpp"
 #include "domain/storage/services/raw-capture-naming.hpp"
@@ -22,9 +21,9 @@ using sst::capture::Frame;
 class TempDir {
    public:
     explicit TempDir(const std::string& tag) {
-        path_ = std::filesystem::temp_directory_path() /
-                ("sst-rawcap-" + tag + "-" +
-                 std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+        path_ =
+            std::filesystem::temp_directory_path() /
+            ("sst-rawcap-" + tag + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
         std::filesystem::create_directories(path_);
     }
     ~TempDir() {
@@ -76,8 +75,10 @@ TEST(RawCaptureSinkTest, StartPushStopWritesBothCameraFiles) {
     EXPECT_FALSE(sink.IsCapturing());
 
     namespace naming = sst::storage::raw_capture_naming;
-    const auto cam0 = dir.path() / naming::FileName({.capture_group_id = "grp-1", .camera_index = 0});
-    const auto cam1 = dir.path() / naming::FileName({.capture_group_id = "grp-1", .camera_index = 1});
+    const auto cam0 =
+        dir.path() / naming::FileName({.capture_group_id = "grp-1", .camera_index = 0});
+    const auto cam1 =
+        dir.path() / naming::FileName({.capture_group_id = "grp-1", .camera_index = 1});
     ASSERT_TRUE(std::filesystem::exists(cam0));
     ASSERT_TRUE(std::filesystem::exists(cam1));
     // Drop-oldest may discard frames under load, but with a tiny payload and the

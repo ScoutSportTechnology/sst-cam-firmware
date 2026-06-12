@@ -1,16 +1,15 @@
-#include "adapters/processing/opencv/opencv-preprocessor.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <cstring>
 #include <utility>
 
+#include "../synthetic_frames.hpp"
+#include "adapters/processing/opencv/opencv-preprocessor.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/pixel-format.hpp"
 #include "domain/processing/models/color-mode.hpp"
 #include "domain/processing/models/preprocess-config.hpp"
-#include "../synthetic_frames.hpp"
 
 namespace sst::adapters::processing {
 
@@ -26,8 +25,8 @@ TEST(OpenCvPreprocessorTest, RejectsNonNv12) {
 }
 
 TEST(OpenCvPreprocessorTest, GrayscalePathDimensionsAndFormat) {
-    OpenCvPreprocessor pre{PreprocessConfig{
-        .ai_width = 32, .ai_height = 16, .ai_color_mode = ColorMode::Grayscale}};
+    OpenCvPreprocessor pre{
+        PreprocessConfig{.ai_width = 32, .ai_height = 16, .ai_color_mode = ColorMode::Grayscale}};
     auto frame = MakeNv12Frame(64, 32, /*y=*/128, /*u=*/128, /*v=*/128);
 
     auto out = pre.Process(frame);
@@ -113,9 +112,9 @@ TEST(OpenCvPreprocessorTest, StridedNv12RgbCopyFallback) {
     ASSERT_EQ(out_strided->ai_frame.planes[0].size, out_contig->ai_frame.planes[0].size);
 
     // Pixels from strided input must match the contiguous reference.
-    EXPECT_EQ(0, std::memcmp(out_strided->ai_frame.planes[0].data,
-                             out_contig->ai_frame.planes[0].data,
-                             out_strided->ai_frame.planes[0].size));
+    EXPECT_EQ(0,
+              std::memcmp(out_strided->ai_frame.planes[0].data, out_contig->ai_frame.planes[0].data,
+                          out_strided->ai_frame.planes[0].size));
 }
 
 TEST(OpenCvPreprocessorTest, SourceFrameSharesOwnerWithRaw) {

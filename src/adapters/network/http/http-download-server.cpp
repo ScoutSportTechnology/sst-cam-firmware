@@ -1,11 +1,11 @@
 #include "adapters/network/http/http-download-server.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <fstream>
 #include <thread>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 #include "httplib.h"
 
@@ -38,8 +38,7 @@ HttpDownloadServer::HttpDownloadServer(std::string bind_address, std::uint16_t p
       server_(std::make_unique<httplib::Server>()) {
     server_->Get("/recordings/(.*)", [this](const httplib::Request& req, httplib::Response& res) {
         const std::string token = ExtractBearer(req);
-        std::optional<fs::path> path =
-            token.empty() ? std::nullopt : validator_(token);
+        std::optional<fs::path> path = token.empty() ? std::nullopt : validator_(token);
         if (!path) {
             res.status = 401;
             res.set_content("unauthorized", "text/plain");

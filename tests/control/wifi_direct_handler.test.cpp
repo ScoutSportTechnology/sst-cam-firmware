@@ -1,18 +1,16 @@
 // WiFi Direct handler: credential mapping + teardown (U12, R23). Pure —
 // fake IWifiManager + IDhcpServer + real SessionManager.
 
-#include "app/control/services/handlers/wifi-direct.handler.hpp"
-
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
-
-#include <cstdint>
 #include <vector>
 
 #include "app/control/ports/dhcp-server.hpp"
 #include "app/control/ports/wifi-manager.hpp"
+#include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/session/ports/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
 #include "app/streaming/ports/streaming-service.hpp"
@@ -83,7 +81,9 @@ class FakeStreaming final : public sst::streaming::IStreamingService {
         ++app_stops;
         return true;
     }
-    [[nodiscard]] auto IsAppStreamRunning() const -> bool override { return app_starts > app_stops; }
+    [[nodiscard]] auto IsAppStreamRunning() const -> bool override {
+        return app_starts > app_stops;
+    }
     auto StartPlatformStream(const sst::streaming::PlatformStreamConfig& /*config*/)
         -> bool override {
         return true;
@@ -178,9 +178,9 @@ TEST(WifiDirectHandlerTest, StartRollsBackWhenSessionRejects) {
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_NE(resp.payload_case(), sst_cam::CommandResponse::kWifiDirectGroup);
     EXPECT_EQ(wifi.starts, 1);
-    EXPECT_EQ(wifi.stops, 1);   // group rolled back
+    EXPECT_EQ(wifi.stops, 1);  // group rolled back
     EXPECT_EQ(dhcp.starts, 1);
-    EXPECT_EQ(dhcp.stops, 1);   // DHCP rolled back
+    EXPECT_EQ(dhcp.stops, 1);            // DHCP rolled back
     EXPECT_EQ(streaming.app_starts, 0);  // preview never started (rolled back before it)
     EXPECT_EQ(sm.Phase(), sst::session::SessionPhase::kIdle);
 }

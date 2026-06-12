@@ -2,11 +2,10 @@
 //
 // Pure — handler driven against a fake ISystemStats; no hardware sensor reads.
 
-#include "app/control/services/handlers/device.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include "app/control/ports/system-stats.hpp"
+#include "app/control/services/handlers/device.handler.hpp"
 #include "bluetooth.pb.h"
 #include "domain/config/models/device.hpp"
 
@@ -54,8 +53,8 @@ auto TelemetryCommand() -> sst_cam::Command {
 // R8: GetDeviceInfo returns the configured identity + a non-zero protocol_version.
 TEST(DeviceHandlerTest, DeviceInfoReturnsIdentityAndProtocolVersion) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; },
-                          [] { return false; });
+    DeviceHandler handler(
+        MakeDevice(), stats, [] { return false; }, [] { return false; }, [] { return false; });
 
     auto resp = handler.Handle(DeviceInfoCommand());
 
@@ -73,8 +72,8 @@ TEST(DeviceHandlerTest, DeviceInfoReturnsIdentityAndProtocolVersion) {
 // is_recording — the app reads it to show raw-capture running state).
 TEST(DeviceHandlerTest, TelemetryReflectsRecordingStreamingAndRawCapturingFlags) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return true; }, [] { return false; },
-                          [] { return true; });
+    DeviceHandler handler(
+        MakeDevice(), stats, [] { return true; }, [] { return false; }, [] { return true; });
 
     auto resp = handler.Handle(TelemetryCommand());
 
@@ -93,8 +92,8 @@ TEST(DeviceHandlerTest, TelemetryReflectsRecordingStreamingAndRawCapturingFlags)
 // dispatched — no background polling, no unsolicited push.
 TEST(DeviceHandlerTest, NoTelemetryWithoutACommand) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats, [] { return false; }, [] { return false; },
-                          [] { return false; });
+    DeviceHandler handler(
+        MakeDevice(), stats, [] { return false; }, [] { return false; }, [] { return false; });
 
     EXPECT_EQ(stats.reads, 0);  // nothing read until asked
 

@@ -1,9 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
-
 #include <opencv2/core.hpp>
+#include <optional>
 
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/pixel-format.hpp"
@@ -37,7 +36,7 @@ auto WrapNv12(const sst::capture::Frame& f) -> std::optional<cv::Mat>;
 //
 // Format validity is the caller's responsibility (e.g. don't pass a 1-channel
 // mat with fmt = BGR8). Non-CV_8U mats are rejected via assertion.
-auto MakeOwnedFrame(const cv::Mat& mat, sst::common::PixelFormat fmt,
-                    std::uint64_t frame_id, sst::common::Timestamp ts) -> sst::capture::Frame;
+auto MakeOwnedFrame(const cv::Mat& mat, sst::common::PixelFormat fmt, std::uint64_t frame_id,
+                    sst::common::Timestamp ts) -> sst::capture::Frame;
 
 }  // namespace sst::adapters::processing

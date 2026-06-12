@@ -1,7 +1,5 @@
 // OpenCV JPEG thumbnail writer (U10). Runs in-container (CPU OpenCV).
 
-#include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
-
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -9,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
 #include "domain/capture/models/frame.hpp"
 
 namespace fs = std::filesystem;

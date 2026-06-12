@@ -1,5 +1,3 @@
-#include "domain/buffer/services/latest-only-slot.hpp"
-
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -7,6 +5,7 @@
 #include <thread>
 
 #include "domain/buffer/models/buffer-policy.hpp"
+#include "domain/buffer/services/latest-only-slot.hpp"
 
 using namespace std::chrono_literals;
 

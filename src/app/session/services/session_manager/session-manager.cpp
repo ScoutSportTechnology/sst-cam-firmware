@@ -1,10 +1,10 @@
 #include "app/session/services/session_manager/session-manager.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <exception>
 #include <filesystem>
 #include <system_error>
-
-#include <spdlog/spdlog.h>
 
 #include "domain/session/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
@@ -72,9 +72,10 @@ auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
     // is out of order. Re-pushing config mid-recording is likewise rejected (the
     // documented flow configures before recording starts).
     if (state_.phase < SessionPhase::kWifiReady || state_.phase == SessionPhase::kRecording) {
-        spdlog::warn("SessionManager::ApplySessionConfig rejected (out of order: WiFi Direct group "
-                     "required first per contract §11): phase={}",
-                     state_.phase);
+        spdlog::warn(
+            "SessionManager::ApplySessionConfig rejected (out of order: WiFi Direct group "
+            "required first per contract §11): phase={}",
+            state_.phase);
         return false;
     }
     if (!PrepareOutputDirs(config)) {
@@ -93,9 +94,10 @@ auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
 auto SessionManager::OnOverlayConfigured() -> bool {
     std::lock_guard lock(mtx_);
     if (state_.phase < SessionPhase::kConfigured) {
-        spdlog::warn("SessionManager::OnOverlayConfigured rejected: phase={} (need a session "
-                     "config first)",
-                     state_.phase);
+        spdlog::warn(
+            "SessionManager::OnOverlayConfigured rejected: phase={} (need a session "
+            "config first)",
+            state_.phase);
         return false;
     }
     if (state_.phase == SessionPhase::kConfigured) {

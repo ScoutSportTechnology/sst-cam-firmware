@@ -2,13 +2,12 @@
 // Runs in-container (CPU image surface, no GPU/X). Shape + alpha assertions use
 // no fonts; a text element is rendered only as a no-crash smoke check.
 
-#include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cstdint>
 
+#include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
 #include "domain/overlay/models/overlay-enums.hpp"
 #include "domain/overlay/models/overlay-layout.hpp"
 #include "domain/overlay/models/render-scene.hpp"
@@ -99,8 +98,8 @@ TEST(CairoRendererTest, CornerRadiusRoundsCorners) {
     scene.elements.push_back(RectElement(0, 0, 100, 100, "#FFFFFF", 1.0F, /*radius=*/30.0F));
 
     auto img = renderer.Render(scene, 100, 100);
-    EXPECT_EQ(At(img, 0, 0).a, 0);       // corner cut away
-    EXPECT_EQ(At(img, 50, 50).a, 255);   // center filled
+    EXPECT_EQ(At(img, 0, 0).a, 0);      // corner cut away
+    EXPECT_EQ(At(img, 50, 50).a, 255);  // center filled
 }
 
 // Circle fills its center but leaves the bounding-box corners transparent.
@@ -184,7 +183,8 @@ TEST(CairoRendererTest, TextClippedToBoundsHeight) {
     // No glyph pixel may appear below the bounds bottom edge (y >= 24).
     for (std::uint32_t y = 30; y < 200; ++y) {
         for (std::uint32_t x = 0; x < 200; ++x) {
-            EXPECT_EQ(At(img, x, y).a, 0) << "painted pixel below clip at (" << x << "," << y << ")";
+            EXPECT_EQ(At(img, x, y).a, 0)
+                << "painted pixel below clip at (" << x << "," << y << ")";
         }
     }
 }
@@ -199,8 +199,8 @@ TEST(CairoRendererTest, TextFillColorPaintsBackgroundBox) {
     RenderElement e;
     e.shape = OverlayShape::kText;
     e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 120, .y2 = 60, .z = 1};
-    e.style.fill_color = "#FF0000";   // red background box
-    e.style.text_color = "#FFFFFF";   // white glyphs
+    e.style.fill_color = "#FF0000";  // red background box
+    e.style.text_color = "#FFFFFF";  // white glyphs
     e.style.font_size = 20.0F;
     e.style.opacity = 1.0F;
     e.text = "Hi";
@@ -225,7 +225,7 @@ TEST(CairoRendererTest, TextWithoutFillHasTransparentBackground) {
     RenderElement e;
     e.shape = OverlayShape::kText;
     e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 120, .y2 = 60, .z = 1};
-    e.style.fill_color = "";        // no background box
+    e.style.fill_color = "";  // no background box
     e.style.text_color = "#FFFFFF";
     e.style.font_size = 20.0F;
     e.style.opacity = 1.0F;
@@ -296,10 +296,10 @@ TEST(CairoRendererTest, OpaqueNoFillTextPaintsGlyphsAtFullAlpha) {
     RenderElement e;
     e.shape = OverlayShape::kText;
     e.bounds = OverlayRect{.x1 = 0, .y1 = 0, .x2 = 200, .y2 = 80, .z = 1};
-    e.style.fill_color = "";          // no background -> no group
-    e.style.text_color = "#FFFFFF";   // opaque white glyphs
+    e.style.fill_color = "";         // no background -> no group
+    e.style.text_color = "#FFFFFF";  // opaque white glyphs
     e.style.font_size = 48.0F;
-    e.style.opacity = 1.0F;           // fully opaque -> no group
+    e.style.opacity = 1.0F;  // fully opaque -> no group
     e.text = "MMMM";
     scene.elements.push_back(e);
 

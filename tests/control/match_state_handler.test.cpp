@@ -1,14 +1,13 @@
 // GetMatchState handler: live-match snapshot -> MatchState response (U6, R6).
 // Pure — real SessionManager with a fake cleanup; no transport, no hardware.
 
-#include "app/control/services/handlers/match-state.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
 
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
+#include "app/control/services/handlers/match-state.handler.hpp"
 #include "app/session/ports/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
 #include "bluetooth.pb.h"
@@ -107,8 +106,7 @@ TEST(MatchStateHandlerTest, HalfTimeSegmentReportsHalfTime) {
         m.segment = sst::session::MatchSegment::kHalfTime;
     });
     MatchStateHandler handler(f.sm, [] { return std::uint64_t{0}; });
-    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().status(),
-              sst_cam::MATCH_HALF_TIME);
+    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().status(), sst_cam::MATCH_HALF_TIME);
 }
 
 // In-play but before kickoff (period == 0) is not started yet — even though a
@@ -156,8 +154,7 @@ TEST(MatchStateHandlerTest, NoSessionReportsNotStarted) {
 TEST(MatchStateHandlerTest, DispatcherRoutesGetMatchState) {
     Fixture f;
     sst::control::CommandDispatcher dispatcher;
-    dispatcher.Register(
-        std::make_shared<MatchStateHandler>(f.sm, [] { return std::uint64_t{0}; }));
+    dispatcher.Register(std::make_shared<MatchStateHandler>(f.sm, [] { return std::uint64_t{0}; }));
 
     auto resp = dispatcher.Dispatch(GetMatchStateCmd());
     EXPECT_NE(resp.status(), sst_cam::ResponseStatus::UNSUPPORTED);

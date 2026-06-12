@@ -1,13 +1,13 @@
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 
-#include <utility>
-
 #include <fmt/format.h>
+
+#include <utility>
 
 namespace sst::overlay {
 
 OverlayController::OverlayController(IOverlayRenderer& renderer, IOverlaySink& sink,
-                                    std::uint32_t out_width, std::uint32_t out_height)
+                                     std::uint32_t out_width, std::uint32_t out_height)
     : renderer_(renderer), sink_(sink), out_width_(out_width), out_height_(out_height) {}
 
 auto OverlayController::SetLayout(OverlayLayout layout) -> void {

@@ -1,8 +1,8 @@
 #include "app/control/services/handlers/download.handler.hpp"
 
-#include <utility>
-
 #include <fmt/format.h>
+
+#include <utility>
 
 namespace sst::control {
 

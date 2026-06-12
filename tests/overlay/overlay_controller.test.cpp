@@ -1,13 +1,12 @@
 // Overlay push-on-change controller (U9, R18/R20). Pure — fake renderer + sink.
 
-#include "app/overlay/services/overlay_controller/overlay-controller.hpp"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
 #include "app/overlay/ports/overlay-renderer.hpp"
 #include "app/overlay/ports/overlay-sink.hpp"
+#include "app/overlay/services/overlay_controller/overlay-controller.hpp"
 #include "app/overlay/services/overlay_scene/overlay-scene.hpp"
 #include "domain/overlay/models/overlay-enums.hpp"
 #include "domain/overlay/models/overlay-layout.hpp"
@@ -62,7 +61,7 @@ TEST(OverlayControllerTest, PushesOnlyOnChange) {
     data.score_a = 1;
     data.score_b = 0;
     controller.SetBindingData(data);
-    EXPECT_TRUE(controller.Refresh(0));   // first frame -> push
+    EXPECT_TRUE(controller.Refresh(0));  // first frame -> push
     EXPECT_EQ(sink.pushes, 1);
 
     // Same data, repeated refreshes: no new push (no thrash).

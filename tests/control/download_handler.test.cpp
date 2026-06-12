@@ -1,8 +1,6 @@
 // DownloadHandler ListRecordings: raw dual-camera identity fields cross to the
 // proto RecordingMetadata under the joint invariant (U7).
 
-#include "app/control/services/handlers/download.handler.hpp"
-
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -12,6 +10,7 @@
 #include <fstream>
 #include <string>
 
+#include "app/control/services/handlers/download.handler.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "bluetooth.pb.h"
 #include "domain/storage/models/raw-capture-identity.hpp"

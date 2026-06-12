@@ -1,10 +1,10 @@
 #include "adapters/storage/raw_capture/filesystem-raw-capture-sink.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <system_error>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 #include "domain/storage/models/raw-capture-identity.hpp"
 #include "domain/storage/services/raw-capture-naming.hpp"
@@ -63,9 +63,9 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id) -> boo
     writers.reserve(camera_count_);
     for (std::uint32_t i = 0; i < camera_count_; ++i) {
         auto writer = std::make_unique<CameraWriter>(kQueueCapacity);
-        const auto name = sst::storage::raw_capture_naming::FileName(
-            sst::storage::RawCaptureIdentity{.capture_group_id = capture_group_id,
-                                             .camera_index = i});
+        const auto name =
+            sst::storage::raw_capture_naming::FileName(sst::storage::RawCaptureIdentity{
+                .capture_group_id = capture_group_id, .camera_index = i});
         const auto path = video_dir_ / name;
         writer->file.open(path, std::ios::binary | std::ios::trunc);
         if (!writer->file.is_open()) {

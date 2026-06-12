@@ -1,9 +1,9 @@
 #include "app/pipeline/services/orchestrator/pipeline-orchestrator.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <cstddef>
 #include <utility>
-
-#include <spdlog/spdlog.h>
 
 #include "domain/buffer/services/materialize-frame.hpp"
 #include "domain/decision/models/camera-choice.hpp"
