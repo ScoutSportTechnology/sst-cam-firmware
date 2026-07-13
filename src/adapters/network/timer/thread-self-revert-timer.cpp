@@ -70,13 +70,13 @@ auto ThreadSelfRevertTimer::Run() -> void {
 
         // Genuine expiry on the current generation. Capture the callback, mark
         // disarmed, and invoke it WITHOUT the lock held.
-        auto cb = on_expire_;
+        auto callback = on_expire_;
         armed_ = false;
         on_expire_ = nullptr;
         ++generation_;
         lock.unlock();
-        if (cb) {
-            cb();
+        if (callback) {
+            callback();
         }
         lock.lock();
     }

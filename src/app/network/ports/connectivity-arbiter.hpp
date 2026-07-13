@@ -72,7 +72,8 @@ class IConnectivityArbiter {
     // reachable=true disarms the timer and finalises kStaOnly; reachable=false
     // reverts to kP2pOnly. A stale/superseded id is a no-op. Returns the resulting
     // mode.
-    virtual auto ConfirmSharedWifi(MigrationId id, bool reachable) -> ConnectivityMode = 0;
+    virtual auto ConfirmSharedWifi(MigrationId migration_id,
+                                   bool reachable) -> ConnectivityMode = 0;
 
     // Force the radio back to P2P-only (STA drop / cleared config / app deny).
     // No-op when already kP2pOnly.

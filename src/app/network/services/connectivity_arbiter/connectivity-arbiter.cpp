@@ -45,31 +45,33 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
         return std::nullopt;
     }
 
-    const MigrationId id = ++migration_counter_;
+    const MigrationId migration_id = ++migration_counter_;
     mode_ = ConnectivityMode::kMigrating;
-    current_id_ = id;
+    current_id_ = migration_id;
     preview_endpoint_ = sta.detail;  // the resolved STA LAN IP
     preview_credential_ = hooks_.OnSharedWifiJoined(preview_endpoint_);
 
     // Backstop only (KTD5): a crashed app that never confirms is caught here; the
     // epoch guard, not this timer, is the correctness mechanism.
-    timer_.Arm(revert_after_, [this, id] { OnSelfRevertTimeout(id); });
+    timer_.Arm(revert_after_, [this, migration_id] { OnSelfRevertTimeout(migration_id); });
 
-    spdlog::info("ConnectivityArbiter: migrating id={} sta_ip={} -> {}", id, preview_endpoint_,
-                 mode_);
-    return SharedWifiMigration{
-        .id = id, .preview_endpoint = preview_endpoint_, .preview_credential = preview_credential_};
+    spdlog::info("ConnectivityArbiter: migrating id={} sta_ip={} -> {}", migration_id,
+                 preview_endpoint_, mode_);
+    return SharedWifiMigration{.id = migration_id,
+                               .preview_endpoint = preview_endpoint_,
+                               .preview_credential = preview_credential_};
 }
 
-auto ConnectivityArbiter::ConfirmSharedWifi(MigrationId id, bool reachable) -> ConnectivityMode {
+auto ConnectivityArbiter::ConfirmSharedWifi(MigrationId migration_id,
+                                            bool reachable) -> ConnectivityMode {
     std::lock_guard<std::mutex> lock(mtx_);
 
     // Epoch guard: only the in-flight migration, and only while still awaiting a
     // verdict, may be confirmed. A stale/superseded id — or a verdict that lands
     // after the self-revert already fired — is a no-op.
-    if (mode_ != ConnectivityMode::kMigrating || id != current_id_) {
+    if (mode_ != ConnectivityMode::kMigrating || migration_id != current_id_) {
         spdlog::warn("ConnectivityArbiter: confirm ignored id={} reachable={} (mode={} current={})",
-                     id, reachable, mode_, current_id_);
+                     migration_id, reachable, mode_, current_id_);
         return mode_;
     }
 
@@ -79,11 +81,11 @@ auto ConnectivityArbiter::ConfirmSharedWifi(MigrationId id, bool reachable) -> C
 
     if (reachable) {
         mode_ = ConnectivityMode::kStaOnly;
-        spdlog::info("ConnectivityArbiter: confirmed id={} -> {}", id, mode_);
+        spdlog::info("ConnectivityArbiter: confirmed id={} -> {}", migration_id, mode_);
         return mode_;
     }
 
-    spdlog::info("ConnectivityArbiter: denied id={} (isolation) -> reverting", id);
+    spdlog::info("ConnectivityArbiter: denied id={} (isolation) -> reverting", migration_id);
     DoRevertLocked();
     return mode_;
 }
@@ -111,15 +113,16 @@ auto ConnectivityArbiter::DoRevertLocked() -> void {
     preview_credential_.clear();
 }
 
-auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId id) -> void {
+auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId migration_id) -> void {
     std::lock_guard<std::mutex> lock(mtx_);
     // Only fire if this exact migration is still awaiting confirmation. If the app
     // already confirmed (mode left kMigrating) or a newer migration superseded
     // this id, the late timer is a harmless no-op.
-    if (mode_ != ConnectivityMode::kMigrating || id != current_id_) {
+    if (mode_ != ConnectivityMode::kMigrating || migration_id != current_id_) {
         return;
     }
-    spdlog::info("ConnectivityArbiter: self-revert timeout id={} (no confirm) -> reverting", id);
+    spdlog::info("ConnectivityArbiter: self-revert timeout id={} (no confirm) -> reverting",
+                 migration_id);
     DoRevertLocked();
 }
 

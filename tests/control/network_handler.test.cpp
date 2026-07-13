@@ -80,10 +80,10 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
         return sst::network::SharedWifiMigration{
             .id = 7, .preview_endpoint = "10.0.0.9", .preview_credential = "cam:secret"};
     }
-    auto ConfirmSharedWifi(sst::network::MigrationId id,
+    auto ConfirmSharedWifi(sst::network::MigrationId migration_id,
                            bool reachable) -> sst::network::ConnectivityMode override {
         ++confirm_calls;
-        last_confirm_id = id;
+        last_confirm_id = migration_id;
         last_reachable = reachable;
         return reachable ? sst::network::ConnectivityMode::kStaOnly
                          : sst::network::ConnectivityMode::kP2pOnly;

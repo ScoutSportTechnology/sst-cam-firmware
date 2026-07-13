@@ -33,7 +33,7 @@ class ThreadSelfRevertTimer final : public sst::network::ISelfRevertTimer {
     bool stop_{false};
     bool armed_{false};
     std::uint64_t generation_{0};
-    std::chrono::steady_clock::time_point deadline_{};
+    std::chrono::steady_clock::time_point deadline_;
     std::function<void()> on_expire_;
     std::thread worker_;
 };

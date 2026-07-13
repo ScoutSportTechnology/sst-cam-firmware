@@ -31,7 +31,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
 
     auto RequestSharedWifi(const sst::config::WifiStaUplink& uplink)
         -> std::optional<SharedWifiMigration> override;
-    auto ConfirmSharedWifi(MigrationId id, bool reachable) -> ConnectivityMode override;
+    auto ConfirmSharedWifi(MigrationId migration_id, bool reachable) -> ConnectivityMode override;
     auto RevertToP2p() -> void override;
     [[nodiscard]] auto CurrentMode() const -> ConnectivityMode override;
 
@@ -44,7 +44,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     // Returns the radio to the GO and resets migration state. Caller holds `mtx_`.
     auto DoRevertLocked() -> void;
     // Self-revert timer expiry — no-op unless still kMigrating on the same epoch.
-    auto OnSelfRevertTimeout(MigrationId id) -> void;
+    auto OnSelfRevertTimeout(MigrationId migration_id) -> void;
 
     sst::control::IWifiManager& wifi_;
     IUplinkConfigurator& uplink_;
