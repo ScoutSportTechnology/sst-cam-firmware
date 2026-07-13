@@ -93,6 +93,12 @@ auto GstRtspAppStreamServer::Start(const sst::streaming::AppStreamConfig& config
     g_signal_connect(factory_, "media-configure",
                      G_CALLBACK(&GstRtspAppStreamServer::OnMediaConfigureStatic), this);
 
+    // INV5/U10: on a shared LAN (S2) the preview is served only with per-session
+    // authentication. A non-empty credential ("user:pass") gates the factory
+    // behind GstRTSPAuth Basic auth; an empty credential (S1, private GO subnet)
+    // leaves it open. Applied before attach so the very first client is gated.
+    SetupAuth();
+
     gst_rtsp_mount_points_add_factory(mounts, config_.mount_point.c_str(), factory_);
     g_object_unref(mounts);
 
@@ -240,6 +246,37 @@ auto GstRtspAppStreamServer::Push(const sst::capture::Frame& frame) -> void {
 
     (void)gst_app_src_push_buffer(target, gst_buf);
     gst_object_unref(target);
+}
+
+auto GstRtspAppStreamServer::SetupAuth() -> void {
+    if (config_.auth_credential.empty()) {
+        return;  // S1: unauthenticated preview on the private GO subnet.
+    }
+    // Split "user:pass" (a missing ':' means an empty password).
+    const auto colon = config_.auth_credential.find(':');
+    const std::string user = config_.auth_credential.substr(0, colon);
+    const std::string pass =
+        colon == std::string::npos ? std::string{} : config_.auth_credential.substr(colon + 1);
+
+    GstRTSPAuth* auth = gst_rtsp_auth_new();
+
+    // Bind the Basic credential to a "user" role token, and require that role to
+    // access + construct the preview factory. An unauthenticated client (or wrong
+    // credential) is refused (401) — INV5/AE6.
+    GstRTSPToken* token =
+        gst_rtsp_token_new(GST_RTSP_TOKEN_MEDIA_FACTORY_ROLE, G_TYPE_STRING, "user", nullptr);
+    gchar* basic = gst_rtsp_auth_make_basic(user.c_str(), pass.c_str());
+    gst_rtsp_auth_add_basic(auth, basic, token);
+    g_free(basic);
+    gst_rtsp_token_unref(token);
+
+    gst_rtsp_media_factory_add_role(factory_, "user", GST_RTSP_PERM_MEDIA_FACTORY_ACCESS,
+                                    G_TYPE_BOOLEAN, TRUE, GST_RTSP_PERM_MEDIA_FACTORY_CONSTRUCT,
+                                    G_TYPE_BOOLEAN, TRUE, nullptr);
+
+    gst_rtsp_server_set_auth(server_, auth);
+    g_object_unref(auth);
+    spdlog::info("GstRtspAppStreamServer: Basic auth required for preview (S2)");
 }
 
 auto GstRtspAppStreamServer::OnMediaConfigureStatic(GstRTSPMediaFactory* /*factory*/,

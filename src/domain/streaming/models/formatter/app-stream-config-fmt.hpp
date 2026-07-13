@@ -10,16 +10,20 @@ struct fmt::formatter<sst::streaming::AppStreamConfig> {
 
     template <typename FormatContext>
     auto format(const sst::streaming::AppStreamConfig& cfg, FormatContext& ctx) const {
+        // auth_credential is a secret — log only whether one is set, never its value.
         return fmt::format_to(ctx.out(),
                               "AppStreamConfig{{\n"
+                              "  address=\"{}\",\n"
                               "  mount_point=\"{}\",\n"
                               "  port={},\n"
                               "  width={},\n"
                               "  height={},\n"
                               "  framerate={},\n"
-                              "  bitrate_kbps={}\n"
+                              "  bitrate_kbps={},\n"
+                              "  auth={}\n"
                               "}}",
-                              cfg.mount_point, cfg.port, cfg.width, cfg.height, cfg.framerate,
-                              cfg.bitrate_kbps);
+                              cfg.address, cfg.mount_point, cfg.port, cfg.width, cfg.height,
+                              cfg.framerate, cfg.bitrate_kbps,
+                              cfg.auth_credential.empty() ? "none" : "required");
     }
 };

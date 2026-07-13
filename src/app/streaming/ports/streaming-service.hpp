@@ -26,6 +26,12 @@ class IStreamingService {
     virtual auto StopAppStream() -> bool = 0;
     [[nodiscard]] virtual auto IsAppStreamRunning() const -> bool = 0;
 
+    // Switch the live preview onto a new bind address (+ auth) on a connectivity
+    // mode change (U3): the RTSP server sets its address once at Start, so a mode
+    // switch is a Stop + Start with the new AppStreamConfig. Idempotent when the
+    // effective config is unchanged. Returns false if the (re)start fails.
+    virtual auto RebindAppStream(const AppStreamConfig& config) -> bool = 0;
+
     virtual auto StartPlatformStream(const PlatformStreamConfig& config) -> bool = 0;
     virtual auto StopPlatformStream(std::int64_t stream_id) -> bool = 0;
 

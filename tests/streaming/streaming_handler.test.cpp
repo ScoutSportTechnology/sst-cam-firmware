@@ -36,6 +36,9 @@ class FakeStreaming final : public sst::streaming::IStreamingService {
     }
     auto StopAppStream() -> bool override { return true; }
     [[nodiscard]] auto IsAppStreamRunning() const -> bool override { return false; }
+    auto RebindAppStream(const sst::streaming::AppStreamConfig& /*config*/) -> bool override {
+        return true;
+    }
 
     auto StartPlatformStream(const sst::streaming::PlatformStreamConfig& config) -> bool override {
         if (!start_ok) {

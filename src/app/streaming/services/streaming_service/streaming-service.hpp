@@ -39,6 +39,7 @@ class StreamingService final : public IStreamingService, public sst::buffer::IFr
     auto StartAppStream(const AppStreamConfig& config) -> bool override;
     auto StopAppStream() -> bool override;
     [[nodiscard]] auto IsAppStreamRunning() const -> bool override;
+    auto RebindAppStream(const AppStreamConfig& config) -> bool override;
 
     auto StartPlatformStream(const PlatformStreamConfig& config) -> bool override;
     auto StopPlatformStream(std::int64_t stream_id) -> bool override;

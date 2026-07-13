@@ -1,7 +1,10 @@
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include <cstdint>
+#include <random>
 #include <utility>
 
 #include "domain/streaming/models/app-stream-config.hpp"
@@ -39,13 +42,58 @@ auto WifiDirectHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandR
     return HandleStart();
 }
 
+auto WifiDirectHandler::BringUpGroupOwnerRadio() -> std::optional<sst::network::WifiDirectGroup> {
+    auto group = wifi_.StartP2pGroupOwner();
+    if (!group) {
+        spdlog::error("WifiDirectHandler: failed to form WiFi Direct group owner");
+        return std::nullopt;
+    }
+
+    // Assign the group-owner IP to the freshly-created P2P interface BEFORE DHCP
+    // and RTSP — wpa_supplicant forms the group but never assigns an address, so
+    // without this dnsmasq has no subnet and RTSP cannot bind the GO IP.
+    if (!netcfg_.AssignGroupOwnerAddress(group->group_interface,
+                                         group->group_owner_ip + kGoSubnetSuffix)) {
+        wifi_.Stop();
+        spdlog::error("WifiDirectHandler: failed to assign group-owner IP");
+        return std::nullopt;
+    }
+    group_interface_ = group->group_interface;
+
+    if (!dhcp_.Start(group->group_interface, group->group_owner_ip)) {
+        // The group is up but DHCP failed — tear it back down so we don't leave a
+        // half-open state.
+        wifi_.Stop();
+        group_interface_.clear();
+        spdlog::error("WifiDirectHandler: failed to start DHCP on the WiFi Direct group");
+        return std::nullopt;
+    }
+    return group;
+}
+
+auto WifiDirectHandler::MakePreviewConfig(const std::string& address, const std::string& credential)
+    const -> sst::streaming::AppStreamConfig {
+    sst::streaming::AppStreamConfig cfg;
+    cfg.address = address;
+    cfg.port = static_cast<std::uint16_t>(preview_port_);
+    cfg.auth_credential = credential;
+    return cfg;
+}
+
+auto WifiDirectHandler::MintPreviewCredential() -> std::string {
+    // Per-session RTSP Basic-auth secret (U10). Random 64-bit hex; the username is
+    // fixed ("cam") since the app authenticates with exactly this string.
+    std::random_device rng;
+    std::uniform_int_distribution<std::uint32_t> dist;
+    return fmt::format("cam:{:08x}{:08x}", dist(rng), dist(rng));
+}
+
 auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
     sst_cam::CommandResponse resp;
 
     if (active_group_ && session_.Snapshot().wifi_group_up) {
-        sst_cam::CommandResponse existing;
-        existing.set_status(sst_cam::OK);
-        auto* out = existing.mutable_wifi_direct_group();
+        resp.set_status(sst_cam::OK);
+        auto* out = resp.mutable_wifi_direct_group();
         out->set_ssid(active_group_->ssid);
         out->set_psk(active_group_->psk);
         out->set_group_owner_ip(active_group_->group_owner_ip);
@@ -55,36 +103,15 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
         if (!streaming_.IsAppStreamRunning() &&
             (!health_ || (health_(0) == sst_cam::CAMERA_HEALTH_OK &&
                           health_(1) == sst_cam::CAMERA_HEALTH_OK))) {
-            streaming_.StartAppStream({.address = active_group_->group_owner_ip,
-                                       .port = static_cast<std::uint16_t>(preview_port_)});
+            streaming_.StartAppStream(MakePreviewConfig(active_group_->group_owner_ip, ""));
         }
-        return existing;
+        return resp;
     }
-    auto group = wifi_.StartP2pGroupOwner();
+
+    auto group = BringUpGroupOwnerRadio();
     if (!group) {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message("failed to form WiFi Direct group owner");
-        return resp;
-    }
-
-    // Assign the group-owner IP to the freshly-created P2P interface BEFORE DHCP
-    // and RTSP — wpa_supplicant forms the group but never assigns an address, so
-    // without this dnsmasq has no subnet and RTSP cannot bind the GO IP.
-    if (!netcfg_.AssignGroupOwnerAddress(group->group_interface,
-                                         group->group_owner_ip + kGoSubnetSuffix)) {
-        wifi_.Stop();
-        resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message("failed to assign group-owner IP to the WiFi Direct interface");
-        return resp;
-    }
-    group_interface_ = group->group_interface;
-
-    if (!dhcp_.Start(group->group_interface, group->group_owner_ip)) {
-        // The group is up but DHCP failed — tear the group back down so we don't
-        // leave a half-open state.
-        wifi_.Stop();
-        resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message("failed to start DHCP on the WiFi Direct group");
+        resp.set_error_message("failed to bring up the WiFi Direct group owner");
         return resp;
     }
 
@@ -93,21 +120,17 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
         // a live group + credentials the session can't actually use. Roll back.
         dhcp_.Stop();
         wifi_.Stop();
+        group_interface_.clear();
         resp.set_status(sst_cam::ResponseStatus::ERROR);
         resp.set_error_message("WiFi Direct group up but session not ready to accept it");
         return resp;
     }
 
-    // Start the RTSP preview now that the group + DHCP are up, bound to the
-    // group-owner IP so it is reachable only over the phone link (R22).
-    sst::streaming::AppStreamConfig stream_cfg;
-    stream_cfg.address = group->group_owner_ip;
-    stream_cfg.port = static_cast<std::uint16_t>(preview_port_);
     if ((!health_ ||
          (health_(0) == sst_cam::CAMERA_HEALTH_OK && health_(1) == sst_cam::CAMERA_HEALTH_OK)) &&
-        !streaming_.StartAppStream(stream_cfg)) {
+        !streaming_.StartAppStream(MakePreviewConfig(group->group_owner_ip, ""))) {
         spdlog::warn("WifiDirectHandler: RTSP preview failed to start on {}:{} (preview degraded)",
-                     stream_cfg.address, preview_port_);
+                     group->group_owner_ip, preview_port_);
     }
 
     active_group_ = *group;
@@ -120,6 +143,45 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
     out->set_download_port(download_port_);
     out->set_role(group->role);
     return resp;
+}
+
+auto WifiDirectHandler::OnSharedWifiJoined(const std::string& sta_lan_ip) -> std::string {
+    // The arbiter has already stopped the GO radio (INV2). Clean up the residual
+    // GO plumbing (DHCP + the GO address on the now-gone iface), then mint a
+    // per-session credential and switch the preview onto the STA LAN IP with auth
+    // (S2/INV5). The authenticated preview must be live here so the app can probe
+    // it before confirming (F1 step 5).
+    dhcp_.Stop();
+    if (!group_interface_.empty()) {
+        netcfg_.Clear(group_interface_);
+        group_interface_.clear();
+    }
+    const std::string credential = MintPreviewCredential();
+    if (!streaming_.RebindAppStream(MakePreviewConfig(sta_lan_ip, credential))) {
+        spdlog::warn(
+            "WifiDirectHandler: failed to rebind preview to STA {} (migration will probe "
+            "and likely revert)",
+            sta_lan_ip);
+    }
+    spdlog::info("WifiDirectHandler: preview switched to STA LAN {} (authenticated)", sta_lan_ip);
+    return credential;
+}
+
+auto WifiDirectHandler::OnRevertedToP2p() -> bool {
+    // Restore the WiFi-Direct GO preview: re-form the group + DHCP, then rebind the
+    // preview to the GO IP with NO auth (S1). The session stays WifiReady across a
+    // migration (BLE control never dropped), so no session hook here.
+    auto group = BringUpGroupOwnerRadio();
+    if (!group) {
+        spdlog::error("WifiDirectHandler: GO restore failed on revert (preview degraded)");
+        return false;
+    }
+    if (!streaming_.RebindAppStream(MakePreviewConfig(group->group_owner_ip, ""))) {
+        spdlog::warn("WifiDirectHandler: failed to rebind preview to GO {} on revert",
+                     group->group_owner_ip);
+    }
+    spdlog::info("WifiDirectHandler: preview restored to WiFi-Direct GO {}", group->group_owner_ip);
+    return true;
 }
 
 auto WifiDirectHandler::HandleStop() -> sst_cam::CommandResponse {

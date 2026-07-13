@@ -57,6 +57,9 @@ class GstRtspAppStreamServer final : public sst::streaming::IAppStreamServer {
     static auto OnMediaConfigureStatic(GstRTSPMediaFactory* factory, GstRTSPMedia* media,
                                        gpointer user_data) -> void;
     auto OnMediaConfigure(GstRTSPMedia* media) -> void;
+    // Gate the factory behind Basic auth when config_.auth_credential is set
+    // (S2/INV5); no-op when empty (S1). Called under mtx_ during Start().
+    auto SetupAuth() -> void;
 
     sst::streaming::AppStreamConfig config_{};
 

@@ -176,6 +176,36 @@ TEST_F(StreamingServiceTest, StartAppStreamReturnsFalseWhenAdapterRefuses) {
     EXPECT_EQ(app_->start_calls, 1);
 }
 
+// U3: rebinding a running preview onto a new address is a Stop + Start with the
+// new config (the RTSP server binds its address once at Start).
+TEST_F(StreamingServiceTest, RebindAppStreamRestartsOnNewAddress) {
+    AppStreamConfig go;
+    go.address = "192.168.49.1";
+    EXPECT_TRUE(service_->StartAppStream(go));
+    EXPECT_EQ(app_->start_calls, 1);
+    EXPECT_EQ(app_->stop_calls, 0);
+
+    AppStreamConfig sta;
+    sta.address = "10.0.0.9";
+    sta.auth_credential = "cam:secret";
+    EXPECT_TRUE(service_->RebindAppStream(sta));
+
+    EXPECT_EQ(app_->stop_calls, 1);   // old bind torn down
+    EXPECT_EQ(app_->start_calls, 2);  // re-started on the new address
+    EXPECT_EQ(app_->last_config.address, "10.0.0.9");
+    EXPECT_EQ(app_->last_config.auth_credential, "cam:secret");
+    EXPECT_TRUE(service_->IsAppStreamRunning());
+}
+
+// Rebinding when nothing is running just starts (Stop is a no-op).
+TEST_F(StreamingServiceTest, RebindAppStreamStartsWhenIdle) {
+    AppStreamConfig sta;
+    sta.address = "10.0.0.9";
+    EXPECT_TRUE(service_->RebindAppStream(sta));
+    EXPECT_EQ(app_->stop_calls, 0);
+    EXPECT_EQ(app_->start_calls, 1);
+}
+
 TEST_F(StreamingServiceTest, StopAppStream) {
     ASSERT_TRUE(service_->StartAppStream({}));
     EXPECT_TRUE(service_->StopAppStream());
