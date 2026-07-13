@@ -157,13 +157,19 @@ auto WifiDirectHandler::OnSharedWifiJoined(const std::string& sta_lan_ip) -> std
         group_interface_.clear();
     }
     const std::string credential = MintPreviewCredential();
-    if (!streaming_.RebindAppStream(MakePreviewConfig(sta_lan_ip, credential))) {
+    // Bind the S2 preview to ALL interfaces (0.0.0.0), NOT the specific STA IP: the
+    // DHCP address can still be settling when we rebind, and a specific-IP bind
+    // races with that (gst_rtsp_server_attach fails). Per-session auth (INV5) —
+    // minted here — is the S2 security, not the bind address. The app connects at
+    // the reported STA LAN IP.
+    if (!streaming_.RebindAppStream(MakePreviewConfig("0.0.0.0", credential))) {
         spdlog::warn(
-            "WifiDirectHandler: failed to rebind preview to STA {} (migration will probe "
+            "WifiDirectHandler: failed to rebind preview for STA {} (migration will probe "
             "and likely revert)",
             sta_lan_ip);
     }
-    spdlog::info("WifiDirectHandler: preview switched to STA LAN {} (authenticated)", sta_lan_ip);
+    spdlog::info("WifiDirectHandler: preview switched to STA LAN {} (authenticated, bound 0.0.0.0)",
+                 sta_lan_ip);
     return credential;
 }
 
