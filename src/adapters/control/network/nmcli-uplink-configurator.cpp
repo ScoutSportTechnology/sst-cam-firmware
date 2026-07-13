@@ -155,20 +155,33 @@ auto NmcliUplinkConfigurator::ApplyEthernet(const sst::config::EthernetUplink& c
 }
 
 auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
-    // Lines: "DEVICE:TYPE", e.g. "wlP1p1s0:wifi" and "p2p-dev-wlP1p1s0:wifi-p2p".
-    // We want the base station device (TYPE exactly "wifi"), never the P2P iface.
-    const std::string out = Capture({"nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status"});
+    // Do NOT use nmcli here: wlP1p1s0 is NM-UNMANAGED (dedicated wpa_supplicant for
+    // the WiFi-Direct GO), and nmcli's device list is unreliable for it — right
+    // after a P2P group teardown it can report no wifi device at all. Read the
+    // kernel netdev list directly and pick the base WiFi station iface: a name
+    // starting "wl" (the "p2p-dev-*" virtual iface starts "p2p", so it is skipped).
+    const std::string out = Capture({"ip", "-o", "link", "show"});
     std::istringstream stream(out);
     std::string line;
     while (std::getline(stream, line)) {
-        const auto colon = line.find(':');
-        if (colon == std::string::npos) {
+        // "3: wlP1p1s0: <BROADCAST,...> mtu ..." — the name follows the first ": ".
+        const auto first = line.find(": ");
+        if (first == std::string::npos) {
             continue;
         }
-        const std::string device = line.substr(0, colon);
-        const std::string type = line.substr(colon + 1);
-        if (type == "wifi" && !device.empty()) {
-            return device;
+        const auto start = first + 2;
+        const auto end = line.find(':', start);
+        if (end == std::string::npos) {
+            continue;
+        }
+        std::string name = line.substr(start, end - start);
+        // Drop a "wlP1p1s0@if3"-style suffix if the kernel added one.
+        const auto at = name.find('@');
+        if (at != std::string::npos) {
+            name = name.substr(0, at);
+        }
+        if (name.rfind("wl", 0) == 0) {
+            return name;
         }
     }
     return {};
