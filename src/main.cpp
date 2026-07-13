@@ -485,12 +485,16 @@ auto RunFirmware() -> int {
                                                                                 calibration_state));
     dispatcher.Register(std::make_shared<sst::control::CameraFocusHandler>(focuser, focus_state));
     dispatcher.Register(std::make_shared<sst::control::ActiveCameraHandler>(manual_camera_state));
-    // INV6 / AE7: gate SetNetworkConfig (WiFi passphrase) on an encrypted/bonded
-    // BLE link. The BlueZ transport implements ILinkSecurity from the org.bluez
-    // Device1 Connected/Paired/Bonded state; the GATT `encrypt-authenticated-write`
-    // flag is the primary enforcement, this handler predicate is defense-in-depth.
+    // INV6 / AE7 deferred (OQ3): the GATT `encrypt-authenticated-write` flag
+    // conflicts with the app's chunked write-without-response path (it broke the
+    // handshake), and the contract forbids a separate credential characteristic —
+    // so per-characteristic encryption is not viable. Credential-link encryption
+    // moves to link-level bonding in a follow-up. Until then the ILinkSecurity
+    // gate is left UNWIRED (nullptr) so it cannot reject provisioning on an
+    // as-yet-unbonded link; the transport still tracks Device1 Paired/Bonded for
+    // when the bonding flow lands. Residual risk: credentials over a cleartext link.
     dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(
-        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, &ble_transport));
+        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, /*link_security=*/nullptr));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.

@@ -52,9 +52,10 @@ TEST(BleAdvertisementTest, GattUuidsMatchContract) {
 // INV6 / AE7 (in-container, no bus): the transport is the ILinkSecurity source
 // for the credential gate. With no central connected it must report the
 // credential link as INSECURE (fail-closed) — reading the guarded default state
-// needs no BlueZ, so this runs in the cross-compile container. The on-wire GATT
-// `encrypt-authenticated-write` flag + real Paired/Bonded transition are the
-// on-metal half of AE7 (sniff shows no cleartext passphrase).
+// needs no BlueZ, so this runs in the cross-compile container. NOTE: the gate is
+// currently UNWIRED in production (OQ3 — the GATT encrypt flag conflicted with
+// the app's write-without-response path); this predicate + the real Paired/Bonded
+// tracking stay ready for the follow-up that enforces AE7 via link-level bonding.
 TEST(BleAdvertisementTest, CredentialLinkInsecureWithNoCentral) {
     sst::adapters::control::BluezBleTransport transport(sst::control::MakeAdvertisedName(1));
     const sst::control::ILinkSecurity& link_security = transport;
