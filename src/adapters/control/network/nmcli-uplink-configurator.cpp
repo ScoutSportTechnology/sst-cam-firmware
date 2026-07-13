@@ -237,9 +237,18 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
         return {.ok = false, .detail = "failed to join wifi (check the password)"};
     }
 
+    // Flush the stale WiFi-Direct GO address (192.168.49.1) the group left on the
+    // iface FIRST — otherwise the iface holds both it and the STA lease, and
+    // IfaceIpv4 returns the GO IP (which the app then probes and, finding it dead,
+    // reverts). cap_net_admin lets the firmware do this without root.
+    RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
     // NM does not manage this iface, so dhclient is free to lease an address (+ the
     // DHCP default route, which HasInternetUplink keys on for the streaming gate).
-    RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
+    // Point the lease/pid files at a writable path (the service runs as sst-cam,
+    // not root, so the default /var/lib/dhcp + /var/run are read-only to it).
+    RunBounded({"dhclient", "-1", "-4", "-lf", "/tmp/sst-dhclient.leases", "-pf",
+                "/tmp/sst-dhclient.pid", iface},
+               kDhcpTimeout);
     const std::string address = IfaceIpv4(iface);
     if (address.empty()) {
         WpaCli(iface, {"disconnect"});
