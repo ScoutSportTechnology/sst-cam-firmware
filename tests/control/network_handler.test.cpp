@@ -66,6 +66,41 @@ class FakeLinkSecurity final : public sst::control::ILinkSecurity {
     bool secure_;
 };
 
+// Fake connectivity arbiter: records the wifi routing (request/confirm/revert)
+// and returns a parameterizable migration so the handler's shared-wifi path is
+// observable without the real radio.
+class FakeArbiter final : public sst::network::IConnectivityArbiter {
+   public:
+    auto RequestSharedWifi(const sst::config::WifiStaUplink& /*uplink*/)
+        -> std::optional<sst::network::SharedWifiMigration> override {
+        ++request_calls;
+        if (!request_ok) {
+            return std::nullopt;
+        }
+        return sst::network::SharedWifiMigration{
+            .id = 7, .preview_endpoint = "10.0.0.9", .preview_credential = "cam:secret"};
+    }
+    auto ConfirmSharedWifi(sst::network::MigrationId id,
+                           bool reachable) -> sst::network::ConnectivityMode override {
+        ++confirm_calls;
+        last_confirm_id = id;
+        last_reachable = reachable;
+        return reachable ? sst::network::ConnectivityMode::kStaOnly
+                         : sst::network::ConnectivityMode::kP2pOnly;
+    }
+    auto RevertToP2p() -> void override { ++revert_calls; }
+    [[nodiscard]] auto CurrentMode() const -> sst::network::ConnectivityMode override {
+        return sst::network::ConnectivityMode::kP2pOnly;
+    }
+
+    bool request_ok{true};
+    int request_calls{0};
+    int confirm_calls{0};
+    int revert_calls{0};
+    sst::network::MigrationId last_confirm_id{0};
+    bool last_reachable{false};
+};
+
 // Build a SetNetworkConfig command that ENABLES ethernet with a valid static
 // address, so the apply/persist path is observable via the fake configurator's
 // ethernet_calls.
@@ -83,7 +118,8 @@ TEST(NetworkHandlerTest, HandlesSetAndGet) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
-    sst::control::NetworkHandler handler(manager, store, {});
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
 
     const auto cases = handler.HandledCases();
     EXPECT_NE(std::find(cases.begin(), cases.end(), sst_cam::Command::kSetNetworkConfig),
@@ -96,7 +132,8 @@ TEST(NetworkHandlerTest, SetAppliesPersistsAndEchoesStatus) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
-    sst::control::NetworkHandler handler(manager, store, {});
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
 
     sst_cam::Command cmd;
     auto* eth = cmd.mutable_set_network_config()->mutable_config()->mutable_ethernet();
@@ -129,7 +166,8 @@ TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
     FakeConfigurator configurator(/*ethernet_apply_ok=*/false);
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
-    sst::control::NetworkHandler handler(manager, store, {});
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
 
     sst_cam::Command cmd;
     auto* eth = cmd.mutable_set_network_config()->mutable_config()->mutable_ethernet();
@@ -150,12 +188,13 @@ TEST(NetworkHandlerTest, GetReturnsInitialConfigWithoutApplying) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
+    FakeArbiter arbiter;
 
     sst::config::UplinkData initial;
     initial.ethernet.enabled = true;
     initial.ethernet.address = "192.168.0.5/24";
 
-    sst::control::NetworkHandler handler(manager, store, initial);
+    sst::control::NetworkHandler handler(manager, store, initial, arbiter);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -175,8 +214,9 @@ TEST(NetworkHandlerTest, SetOnInsecureLinkRejectedNotAppliedNotPersisted) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
+    FakeArbiter arbiter;
     FakeLinkSecurity insecure(/*secure=*/false);
-    sst::control::NetworkHandler handler(manager, store, {}, &insecure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &insecure);
 
     const auto resp = handler.Handle(MakeSetEthernetCommand());
 
@@ -192,8 +232,9 @@ TEST(NetworkHandlerTest, SetOnSecureLinkProceedsAppliesAndPersists) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
+    FakeArbiter arbiter;
     FakeLinkSecurity secure(/*secure=*/true);
-    sst::control::NetworkHandler handler(manager, store, {}, &secure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
 
     const auto resp = handler.Handle(MakeSetEthernetCommand());
 
@@ -208,12 +249,13 @@ TEST(NetworkHandlerTest, GetUnaffectedByInsecureLink) {
     FakeConfigurator configurator;
     sst::network::UplinkManager manager(configurator);
     FakeStore store;
+    FakeArbiter arbiter;
     FakeLinkSecurity insecure(/*secure=*/false);
 
     sst::config::UplinkData initial;
     initial.ethernet.enabled = true;
     initial.ethernet.address = "192.168.0.5/24";
-    sst::control::NetworkHandler handler(manager, store, initial, &insecure);
+    sst::control::NetworkHandler handler(manager, store, initial, arbiter, &insecure);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -224,6 +266,99 @@ TEST(NetworkHandlerTest, GetUnaffectedByInsecureLink) {
     EXPECT_TRUE(resp.network_config().config().ethernet().enabled());
     EXPECT_EQ(resp.network_config().config().ethernet().address(), "192.168.0.5/24");
     EXPECT_EQ(configurator.ethernet_calls, 0);  // Get never applies
+}
+
+// Enabling WiFi routes through the arbiter (never the manager directly, so INV2
+// holds) and the reply carries the migration id / STA endpoint / credential.
+TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
+
+    sst_cam::Command cmd;
+    auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
+    wifi->set_enabled(true);
+    wifi->set_ssid("PhoneNet");
+    wifi->set_password("hunter2pw");
+
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.request_calls, 1);  // wifi routed to the arbiter
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
+    EXPECT_EQ(resp.network_config().migration_id(), 7U);
+    EXPECT_EQ(resp.network_config().preview_endpoint(), "10.0.0.9");
+    EXPECT_EQ(resp.network_config().preview_credential(), "cam:secret");
+}
+
+// A shared-wifi migration that cannot start (arbiter returns nullopt) -> ERROR,
+// nothing persisted.
+TEST(NetworkHandlerTest, SetWithWifiMigrationFailureReportsError) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.request_ok = false;
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
+
+    sst_cam::Command cmd;
+    auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
+    wifi->set_enabled(true);
+    wifi->set_ssid("PhoneNet");
+
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_EQ(arbiter.request_calls, 1);
+    EXPECT_EQ(store.persist_calls, 0);
+}
+
+// Disabling wifi ensures a revert to S1 (never leaves a dangling STA request).
+TEST(NetworkHandlerTest, SetWithWifiDisabledRevertsToP2p) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+
+    const auto resp = handler.Handle(MakeSetEthernetCommand());  // wifi disabled
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.request_calls, 0);
+    EXPECT_EQ(arbiter.revert_calls, 1);
+}
+
+// ConfirmPreviewReachable routes the app verdict to the arbiter and echoes the
+// settled mode.
+TEST(NetworkHandlerTest, ConfirmPreviewReachableRoutesToArbiter) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+
+    EXPECT_NE(std::find(handler.HandledCases().begin(), handler.HandledCases().end(),
+                        sst_cam::Command::kConfirmPreviewReachable),
+              handler.HandledCases().end());
+
+    sst_cam::Command cmd;
+    auto* confirm = cmd.mutable_confirm_preview_reachable();
+    confirm->set_migration_id(7);
+    confirm->set_reachable(true);
+
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.confirm_calls, 1);
+    EXPECT_EQ(arbiter.last_confirm_id, 7U);
+    EXPECT_TRUE(arbiter.last_reachable);
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kConfirmPreviewReachable);
+    EXPECT_EQ(resp.confirm_preview_reachable().migration_id(), 7U);
+    EXPECT_TRUE(resp.confirm_preview_reachable().in_shared_wifi());
 }
 
 }  // namespace

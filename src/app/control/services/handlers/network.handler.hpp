@@ -1,10 +1,12 @@
 #pragma once
 
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include "app/control/ports/handler.hpp"
 #include "app/control/ports/link-security.hpp"
+#include "app/network/ports/connectivity-arbiter.hpp"
 #include "app/network/ports/uplink-store.hpp"
 #include "app/network/services/uplink-manager/uplink-manager.hpp"
 #include "bluetooth.pb.h"
@@ -35,22 +37,32 @@ namespace sst::control {
 class NetworkHandler final : public ICommandHandler {
    public:
     NetworkHandler(sst::network::UplinkManager& manager, sst::network::IUplinkStore& store,
-                   sst::config::UplinkData initial, const ILinkSecurity* link_security = nullptr);
+                   sst::config::UplinkData initial, sst::network::IConnectivityArbiter& arbiter,
+                   const ILinkSecurity* link_security = nullptr);
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
 
    private:
     auto HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::CommandResponse;
-    // Build the response (current config + live per-interface status). `status`
-    // sets the ResponseStatus: OK by default, or the caller's error when an
-    // enabled interface failed to apply.
-    auto BuildResponse(sst_cam::ResponseStatus status) -> sst_cam::CommandResponse;
+    // Handle ConfirmPreviewReachableCommand (U4): route the app's reachability
+    // verdict to the arbiter's epoch-guarded confirm and report the settled mode.
+    auto HandleConfirmReachable(const sst_cam::ConfirmPreviewReachableCommand& cmd)
+        -> sst_cam::CommandResponse;
+    // Build the Set/Get response (current config + live per-interface status).
+    // `migration`, when present, carries the P2P->STA migration id / STA preview
+    // endpoint / per-session credential this Set began (U9 fields).
+    auto BuildResponse(sst_cam::ResponseStatus status,
+                       const std::optional<sst::network::SharedWifiMigration>& migration)
+        -> sst_cam::CommandResponse;
     auto HandleGet() -> sst_cam::CommandResponse;
 
     sst::network::UplinkManager& manager_;
     sst::network::IUplinkStore& store_;
     sst::config::UplinkData current_;
+    // Owns the P2P<->STA radio transition; the WiFi-STA uplink is driven through
+    // it (never directly via the manager) so INV2 holds.
+    sst::network::IConnectivityArbiter& arbiter_;
     // Optional credential-link security gate (INV6/AE7). Null = no gate (non-BLE
     // wiring). Non-owning: the BLE transport that implements it outlives this.
     const ILinkSecurity* link_security_;

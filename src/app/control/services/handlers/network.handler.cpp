@@ -52,19 +52,25 @@ void UplinkToProto(const sst::config::UplinkData& data, sst_cam::NetworkConfig* 
 
 NetworkHandler::NetworkHandler(sst::network::UplinkManager& manager,
                                sst::network::IUplinkStore& store, sst::config::UplinkData initial,
+                               sst::network::IConnectivityArbiter& arbiter,
                                const ILinkSecurity* link_security)
     : manager_(manager),
       store_(store),
       current_(std::move(initial)),
+      arbiter_(arbiter),
       link_security_(link_security) {}
 
 auto NetworkHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
-    return {sst_cam::Command::kSetNetworkConfig, sst_cam::Command::kGetNetworkConfig};
+    return {sst_cam::Command::kSetNetworkConfig, sst_cam::Command::kGetNetworkConfig,
+            sst_cam::Command::kConfirmPreviewReachable};
 }
 
 auto NetworkHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse {
     if (cmd.payload_case() == sst_cam::Command::kSetNetworkConfig) {
         return HandleSet(cmd.set_network_config().config());
+    }
+    if (cmd.payload_case() == sst_cam::Command::kConfirmPreviewReachable) {
+        return HandleConfirmReachable(cmd.confirm_preview_reachable());
     }
     return HandleGet();
 }
@@ -82,7 +88,7 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
         spdlog::error(
             "NetworkHandler: SetNetworkConfig rejected — BLE link is not "
             "encrypted/bonded; WiFi credentials refused over cleartext (INV6/AE7)");
-        auto resp = BuildResponse(sst_cam::ResponseStatus::ERROR);
+        auto resp = BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt);
         resp.set_error_message(
             "WiFi credentials require an encrypted, bonded Bluetooth link; pair the "
             "device and try again.");
@@ -91,33 +97,65 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
 
     current_ = ProtoToUplink(proto);
 
-    // Apply, then GATE on the result: an ENABLED interface whose apply returned
-    // ok==false (bad static config, `nmcli con up` rejected, gated wifi) is a
-    // real failure. We must NOT reply OK/green and must NOT persist that config
-    // as authoritative — otherwise uplink.json would lie about a down interface.
-    const auto applied = manager_.Apply(current_);
-    const bool ethernet_failed = applied.ethernet_enabled && !applied.ethernet.ok;
-    const bool wifi_failed = applied.wifi_enabled && !applied.wifi.ok;
-
-    if (ethernet_failed || wifi_failed) {
-        spdlog::error(
-            "NetworkHandler: apply failed (ethernet_enabled={} ok={} '{}', wifi_enabled={} ok={} "
-            "'{}') — not persisting, reporting ERROR",
-            applied.ethernet_enabled, applied.ethernet.ok, applied.ethernet.detail,
-            applied.wifi_enabled, applied.wifi.ok, applied.wifi.detail);
-        // Report the failure so the app surfaces it instead of a false green.
-        return BuildResponse(sst_cam::ResponseStatus::ERROR);
+    // Ethernet is applied directly (it is orthogonal to the radio). The WiFi-STA
+    // radio is NOT applied here — it is owned by the connectivity arbiter (INV2:
+    // the GO must be torn down before STA comes up), so we mask wifi out of the
+    // manager apply and route it through the arbiter below.
+    sst::config::UplinkData ethernet_only = current_;
+    ethernet_only.wifi.enabled = false;
+    const auto applied = manager_.Apply(ethernet_only);
+    if (applied.ethernet_enabled && !applied.ethernet.ok) {
+        spdlog::error("NetworkHandler: ethernet apply failed ('{}') — not persisting, ERROR",
+                      applied.ethernet.detail);
+        return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt);
     }
 
-    // Only durable once every enabled interface came up.
+    // Route the WiFi-STA request through the arbiter. Enabled -> begin a P2P->STA
+    // migration (GO down, STA up, mint credential, await the app's reachability
+    // confirm). Disabled -> ensure we are back in S1.
+    std::optional<sst::network::SharedWifiMigration> migration;
+    if (current_.wifi.enabled.value_or(false)) {
+        migration = arbiter_.RequestSharedWifi(current_.wifi);
+        if (!migration) {
+            // STA join failed (bad passphrase / isolation) or a migration was
+            // already in flight — the arbiter has reverted to a legal S1. Report
+            // the failure so the app shows a friendly message (U7) rather than a
+            // false green, and do not persist a config that did not come up.
+            spdlog::error(
+                "NetworkHandler: shared-wifi migration could not start — reporting ERROR");
+            return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt);
+        }
+    } else {
+        arbiter_.RevertToP2p();
+    }
+
+    // Only durable once the config was accepted. autoconnect=no on the STA profile
+    // holds R-BOOT (no self-join on the next boot).
     if (!store_.Persist(current_)) {
-        spdlog::error("NetworkHandler: uplink applied but persistence failed");
-        return BuildResponse(sst_cam::ResponseStatus::ERROR);
+        spdlog::error("NetworkHandler: uplink accepted but persistence failed");
+        return BuildResponse(sst_cam::ResponseStatus::ERROR, migration);
     }
-    return BuildResponse(sst_cam::ResponseStatus::OK);
+    return BuildResponse(sst_cam::ResponseStatus::OK, migration);
 }
 
-auto NetworkHandler::BuildResponse(sst_cam::ResponseStatus status) -> sst_cam::CommandResponse {
+auto NetworkHandler::HandleConfirmReachable(const sst_cam::ConfirmPreviewReachableCommand& cmd)
+    -> sst_cam::CommandResponse {
+    std::lock_guard lock(mtx_);
+    const auto mode = arbiter_.ConfirmSharedWifi(cmd.migration_id(), cmd.reachable());
+    sst_cam::CommandResponse resp;
+    resp.set_status(sst_cam::ResponseStatus::OK);
+    auto* payload = resp.mutable_confirm_preview_reachable();
+    payload->set_migration_id(cmd.migration_id());
+    payload->set_in_shared_wifi(mode == sst::network::ConnectivityMode::kStaOnly);
+    spdlog::info("NetworkHandler: confirm id={} reachable={} -> in_shared_wifi={}",
+                 cmd.migration_id(), cmd.reachable(),
+                 mode == sst::network::ConnectivityMode::kStaOnly);
+    return resp;
+}
+
+auto NetworkHandler::BuildResponse(
+    sst_cam::ResponseStatus status,
+    const std::optional<sst::network::SharedWifiMigration>& migration) -> sst_cam::CommandResponse {
     // Live interface state (reality), not the last-applied result — the camera's
     // ethernet is NM-managed and may be up even when the uplink config disables it.
     const auto live = manager_.QueryStatus();
@@ -128,12 +166,20 @@ auto NetworkHandler::BuildResponse(sst_cam::ResponseStatus status) -> sst_cam::C
     payload->set_ethernet_address(live.ethernet.detail);
     payload->set_wifi_up(live.wifi.ok);
     payload->set_wifi_status(live.wifi.detail);
+    // Shared-WiFi migration handshake (U9): populated only when this Set began a
+    // P2P->STA migration — the app probes preview_endpoint (with preview_credential)
+    // then replies with ConfirmPreviewReachableCommand{migration_id}.
+    if (migration.has_value()) {
+        payload->set_migration_id(migration->id);
+        payload->set_preview_endpoint(migration->preview_endpoint);
+        payload->set_preview_credential(migration->preview_credential);
+    }
     resp.set_status(status);
     return resp;
 }
 
 auto NetworkHandler::HandleGet() -> sst_cam::CommandResponse {
-    return BuildResponse(sst_cam::ResponseStatus::OK);
+    return BuildResponse(sst_cam::ResponseStatus::OK, std::nullopt);
 }
 
 }  // namespace sst::control

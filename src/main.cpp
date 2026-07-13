@@ -24,6 +24,7 @@
 #include "adapters/focus/i2c-focuser.hpp"
 #include "adapters/network/http/http-download-server.hpp"
 #include "adapters/network/json/json-uplink-store.hpp"
+#include "adapters/network/timer/thread-self-revert-timer.hpp"
 #include "adapters/overlay/burn/opencv-overlay-burner.hpp"
 #include "adapters/overlay/caching/caching-overlay-sink.hpp"
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
@@ -62,6 +63,7 @@
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/control/services/telemetry_probe/telemetry-probe.hpp"
 #include "app/decision/services/manual_decision/manual-decision.hpp"
+#include "app/network/services/connectivity_arbiter/connectivity-arbiter.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "app/network/services/uplink-manager/uplink-manager.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
@@ -101,6 +103,12 @@ constexpr const char* kGroupOwnerIp = "192.168.49.1";
 // Bound for the `systemctl reboot` exec — the call returns quickly, but the
 // deadline keeps a hung systemd/D-Bus from stalling the dispatcher thread.
 constexpr std::chrono::seconds kRebootTimeout{10};
+// Self-revert backstop window for a P2P->STA migration (OQ1/KTD5): if the app
+// never confirms preview reachability within this window the arbiter restores
+// S1. It must be comfortably longer than a normal app probe round-trip (the app
+// probe timeout is strictly shorter). Correctness rests on the epoch guard, not
+// this value; tune on-metal.
+constexpr std::chrono::milliseconds kSelfRevertWindow{20000};
 
 }  // namespace sst::runtime_defaults
 
@@ -342,10 +350,16 @@ auto RunFirmware() -> int {
                     : sst_cam::PREVIEW_LAYOUT_SINGLE);
         },
         camera_health));
-    dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
+    auto wifi_direct_handler = std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, network_configurator, dhcp_server, streaming_service,
         sst::control::PreviewPort{sst::runtime_defaults::kPreviewPort},
-        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health));
+        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health);
+    dispatcher.Register(wifi_direct_handler);
+
+    sst::adapters::network::ThreadSelfRevertTimer self_revert_timer;
+    sst::network::ConnectivityArbiter connectivity_arbiter(
+        wifi_manager, uplink_configurator, self_revert_timer, *wifi_direct_handler,
+        sst::runtime_defaults::kSelfRevertWindow);
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
@@ -475,8 +489,8 @@ auto RunFirmware() -> int {
     // BLE link. The BlueZ transport implements ILinkSecurity from the org.bluez
     // Device1 Connected/Paired/Bonded state; the GATT `encrypt-authenticated-write`
     // flag is the primary enforcement, this handler predicate is defense-in-depth.
-    dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(uplink_manager, uplink_store,
-                                                                       cfg.uplink, &ble_transport));
+    dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(
+        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, &ble_transport));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.
