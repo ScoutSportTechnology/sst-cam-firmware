@@ -471,8 +471,12 @@ auto RunFirmware() -> int {
                                                                                 calibration_state));
     dispatcher.Register(std::make_shared<sst::control::CameraFocusHandler>(focuser, focus_state));
     dispatcher.Register(std::make_shared<sst::control::ActiveCameraHandler>(manual_camera_state));
-    dispatcher.Register(
-        std::make_shared<sst::control::NetworkHandler>(uplink_manager, uplink_store, cfg.uplink));
+    // INV6 / AE7: gate SetNetworkConfig (WiFi passphrase) on an encrypted/bonded
+    // BLE link. The BlueZ transport implements ILinkSecurity from the org.bluez
+    // Device1 Connected/Paired/Bonded state; the GATT `encrypt-authenticated-write`
+    // flag is the primary enforcement, this handler predicate is defense-in-depth.
+    dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(uplink_manager, uplink_store,
+                                                                       cfg.uplink, &ble_transport));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.

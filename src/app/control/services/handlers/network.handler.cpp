@@ -51,8 +51,12 @@ void UplinkToProto(const sst::config::UplinkData& data, sst_cam::NetworkConfig* 
 }  // namespace
 
 NetworkHandler::NetworkHandler(sst::network::UplinkManager& manager,
-                               sst::network::IUplinkStore& store, sst::config::UplinkData initial)
-    : manager_(manager), store_(store), current_(std::move(initial)) {}
+                               sst::network::IUplinkStore& store, sst::config::UplinkData initial,
+                               const ILinkSecurity* link_security)
+    : manager_(manager),
+      store_(store),
+      current_(std::move(initial)),
+      link_security_(link_security) {}
 
 auto NetworkHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kSetNetworkConfig, sst_cam::Command::kGetNetworkConfig};
@@ -67,6 +71,24 @@ auto NetworkHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResp
 
 auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::CommandResponse {
     std::lock_guard lock(mtx_);
+
+    // INV6 / AE7: SetNetworkConfig carries the WiFi passphrase. If a credential-
+    // link security gate is wired and the link is NOT encrypted/bonded, reject
+    // BEFORE mapping/applying/persisting — the passphrase must never be accepted
+    // over cleartext. current_ is left untouched so a rejected write cannot
+    // clobber the live config. A null gate = no BLE link-security check (non-BLE
+    // wiring / tests).
+    if (link_security_ != nullptr && !link_security_->IsCredentialLinkSecure()) {
+        spdlog::error(
+            "NetworkHandler: SetNetworkConfig rejected — BLE link is not "
+            "encrypted/bonded; WiFi credentials refused over cleartext (INV6/AE7)");
+        auto resp = BuildResponse(sst_cam::ResponseStatus::ERROR);
+        resp.set_error_message(
+            "WiFi credentials require an encrypted, bonded Bluetooth link; pair the "
+            "device and try again.");
+        return resp;
+    }
+
     current_ = ProtoToUplink(proto);
 
     // Apply, then GATE on the result: an ENABLED interface whose apply returned

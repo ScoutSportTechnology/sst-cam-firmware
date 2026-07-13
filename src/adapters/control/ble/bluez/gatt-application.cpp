@@ -75,7 +75,15 @@ auto GattApplication::BuildCommandChar() -> void {
         return sdbus::ObjectPath{service_path_};
     });
     command_obj_->registerProperty("Flags").onInterface(kIfaceGattChar).withGetter([] {
-        return std::vector<std::string>{"write-without-response"};
+        // INV6 / AE7: the Command-Write characteristic carries EVERY command,
+        // including SetNetworkConfig with the WiFi passphrase (the proto contract
+        // mandates a single Command-Write char — there is no separate credential
+        // characteristic). Require authenticated encryption on writes so an
+        // unbonded central cannot push credentials in cleartext. BlueZ's
+        // `encrypt-authenticated-write` IS the write permission (it replaces, and
+        // conflicts with, `write`/`write-without-response`), so it is the ONLY
+        // write flag here. App-layer NetworkHandler double-checks via ILinkSecurity.
+        return std::vector<std::string>{"encrypt-authenticated-write"};
     });
 
     // BlueZ calls WriteValue(ay value, a{sv} options) on the GATT characteristic.

@@ -2,9 +2,12 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <future>
+#include <map>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -24,10 +27,31 @@ constexpr const char* kBluezBus = "org.bluez";
 constexpr const char* kIfaceGattManager = "org.bluez.GattManager1";
 constexpr const char* kIfaceLeAdvManager = "org.bluez.LEAdvertisingManager1";
 constexpr const char* kIfaceLeAdv = "org.bluez.LEAdvertisement1";
+constexpr const char* kIfaceObjectManager = "org.freedesktop.DBus.ObjectManager";
+constexpr const char* kIfaceProperties = "org.freedesktop.DBus.Properties";
+constexpr const char* kIfaceDevice = "org.bluez.Device1";
+
+using ManagedObjects =
+    std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
 
 auto ToBytes(const sst_cam::ChunkedPayload& chunk) -> std::vector<std::uint8_t> {
     const std::string wire = chunk.SerializeAsString();
     return {wire.begin(), wire.end()};
+}
+
+// Read a boolean org.bluez property out of a PropertiesChanged / GetManagedObjects
+// dict, returning nullopt when the key is absent or not a bool.
+auto ReadBoolProp(const std::map<std::string, sdbus::Variant>& props,
+                  const char* key) -> std::optional<bool> {
+    const auto it = props.find(key);
+    if (it == props.end()) {
+        return std::nullopt;
+    }
+    try {
+        return it->second.get<bool>();
+    } catch (const sdbus::Error&) {
+        return std::nullopt;
+    }
 }
 
 }  // namespace
@@ -184,6 +208,133 @@ auto BluezBleTransport::CallManagerAsync(sdbus::IProxy& proxy, const char* iface
     future.get();  // rethrows the sdbus::Error on a D-Bus-level failure
 }
 
+auto BluezBleTransport::IsLinkEncrypted() const -> bool {
+    std::lock_guard lock(mtx_);
+    return link_encrypted_;
+}
+
+auto BluezBleTransport::RecomputeLinkEncryptedLocked() -> void {
+    bool encrypted = false;
+    for (const auto& entry : devices_) {
+        // A paired/bonded, connected central holds an encrypted link (BR/EDR or
+        // LE SMP). We accept Paired OR Bonded because Bonded is only exposed by
+        // newer BlueZ; on either the link is encrypted.
+        const auto& dev = entry.second;
+        if (dev.connected && (dev.paired || dev.bonded)) {
+            encrypted = true;
+            break;
+        }
+    }
+    if (encrypted != link_encrypted_) {
+        spdlog::info("BluezBleTransport: credential-link encrypted state -> {}", encrypted);
+    }
+    link_encrypted_ = encrypted;
+}
+
+auto BluezBleTransport::OnDevicePropertiesChanged(
+    const std::string& path, const std::map<std::string, sdbus::Variant>& changed) -> void {
+    std::lock_guard lock(mtx_);
+    const auto it = devices_.find(path);
+    if (it == devices_.end()) {
+        return;  // property change for an untracked device
+    }
+    if (const auto connected = ReadBoolProp(changed, "Connected")) {
+        it->second.connected = *connected;
+    }
+    if (const auto paired = ReadBoolProp(changed, "Paired")) {
+        it->second.paired = *paired;
+    }
+    if (const auto bonded = ReadBoolProp(changed, "Bonded")) {
+        it->second.bonded = *bonded;
+    }
+    RecomputeLinkEncryptedLocked();
+}
+
+auto BluezBleTransport::OnDeviceInterfacesAdded(
+    const sdbus::ObjectPath& path,
+    const std::map<std::string, std::map<std::string, sdbus::Variant>>& interfaces) -> void {
+    const auto dev_iface = interfaces.find(kIfaceDevice);
+    if (dev_iface == interfaces.end()) {
+        return;  // some other org.bluez object (adapter, GATT, …)
+    }
+    const std::string dev_path = path;
+    const auto& props = dev_iface->second;
+
+    // Attach a PropertiesChanged watcher OUTSIDE the lock (createProxy +
+    // finishRegistration touch the bus). Bind the path into the callback since a
+    // path-scoped proxy's signal does not carry the object path.
+    auto watcher = sdbus::createProxy(*connection_, kBluezBus, sdbus::ObjectPath{dev_path});
+    watcher->uponSignal("PropertiesChanged")
+        .onInterface(kIfaceProperties)
+        .call([this, dev_path](const std::string& iface,
+                               const std::map<std::string, sdbus::Variant>& changed,
+                               const std::vector<std::string>& /*invalidated*/) {
+            // A device path can also expose Battery1 etc.; only Device1 carries
+            // the Connected/Paired/Bonded link state we track.
+            if (iface == kIfaceDevice) {
+                OnDevicePropertiesChanged(dev_path, changed);
+            }
+        });
+    watcher->finishRegistration();
+
+    std::lock_guard lock(mtx_);
+    auto& entry = devices_[dev_path];
+    if (!entry.watcher) {
+        entry.watcher = std::move(watcher);
+    }
+    entry.connected = ReadBoolProp(props, "Connected").value_or(entry.connected);
+    entry.paired = ReadBoolProp(props, "Paired").value_or(entry.paired);
+    entry.bonded = ReadBoolProp(props, "Bonded").value_or(entry.bonded);
+    RecomputeLinkEncryptedLocked();
+}
+
+auto BluezBleTransport::OnDeviceInterfacesRemoved(
+    const sdbus::ObjectPath& path, const std::vector<std::string>& interfaces) -> void {
+    const bool device_gone = interfaces.empty() || std::find(interfaces.begin(), interfaces.end(),
+                                                             kIfaceDevice) != interfaces.end();
+    if (!device_gone) {
+        return;
+    }
+    std::lock_guard lock(mtx_);
+    if (devices_.erase(path) != 0U) {
+        RecomputeLinkEncryptedLocked();
+    }
+}
+
+auto BluezBleTransport::WatchBluezDevices() -> void {
+    // Subscribe to the org.bluez ObjectManager at "/" so we hear about Device1
+    // objects appearing/disappearing. finishRegistration installs the async
+    // match; the already-running event loop dispatches these callbacks.
+    device_watcher_ = sdbus::createProxy(*connection_, kBluezBus, sdbus::ObjectPath{"/"});
+    device_watcher_->uponSignal("InterfacesAdded")
+        .onInterface(kIfaceObjectManager)
+        .call([this](const sdbus::ObjectPath& path,
+                     const std::map<std::string, std::map<std::string, sdbus::Variant>>& ifaces) {
+            OnDeviceInterfacesAdded(path, ifaces);
+        });
+    device_watcher_->uponSignal("InterfacesRemoved")
+        .onInterface(kIfaceObjectManager)
+        .call([this](const sdbus::ObjectPath& path, const std::vector<std::string>& ifaces) {
+            OnDeviceInterfacesRemoved(path, ifaces);
+        });
+    device_watcher_->finishRegistration();
+
+    // Seed the devices BlueZ already knows about (a previously-bonded phone
+    // survives across reboots). Async + future wait, like CallManagerAsync — this
+    // thread never drives the bus, so the event loop can service the reply.
+    auto future = device_watcher_->callMethodAsync("GetManagedObjects")
+                      .onInterface(kIfaceObjectManager)
+                      .getResultAsFuture<ManagedObjects>();
+    if (future.wait_for(kCallTimeout) != std::future_status::ready) {
+        spdlog::warn("BluezBleTransport: GetManagedObjects timed out; device state seeds lazily");
+        return;
+    }
+    const ManagedObjects managed = future.get();
+    for (const auto& [obj_path, ifaces] : managed) {
+        OnDeviceInterfacesAdded(obj_path, ifaces);
+    }
+}
+
 auto BluezBleTransport::Start() -> void {
     if (running_) {
         return;
@@ -253,6 +404,20 @@ auto BluezBleTransport::Start() -> void {
                          sdbus::ObjectPath{app_root_path_});
         application_registered_ = true;
 
+        // Track org.bluez Device1 link state (Connected/Paired/Bonded) so the
+        // app-layer credential gate (ILinkSecurity, INV6/AE7) can reject
+        // SetNetworkConfig on an unencrypted link. Best-effort: a failure here
+        // must not abort BLE — the GATT `encrypt-authenticated-write` flag is the
+        // primary enforcement, this is defense-in-depth.
+        try {
+            WatchBluezDevices();
+        } catch (const sdbus::Error& e) {
+            spdlog::warn(
+                "BluezBleTransport: device link-state watch failed ({}): {} — "
+                "app-layer credential double-check disabled, GATT flag still enforces",
+                e.getName(), e.getMessage());
+        }
+
         spdlog::info("BluezBleTransport: advertising as \"{}\" with service {} on adapter {}",
                      advertised_name_, sst::control::BootstrapDefaults::kGattServiceUuid,
                      adapter_path_);
@@ -317,7 +482,12 @@ auto BluezBleTransport::Stop() -> void {
         std::lock_guard lock(mtx_);
         assembler_.Reset();
         gatt_app_.reset();
+        // Drop the per-device PropertiesChanged watchers + cached link state
+        // before the connection they ride is torn down.
+        devices_.clear();
+        link_encrypted_ = false;
     }
+    device_watcher_.reset();
     adv_obj_.reset();
     connection_.reset();
     running_ = false;
