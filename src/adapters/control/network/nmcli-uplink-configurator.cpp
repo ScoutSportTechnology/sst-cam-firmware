@@ -23,8 +23,10 @@ namespace {
 // that SAME wpa_supplicant via wpa_cli on its control socket, + dhclient for the
 // address — NOT NetworkManager. Ctrl dir matches the daemon's `-O` path.
 constexpr const char* kWpaCtrlDir = "/run/wpa_supplicant";
-// Bounded wait for the STA association to reach wpa_state=COMPLETED.
-constexpr int kAssocPollAttempts = 12;
+// Bounded wait for the STA association to reach wpa_state=COMPLETED. A post-GO
+// radio may need to scan + associate + 4-way handshake, so allow a generous
+// window (a busy 2.4GHz AP can take >6s).
+constexpr int kAssocPollAttempts = 30;
 constexpr auto kAssocPollDelay = std::chrono::milliseconds{500};
 // DHCP lease acquisition bound (dhclient -1 exits after one lease attempt).
 constexpr auto kDhcpTimeout = std::chrono::seconds{20};
@@ -68,6 +70,36 @@ auto WpaCli(const std::string& iface, const std::vector<std::string>& args) -> s
     std::vector<std::string> argv{"wpa_cli", "-p", kWpaCtrlDir, "-i", iface};
     argv.insert(argv.end(), args.begin(), args.end());
     return CaptureBounded(argv, kApplyTimeout).output;
+}
+
+// The wpa network ids of the STATION networks we previously added — i.e. every
+// LIST_NETWORKS row whose SSID is NOT a DIRECT-* P2P group. Lets us remove stale
+// STA networks from earlier provisions (they accumulate on the long-lived daemon
+// and can confuse a fresh join) WITHOUT dropping the persistent P2P group.
+// LIST_NETWORKS rows are `id<TAB>ssid<TAB>bssid<TAB>flags` after a header line.
+auto StaleStaNetworkIds(const std::string& iface) -> std::vector<std::string> {
+    std::vector<std::string> ids;
+    std::istringstream stream(WpaCli(iface, {"list_networks"}));
+    std::string line;
+    bool first = true;
+    while (std::getline(stream, line)) {
+        if (first) {  // header: "network id / ssid / bssid / flags"
+            first = false;
+            continue;
+        }
+        const auto tab1 = line.find('\t');
+        if (tab1 == std::string::npos) {
+            continue;
+        }
+        const auto tab2 = line.find('\t', tab1 + 1);
+        const std::string id = line.substr(0, tab1);
+        const std::string ssid =
+            line.substr(tab1 + 1, tab2 == std::string::npos ? std::string::npos : tab2 - tab1 - 1);
+        if (!id.empty() && ssid.rfind("DIRECT-", 0) != 0) {
+            ids.push_back(id);
+        }
+    }
+    return ids;
 }
 // Run a state-changing `nmcli` invocation, bounded by the apply deadline (a
 // hung `con up` mid-NM-restart must not stall the BLE dispatcher thread).
@@ -203,8 +235,12 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
         return {.ok = false, .detail = "no wifi device found"};
     }
 
-    // Add a fresh network on the dedicated wpa_supplicant. We do NOT `remove_network
-    // all` — that would also drop the stored persistent P2P group the GO reuses.
+    // Remove stale STA networks from prior provisions first (they accumulate on
+    // the long-lived daemon and can confuse a fresh join); keep the DIRECT-* P2P
+    // group the GO reuses. Then add a fresh network.
+    for (const auto& stale : StaleStaNetworkIds(iface)) {
+        WpaCli(iface, {"remove_network", stale});
+    }
     const std::string net_id = LastNumber(WpaCli(iface, {"add_network"}));
     if (net_id.empty()) {
         return {.ok = false, .detail = "wpa_cli add_network failed"};
