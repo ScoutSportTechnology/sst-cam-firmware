@@ -386,6 +386,21 @@ TEST(StreamingHandlerTest, UplinkUpAllowsStart) {
     EXPECT_FALSE(streaming.ListActivePlatformStreams().empty());
 }
 
+// KTD6: uplink present is necessary, not sufficient. When the uplink gate passes
+// but the RTMP egress fails to start (and nothing is already streaming), the
+// error is the distinct "egress unreachable" reason, not "already streaming".
+TEST(StreamingHandlerTest, UplinkUpButEgressFailsGivesDistinctReason) {
+    FakeStreaming streaming;
+    streaming.start_ok = false;  // RTMP push fails despite an uplink
+    FakeUplinkProbe probe;       // has_uplink defaults true
+    StreamingHandler handler(streaming, &probe);
+
+    auto resp = handler.Handle(StartCmd("rtmp://ingest.example/live/key"));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_NE(resp.error_message().find("egress"), std::string::npos);
+    EXPECT_EQ(resp.error_message().find("already streaming"), std::string::npos);
+}
+
 // SetStreamingConfig supplies a fallback destination used by a START with no
 // explicit destination.
 TEST(StreamingHandlerTest, SetConfigProvidesFallbackDestination) {

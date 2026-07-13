@@ -113,9 +113,20 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         config.framerate = quality.fps;
     }
 
+    bool already_streaming = false;
+    for (const auto& active : streaming_.ListActivePlatformStreams()) {
+        if (active.stream_id == kEgressStreamId) {
+            already_streaming = true;
+            break;
+        }
+    }
     if (!streaming_.StartPlatformStream(config)) {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message("streaming start failed (already streaming or bad destination)");
+        resp.set_error_message(
+            already_streaming
+                ? "streaming start: already streaming to a destination"
+                : "streaming start: the streaming server could not be reached (egress "
+                  "unreachable) — an uplink is present but outbound streaming failed");
         return resp;
     }
     if (session_ != nullptr) {
