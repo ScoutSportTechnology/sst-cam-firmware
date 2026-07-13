@@ -34,6 +34,13 @@ class NmcliUplinkConfigurator final : public sst::network::IUplinkConfigurator {
     static auto DetectEthernetConnection() -> std::string;
     // Current IPv4 address (CIDR) NM reports for `connection`, empty if none.
     static auto CurrentAddress(const std::string& connection) -> std::string;
+    // The base WiFi station device (TYPE=="wifi", i.e. wlP1p1s0 — NOT a
+    // "wifi-p2p" virtual iface), empty if none. Runs
+    // `nmcli -t -f DEVICE,TYPE device status`.
+    static auto DetectWifiDevice() -> std::string;
+    // Whether NM currently manages `device` (state != "unmanaged"), polled a few
+    // times after the managed handoff so a just-freed P2P iface has settled.
+    static auto WifiDeviceManaged(const std::string& device) -> bool;
 };
 
 }  // namespace sst::adapters::control

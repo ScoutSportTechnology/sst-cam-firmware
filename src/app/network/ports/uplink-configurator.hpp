@@ -30,9 +30,10 @@ class IUplinkConfigurator {
     // Apply the ethernet uplink (DHCP or static) via NM and bring it up.
     virtual auto ApplyEthernet(const sst::config::EthernetUplink& cfg) -> UplinkResult = 0;
 
-    // Apply the WiFi-STA uplink. GATED on single-radio GO+STA concurrency: until
-    // that is validated on this hardware, the adapter reports unavailable rather
-    // than disturbing the live-preview GO. The camera joins a network as a client.
+    // Apply the WiFi-STA uplink (join the phone's network as a client). The
+    // single-radio GO+STA concurrency hazard is designed out by the connectivity
+    // arbiter's INV2 invariant (KTD2/KTD3): the GO is always torn down before this
+    // is called, so the adapter is free to drive the wpa->NM handoff + STA join.
     virtual auto ApplyWifiSta(const sst::config::WifiStaUplink& cfg) -> UplinkResult = 0;
 
     // Probe the LIVE state of each interface (not the last-applied config) so the
