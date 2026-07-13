@@ -485,16 +485,16 @@ auto RunFirmware() -> int {
                                                                                 calibration_state));
     dispatcher.Register(std::make_shared<sst::control::CameraFocusHandler>(focuser, focus_state));
     dispatcher.Register(std::make_shared<sst::control::ActiveCameraHandler>(manual_camera_state));
-    // INV6 / AE7 deferred (OQ3): the GATT `encrypt-authenticated-write` flag
-    // conflicts with the app's chunked write-without-response path (it broke the
-    // handshake), and the contract forbids a separate credential characteristic —
-    // so per-characteristic encryption is not viable. Credential-link encryption
-    // moves to link-level bonding in a follow-up. Until then the ILinkSecurity
-    // gate is left UNWIRED (nullptr) so it cannot reject provisioning on an
-    // as-yet-unbonded link; the transport still tracks Device1 Paired/Bonded for
-    // when the bonding flow lands. Residual risk: credentials over a cleartext link.
+    // INV6 / AE7: gate SetNetworkConfig (WiFi passphrase) on an encrypted link.
+    // Encryption comes from LINK-LEVEL BONDING (KTD / OQ3): the transport registers
+    // a Just Works pairing agent + is Pairable, the app calls createBond before
+    // provisioning, and a bonded link encrypts ALL ATT traffic — including the
+    // write-without-response command char (so no per-characteristic encrypt flag,
+    // which conflicts with the app's chunked write path, is needed). The transport
+    // reports the bonded/encrypted state via ILinkSecurity (org.bluez Device1
+    // Paired/Bonded); the handler rejects credentials until the link is encrypted.
     dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(
-        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, /*link_security=*/nullptr));
+        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, &ble_transport));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.

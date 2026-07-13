@@ -30,6 +30,14 @@ constexpr const char* kIfaceLeAdv = "org.bluez.LEAdvertisement1";
 constexpr const char* kIfaceObjectManager = "org.freedesktop.DBus.ObjectManager";
 constexpr const char* kIfaceProperties = "org.freedesktop.DBus.Properties";
 constexpr const char* kIfaceDevice = "org.bluez.Device1";
+constexpr const char* kIfaceAgentManager = "org.bluez.AgentManager1";
+constexpr const char* kIfaceAgent1 = "org.bluez.Agent1";
+constexpr const char* kBluezRoot = "/org/bluez";
+// "NoInputNoOutput" → Just Works pairing: the camera has no UI, so it
+// auto-accepts every pairing request. Just Works yields an ENCRYPTED (though not
+// MITM-authenticated) link — enough to keep the WiFi passphrase off a cleartext
+// channel (INV6/AE7).
+constexpr const char* kAgentCapability = "NoInputNoOutput";
 
 using ManagedObjects =
     std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
@@ -60,7 +68,8 @@ BluezBleTransport::BluezBleTransport(std::string advertised_name, std::string ad
     : advertised_name_(std::move(advertised_name)),
       adapter_path_(std::move(adapter_path)),
       app_root_path_("/com/sst/cam/gatt"),
-      adv_path_("/com/sst/cam/adv") {}
+      adv_path_("/com/sst/cam/adv"),
+      agent_path_("/com/sst/cam/agent") {}
 
 BluezBleTransport::~BluezBleTransport() {
     if (running_) {
@@ -183,6 +192,50 @@ auto BluezBleTransport::BuildAdvertisement() -> void {
     });
 
     adv_obj_->finishRegistration();
+}
+
+auto BluezBleTransport::BuildAgent() -> void {
+    // A "Just Works" org.bluez.Agent1: the camera has no input/output, so every
+    // pairing/authorization request is AUTO-ACCEPTED (returning normally = accept;
+    // throwing org.bluez.Error.Rejected would reject). This lets the app bond
+    // without a UI prompt on the camera; the resulting bonded link encrypts ALL
+    // ATT traffic — including the write-without-response command char that carries
+    // the WiFi passphrase — so credentials never cross a cleartext link (INV6/AE7).
+    // Just Works is unauthenticated (no MITM protection), which is acceptable here:
+    // the goal is confidentiality of the passphrase, not peer authentication.
+    agent_obj_ = sdbus::createObject(*connection_, sdbus::ObjectPath{agent_path_});
+
+    agent_obj_->registerMethod("Release").onInterface(kIfaceAgent1).implementedAs([] {
+        spdlog::info("BleAgent: Release");
+    });
+    agent_obj_->registerMethod("RequestPinCode")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/) -> std::string { return "0000"; });
+    agent_obj_->registerMethod("DisplayPinCode")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/, const std::string& /*pincode*/) {});
+    agent_obj_->registerMethod("RequestPasskey")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/) -> std::uint32_t { return 0; });
+    agent_obj_->registerMethod("DisplayPasskey")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/, std::uint32_t /*passkey*/,
+                          std::uint16_t /*entered*/) {});
+    agent_obj_->registerMethod("RequestConfirmation")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/, std::uint32_t /*passkey*/) {
+            // Just Works: accept (return normally).
+        });
+    agent_obj_->registerMethod("RequestAuthorization")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/) {});
+    agent_obj_->registerMethod("AuthorizeService")
+        .onInterface(kIfaceAgent1)
+        .implementedAs([](const sdbus::ObjectPath& /*device*/, const std::string& /*uuid*/) {});
+    agent_obj_->registerMethod("Cancel").onInterface(kIfaceAgent1).implementedAs([] {
+        spdlog::info("BleAgent: Cancel");
+    });
+    agent_obj_->finishRegistration();
 }
 
 auto BluezBleTransport::CallManagerAsync(sdbus::IProxy& proxy, const char* iface,
@@ -360,16 +413,43 @@ auto BluezBleTransport::Start() -> void {
         gatt_app_->SetOnUnsubscribe([this] { HandleCentralGone(); });
 
         BuildAdvertisement();
+        BuildAgent();
 
         // Set the adapter Alias so the classic device name also reads
-        // sst-cam-NNNN (the app's secondary scan filter checks the name).
+        // sst-cam-NNNN (the app's secondary scan filter checks the name), and make
+        // the adapter Pairable so the app can bond — a bonded link encrypts ALL ATT
+        // traffic, incl. the write-without-response command char carrying the WiFi
+        // passphrase (INV6/AE7).
         try {
             auto adapter = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
             adapter->setProperty("Alias")
                 .onInterface("org.bluez.Adapter1")
                 .toValue(advertised_name_);
+            adapter->setProperty("Pairable").onInterface("org.bluez.Adapter1").toValue(true);
         } catch (const sdbus::Error& e) {
-            spdlog::warn("BluezBleTransport: could not set adapter Alias: {}", e.what());
+            spdlog::warn("BluezBleTransport: could not set adapter Alias/Pairable: {}", e.what());
+        }
+
+        // Register the Just Works pairing agent so a bond completes without a UI.
+        // Done synchronously BEFORE the event loop starts: RegisterAgent does not
+        // re-enter our own objects (unlike RegisterApplication), so a blocking call
+        // is safe here. Best-effort — a failure only means bonding is unavailable
+        // (the credential gate then rejects provisioning), never aborts BLE.
+        try {
+            auto agent_mgr =
+                sdbus::createProxy(*connection_, kBluezBus, sdbus::ObjectPath{kBluezRoot});
+            agent_mgr->callMethod("RegisterAgent")
+                .onInterface(kIfaceAgentManager)
+                .withArguments(sdbus::ObjectPath{agent_path_}, std::string{kAgentCapability});
+            agent_mgr->callMethod("RequestDefaultAgent")
+                .onInterface(kIfaceAgentManager)
+                .withArguments(sdbus::ObjectPath{agent_path_});
+            agent_registered_ = true;
+            spdlog::info("BluezBleTransport: registered Just Works pairing agent at {}",
+                         agent_path_);
+        } catch (const sdbus::Error& e) {
+            spdlog::warn("BluezBleTransport: RegisterAgent failed ({}): {} — bonding unavailable",
+                         e.getName(), e.getMessage());
         }
 
         // Start dispatching the connection BEFORE the Register* calls so the
@@ -461,6 +541,14 @@ auto BluezBleTransport::Stop() -> void {
                     .withArguments(sdbus::ObjectPath{app_root_path_});
                 application_registered_ = false;
             }
+            if (agent_registered_) {
+                auto agent_mgr =
+                    sdbus::createProxy(*connection_, kBluezBus, sdbus::ObjectPath{kBluezRoot});
+                agent_mgr->callMethod("UnregisterAgent")
+                    .onInterface(kIfaceAgentManager)
+                    .withArguments(sdbus::ObjectPath{agent_path_});
+                agent_registered_ = false;
+            }
         } catch (const sdbus::Error& e) {
             spdlog::warn("BluezBleTransport: unregister failed: {}", e.what());
         }
@@ -489,6 +577,7 @@ auto BluezBleTransport::Stop() -> void {
     }
     device_watcher_.reset();
     adv_obj_.reset();
+    agent_obj_.reset();
     connection_.reset();
     running_ = false;
 }

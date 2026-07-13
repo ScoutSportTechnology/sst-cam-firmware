@@ -57,6 +57,11 @@ class BluezBleTransport final : public sst::control::IBleTransport,
 
    private:
     auto BuildAdvertisement() -> void;
+    // Build + export a "Just Works" org.bluez.Agent1 so BlueZ can complete SMP
+    // pairing (bonding) with no camera-side UI. A bonded link is encrypted, so the
+    // WiFi passphrase on the write-without-response command char never crosses a
+    // cleartext channel (INV6/AE7). Registered with AgentManager1 in Start().
+    auto BuildAgent() -> void;
     // The central unsubscribed (StopNotify) — BlueZ fires this on disconnect.
     // Fire on_disconnect_ (session cleanup) and resume advertising so the camera
     // is discoverable again. Invoked on the D-Bus event-loop thread, so it hands
@@ -125,9 +130,11 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     std::string adapter_path_;
     std::string app_root_path_;
     std::string adv_path_;
+    std::string agent_path_;
 
     std::unique_ptr<sdbus::IConnection> connection_;
     std::unique_ptr<sdbus::IObject> adv_obj_;
+    std::unique_ptr<sdbus::IObject> agent_obj_;
     std::unique_ptr<GattApplication> gatt_app_;
     std::unique_ptr<sdbus::IProxy> device_watcher_;
 
@@ -145,6 +152,7 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     std::atomic<bool> running_{false};
     bool advertisement_registered_{false};
     bool application_registered_{false};
+    bool agent_registered_{false};
 };
 
 }  // namespace sst::adapters::control
