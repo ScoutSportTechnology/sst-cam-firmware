@@ -33,8 +33,15 @@ class IUplinkConfigurator {
     // Apply the WiFi-STA uplink (join the phone's network as a client). The
     // single-radio GO+STA concurrency hazard is designed out by the connectivity
     // arbiter's INV2 invariant (KTD2/KTD3): the GO is always torn down before this
-    // is called, so the adapter is free to drive the wpa->NM handoff + STA join.
+    // is called, so the adapter is free to drive the STA join.
     virtual auto ApplyWifiSta(const sst::config::WifiStaUplink& cfg) -> UplinkResult = 0;
+
+    // Cleanly tear the WiFi-STA uplink down: release the DHCP lease + kill its
+    // dhclient, disconnect the wpa association, and flush the STA address + routes
+    // off the radio. Called by the arbiter on EVERY revert to S1 so a leftover STA
+    // address/route can never linger and fight another interface (e.g. ethernet on
+    // the same subnet) or leave the iface dirty for the WiFi-Direct GO. Idempotent.
+    virtual auto TeardownWifiSta() -> void = 0;
 
     // Probe the LIVE state of each interface (not the last-applied config) so the
     // app's Settings -> Network shows reality: the camera's ethernet is

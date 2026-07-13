@@ -30,6 +30,7 @@ class FakeConfigurator final : public sst::network::IUplinkConfigurator {
         -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};
     }
+    auto TeardownWifiSta() -> void override {}
     auto ProbeEthernet() -> sst::network::UplinkResult override {
         return {.ok = true, .detail = "10.10.1.30/24"};
     }

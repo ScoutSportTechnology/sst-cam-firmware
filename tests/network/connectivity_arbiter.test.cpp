@@ -56,6 +56,10 @@ class FakeUplink final : public sst::network::IUplinkConfigurator {
         ++wifi_calls;
         return sta_result;
     }
+    auto TeardownWifiSta() -> void override {
+        log_.Record("uplink.TeardownWifiSta");
+        ++teardown_calls;
+    }
     auto ProbeEthernet() -> sst::network::UplinkResult override {
         return {.ok = false, .detail = ""};
     }
@@ -65,6 +69,7 @@ class FakeUplink final : public sst::network::IUplinkConfigurator {
 
     sst::network::UplinkResult sta_result{.ok = true, .detail = "10.0.0.5"};
     int wifi_calls{0};
+    int teardown_calls{0};
 
    private:
     CallLog& log_;
@@ -182,6 +187,7 @@ TEST(ConnectivityArbiterTest, StaJoinFailureRevertsToP2p) {
     EXPECT_FALSE(migration.has_value());
     EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
     EXPECT_EQ(h.hooks.reverted_calls, 1);
+    EXPECT_EQ(h.uplink.teardown_calls, 1);  // STA cleanly torn down on revert
     EXPECT_FALSE(h.timer.armed());
     // Still ordered: Stop happened, ApplyWifiSta happened, then revert.
     EXPECT_LT(IndexOf(h.log.calls, "wifi.Stop"), IndexOf(h.log.calls, "uplink.ApplyWifiSta"));
@@ -227,6 +233,7 @@ TEST(ConnectivityArbiterTest, DenyRevertsToP2p) {
 
     EXPECT_EQ(mode, ConnectivityMode::kP2pOnly);
     EXPECT_EQ(h.hooks.reverted_calls, 1);
+    EXPECT_EQ(h.uplink.teardown_calls, 1);  // STA cleanly torn down on revert
     EXPECT_FALSE(h.timer.armed());
 }
 
@@ -255,6 +262,7 @@ TEST(ConnectivityArbiterTest, RevertMidMigrationEndsLegal) {
 
     EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
     EXPECT_EQ(h.hooks.reverted_calls, 1);
+    EXPECT_EQ(h.uplink.teardown_calls, 1);  // STA cleanly torn down on revert
     EXPECT_FALSE(h.timer.armed());
 }
 
@@ -268,6 +276,7 @@ TEST(ConnectivityArbiterTest, SelfRevertTimeoutRevertsToP2p) {
 
     EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
     EXPECT_EQ(h.hooks.reverted_calls, 1);
+    EXPECT_EQ(h.uplink.teardown_calls, 1);  // STA cleanly torn down on revert
 }
 
 // A late confirm after the self-revert already fired (stale id) → no re-entry.

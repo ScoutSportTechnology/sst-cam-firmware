@@ -259,6 +259,24 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     return {.ok = true, .detail = address};
 }
 
+auto NmcliUplinkConfigurator::TeardownWifiSta() -> void {
+    const std::string iface = DetectWifiDevice();
+    if (iface.empty()) {
+        return;
+    }
+    // Release the lease + kill the dhclient we started (matched by its lease/pid
+    // files), disconnect the wpa association, then flush any address + routes off
+    // the radio so nothing (a stale default/subnet route, a leftover STA IP) can
+    // linger to fight another interface or dirty the iface for the GO.
+    RunBounded({"dhclient", "-r", "-lf", "/tmp/sst-dhclient.leases", "-pf", "/tmp/sst-dhclient.pid",
+                iface},
+               kDhcpTimeout);
+    WpaCli(iface, {"disconnect"});
+    RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
+    RunBounded({"ip", "route", "flush", "dev", iface}, kApplyTimeout);
+    spdlog::info("NmcliUplinkConfigurator: wifi STA torn down on {}", iface);
+}
+
 auto NmcliUplinkConfigurator::ProbeEthernet() -> sst::network::UplinkResult {
     // Live state, independent of the firmware uplink config: the camera's
     // ethernet is NM-managed, so it may be up with an address even when the
