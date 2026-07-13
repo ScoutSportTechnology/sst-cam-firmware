@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <sstream>
 #include <string>
@@ -15,14 +17,58 @@ namespace sst::adapters::control {
 
 namespace {
 
-// The deterministic NM profile name for the app-provisioned STA uplink. A fixed
-// name lets us re-provision (delete + recreate), bring up, and probe it without
-// guessing an NM-generated connection id.
-constexpr const char* kWifiStaProfile = "sst-uplink-wifi";
-// Bounded wait for the wpa->NM ownership handoff to settle after `device set
-// managed yes` (KTD2) — a just-freed P2P iface takes a moment to appear managed.
-constexpr int kManagedPollAttempts = 6;
-constexpr auto kManagedPollDelay = std::chrono::milliseconds{500};
+// The Jetson dedicates the WiFi radio (wlP1p1s0) to a firmware-owned
+// wpa_supplicant for the WiFi-Direct GO, and NetworkManager is configured to
+// NEVER manage it (conf.d unmanaged-devices). So the STA join is driven through
+// that SAME wpa_supplicant via wpa_cli on its control socket, + dhclient for the
+// address — NOT NetworkManager. Ctrl dir matches the daemon's `-O` path.
+constexpr const char* kWpaCtrlDir = "/run/wpa_supplicant";
+// Bounded wait for the STA association to reach wpa_state=COMPLETED.
+constexpr int kAssocPollAttempts = 12;
+constexpr auto kAssocPollDelay = std::chrono::milliseconds{500};
+// DHCP lease acquisition bound (dhclient -1 exits after one lease attempt).
+constexpr auto kDhcpTimeout = std::chrono::seconds{20};
+
+// The last whitespace-separated integer token in `text` (wpa_cli add_network
+// prints the new network id on its own line). Empty if none.
+auto LastNumber(const std::string& text) -> std::string {
+    std::istringstream stream(text);
+    std::string token;
+    std::string last;
+    while (stream >> token) {
+        if (!token.empty() && std::all_of(token.begin(), token.end(), [](unsigned char chr) {
+                return std::isdigit(chr) != 0;
+            })) {
+            last = token;
+        }
+    }
+    return last;
+}
+
+// The IPv4 address (no prefix length) currently on `iface`, empty if none.
+// Parses `ip -4 -o addr show dev <iface>` → "... inet 192.168.1.50/24 ...".
+auto IfaceIpv4(const std::string& iface) -> std::string {
+    if (iface.empty()) {
+        return {};
+    }
+    const std::string out =
+        CaptureBounded({"ip", "-4", "-o", "addr", "show", "dev", iface}, kQueryTimeout).output;
+    const auto inet = out.find("inet ");
+    if (inet == std::string::npos) {
+        return {};
+    }
+    const auto start = inet + 5;
+    const auto end = out.find_first_of("/ \t", start);
+    return out.substr(start, end == std::string::npos ? std::string::npos : end - start);
+}
+
+// Run a wpa_cli command against the dedicated wpa_supplicant on `iface` and return
+// its stdout. Bounded by the apply deadline.
+auto WpaCli(const std::string& iface, const std::vector<std::string>& args) -> std::string {
+    std::vector<std::string> argv{"wpa_cli", "-p", kWpaCtrlDir, "-i", iface};
+    argv.insert(argv.end(), args.begin(), args.end());
+    return CaptureBounded(argv, kApplyTimeout).output;
+}
 // Run a state-changing `nmcli` invocation, bounded by the apply deadline (a
 // hung `con up` mid-NM-restart must not stall the BLE dispatcher thread).
 auto RunNmcli(const std::vector<std::string>& argv) -> bool {
@@ -128,79 +174,66 @@ auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
     return {};
 }
 
-auto NmcliUplinkConfigurator::WifiDeviceManaged(const std::string& device) -> bool {
-    if (device.empty()) {
-        return false;
-    }
-    // "DEVICE:STATE", e.g. "wlP1p1s0:connected" / "wlP1p1s0:unmanaged".
-    const std::string out = Capture({"nmcli", "-t", "-f", "DEVICE,STATE", "device", "status"});
-    std::istringstream stream(out);
-    std::string line;
-    while (std::getline(stream, line)) {
-        const auto colon = line.find(':');
-        if (colon == std::string::npos) {
-            continue;
-        }
-        if (line.substr(0, colon) == device) {
-            return line.substr(colon + 1) != "unmanaged";
-        }
-    }
-    return false;
-}
-
 auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg)
     -> sst::network::UplinkResult {
-    // The single-radio GO+STA concurrency hazard is designed out upstream: the
-    // connectivity arbiter (KTD3) guarantees the WiFi-Direct GO is torn down
-    // before this runs, so the radio is free. Our job is the wpa->NM ownership
-    // handoff (KTD2) plus the explicit, app-provisioned STA join.
-    if (cfg.ssid.value_or("").empty()) {
+    // The Jetson dedicates wlP1p1s0 to a firmware-owned wpa_supplicant for the
+    // WiFi-Direct GO; NetworkManager is configured to NEVER manage it. So the STA
+    // join runs through that SAME wpa_supplicant (wpa_cli on its ctrl socket) +
+    // dhclient — NOT NetworkManager. The connectivity arbiter has already torn the
+    // GO down (INV2), so the radio is free to associate as a station.
+    const std::string ssid = cfg.ssid.value_or("");
+    if (ssid.empty()) {
         return {.ok = false, .detail = "wifi uplink requires an SSID"};
     }
-
-    const std::string device = DetectWifiDevice();
-    if (device.empty()) {
+    const std::string iface = DetectWifiDevice();
+    if (iface.empty()) {
         return {.ok = false, .detail = "no wifi device found"};
     }
 
-    // Hand the just-freed radio back to NetworkManager, then wait (bounded) for it
-    // to actually report managed — a hung/unmanaged iface returns a clear error
-    // rather than silently stalling ApplyWifiSta.
-    RunNmcli(BuildWifiManagedArgv(device));
-    bool managed = false;
-    for (int attempt = 0; attempt < kManagedPollAttempts; ++attempt) {
-        if (WifiDeviceManaged(device)) {
-            managed = true;
+    // Add a fresh network on the dedicated wpa_supplicant. We do NOT `remove_network
+    // all` — that would also drop the stored persistent P2P group the GO reuses.
+    const std::string net_id = LastNumber(WpaCli(iface, {"add_network"}));
+    if (net_id.empty()) {
+        return {.ok = false, .detail = "wpa_cli add_network failed"};
+    }
+    WpaCli(iface, {"set_network", net_id, "ssid", "\"" + ssid + "\""});
+    const std::string psk = cfg.passphrase.value_or("");
+    if (psk.empty()) {
+        WpaCli(iface, {"set_network", net_id, "key_mgmt", "NONE"});
+    } else {
+        WpaCli(iface, {"set_network", net_id, "psk", "\"" + psk + "\""});
+    }
+    WpaCli(iface, {"enable_network", net_id});
+    WpaCli(iface, {"select_network", net_id});
+
+    // Wait (bounded) for association.
+    bool associated = false;
+    for (int attempt = 0; attempt < kAssocPollAttempts; ++attempt) {
+        if (WpaCli(iface, {"status"}).find("wpa_state=COMPLETED") != std::string::npos) {
+            associated = true;
             break;
         }
-        std::this_thread::sleep_for(kManagedPollDelay);
+        std::this_thread::sleep_for(kAssocPollDelay);
     }
-    if (!managed) {
-        return {.ok = false, .detail = "wifi interface not managed by NetworkManager"};
-    }
-
-    // Recreate the uplink profile from scratch so re-provisioning a different SSID
-    // never inherits stale settings. Delete is best-effort (no prior profile is
-    // fine).
-    RunNmcli(BuildWifiStaDeleteArgv(kWifiStaProfile));
-    const auto add_argv = BuildWifiStaAddArgv(kWifiStaProfile, device, cfg);
-    if (add_argv.empty()) {
-        return {.ok = false, .detail = "invalid wifi config (need SSID; static needs a CIDR)"};
-    }
-    if (!RunNmcli(add_argv)) {
-        return {.ok = false, .detail = "nmcli con add (wifi) failed"};
-    }
-    if (!RunNmcli(BuildConnectionUpArgv(kWifiStaProfile))) {
-        // The most common cause is a wrong passphrase / failed association. Drop
-        // the dead profile so it can't linger, and report a clear reason (U7
-        // renders it). The handler does not persist on !ok.
-        RunNmcli(BuildWifiStaDeleteArgv(kWifiStaProfile));
+    if (!associated) {
+        // Most likely a wrong passphrase / SSID not found. Tear the attempt down so
+        // it can't linger, and report a clear reason (U7 renders it). The handler
+        // does not persist on !ok.
+        WpaCli(iface, {"disconnect"});
+        WpaCli(iface, {"remove_network", net_id});
         return {.ok = false, .detail = "failed to join wifi (check the password)"};
     }
 
-    const std::string address = CurrentAddress(kWifiStaProfile);
-    spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", cfg.ssid.value_or(""),
-                 device, address);
+    // NM does not manage this iface, so dhclient is free to lease an address (+ the
+    // DHCP default route, which HasInternetUplink keys on for the streaming gate).
+    RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
+    const std::string address = IfaceIpv4(iface);
+    if (address.empty()) {
+        WpaCli(iface, {"disconnect"});
+        WpaCli(iface, {"remove_network", net_id});
+        return {.ok = false, .detail = "joined wifi but got no DHCP address"};
+    }
+    spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", ssid, iface, address);
     return {.ok = true, .detail = address};
 }
 
@@ -217,10 +250,18 @@ auto NmcliUplinkConfigurator::ProbeEthernet() -> sst::network::UplinkResult {
 }
 
 auto NmcliUplinkConfigurator::ProbeWifiSta() -> sst::network::UplinkResult {
-    // Live state of the app-provisioned STA uplink: up == our profile is active
-    // with an address. Absent profile (never provisioned, or reverted to the GO)
-    // → not connected. Reality, independent of the last apply.
-    const std::string address = CurrentAddress(kWifiStaProfile);
+    // Live STA state on the dedicated wpa_supplicant: associated to a real AP (not
+    // the WiFi-Direct GO) with an address. `mode=P2P GO` / a DIRECT- SSID means the
+    // GO is up, i.e. NOT a station uplink.
+    const std::string iface = DetectWifiDevice();
+    if (iface.empty()) {
+        return {.ok = false, .detail = "no wifi device"};
+    }
+    const std::string status = WpaCli(iface, {"status"});
+    const bool completed = status.find("wpa_state=COMPLETED") != std::string::npos;
+    const bool is_go = status.find("mode=P2P GO") != std::string::npos ||
+                       status.find("ssid=DIRECT-") != std::string::npos;
+    const std::string address = completed && !is_go ? IfaceIpv4(iface) : std::string{};
     if (address.empty()) {
         return {.ok = false, .detail = "not connected"};
     }

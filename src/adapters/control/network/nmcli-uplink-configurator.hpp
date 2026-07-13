@@ -38,9 +38,6 @@ class NmcliUplinkConfigurator final : public sst::network::IUplinkConfigurator {
     // "wifi-p2p" virtual iface), empty if none. Runs
     // `nmcli -t -f DEVICE,TYPE device status`.
     static auto DetectWifiDevice() -> std::string;
-    // Whether NM currently manages `device` (state != "unmanaged"), polled a few
-    // times after the managed handoff so a just-freed P2P iface has settled.
-    static auto WifiDeviceManaged(const std::string& device) -> bool;
 };
 
 }  // namespace sst::adapters::control
