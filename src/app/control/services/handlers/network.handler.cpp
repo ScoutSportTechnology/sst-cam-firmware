@@ -107,7 +107,8 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
     if (applied.ethernet_enabled && !applied.ethernet.ok) {
         spdlog::error("NetworkHandler: ethernet apply failed ('{}') — not persisting, ERROR",
                       applied.ethernet.detail);
-        return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt);
+        return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
+                             "Wired network setup failed: " + applied.ethernet.detail);
     }
 
     // Route the WiFi-STA request through the arbiter. Enabled -> begin a P2P->STA
@@ -121,9 +122,11 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
             // already in flight — the arbiter has reverted to a legal S1. Report
             // the failure so the app shows a friendly message (U7) rather than a
             // false green, and do not persist a config that did not come up.
-            spdlog::error(
-                "NetworkHandler: shared-wifi migration could not start — reporting ERROR");
-            return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt);
+            const std::string reason = arbiter_.LastError();
+            spdlog::error("NetworkHandler: shared-wifi migration could not start ('{}') — ERROR",
+                          reason);
+            return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
+                                 reason.empty() ? "Couldn't join that Wi-Fi network" : reason);
         }
     } else {
         arbiter_.RevertToP2p();
@@ -133,7 +136,8 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
     // holds R-BOOT (no self-join on the next boot).
     if (!store_.Persist(current_)) {
         spdlog::error("NetworkHandler: uplink accepted but persistence failed");
-        return BuildResponse(sst_cam::ResponseStatus::ERROR, migration);
+        return BuildResponse(sst_cam::ResponseStatus::ERROR, migration,
+                             "Network applied but could not be saved on the camera");
     }
     return BuildResponse(sst_cam::ResponseStatus::OK, migration);
 }
@@ -155,7 +159,8 @@ auto NetworkHandler::HandleConfirmReachable(const sst_cam::ConfirmPreviewReachab
 
 auto NetworkHandler::BuildResponse(
     sst_cam::ResponseStatus status,
-    const std::optional<sst::network::SharedWifiMigration>& migration) -> sst_cam::CommandResponse {
+    const std::optional<sst::network::SharedWifiMigration>& migration,
+    const std::string& error_message) -> sst_cam::CommandResponse {
     // Live interface state (reality), not the last-applied result — the camera's
     // ethernet is NM-managed and may be up even when the uplink config disables it.
     const auto live = manager_.QueryStatus();
@@ -175,6 +180,9 @@ auto NetworkHandler::BuildResponse(
         payload->set_preview_credential(migration->preview_credential);
     }
     resp.set_status(status);
+    // A concrete failure reason for the app to show (Details / friendly copy)
+    // instead of a bare ERROR that surfaces as "null". Empty on success.
+    resp.set_error_message(error_message);
     return resp;
 }
 

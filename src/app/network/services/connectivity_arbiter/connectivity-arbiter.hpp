@@ -34,6 +34,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     auto ConfirmSharedWifi(MigrationId migration_id, bool reachable) -> ConnectivityMode override;
     auto RevertToP2p() -> void override;
     [[nodiscard]] auto CurrentMode() const -> ConnectivityMode override;
+    [[nodiscard]] auto LastError() const -> std::string override;
 
     // Accessors for the network command handler (U4) to build NetworkConfigResponse.
     [[nodiscard]] auto CurrentMigrationId() const -> MigrationId;
@@ -58,6 +59,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     MigrationId current_id_{0};
     std::string preview_endpoint_;
     std::string preview_credential_;
+    std::string last_error_;  // reason the last RequestSharedWifi failed (empty on success)
 };
 
 }  // namespace sst::network

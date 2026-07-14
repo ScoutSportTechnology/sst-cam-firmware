@@ -53,8 +53,8 @@ class NetworkHandler final : public ICommandHandler {
     // `migration`, when present, carries the P2P->STA migration id / STA preview
     // endpoint / per-session credential this Set began (U9 fields).
     auto BuildResponse(sst_cam::ResponseStatus status,
-                       const std::optional<sst::network::SharedWifiMigration>& migration)
-        -> sst_cam::CommandResponse;
+                       const std::optional<sst::network::SharedWifiMigration>& migration,
+                       const std::string& error_message = {}) -> sst_cam::CommandResponse;
     auto HandleGet() -> sst_cam::CommandResponse;
 
     sst::network::UplinkManager& manager_;

@@ -80,6 +80,13 @@ class IConnectivityArbiter {
     virtual auto RevertToP2p() -> void = 0;
 
     [[nodiscard]] virtual auto CurrentMode() const -> ConnectivityMode = 0;
+
+    // A human-readable reason the most recent RequestSharedWifi failed (empty
+    // when the last request succeeded or none has run). Lets the command handler
+    // put a real reason into CommandResponse.error_message instead of a bare
+    // ERROR, so the app can show why a join failed without a debugger. Default
+    // returns empty so lightweight test doubles need not implement it.
+    [[nodiscard]] virtual auto LastError() const -> std::string { return {}; }
 };
 
 }  // namespace sst::network

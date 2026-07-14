@@ -29,6 +29,7 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
         spdlog::warn(
             "ConnectivityArbiter: RequestSharedWifi rejected — mode={} (migration in flight)",
             mode_);
+        last_error_ = "a network change is already in progress — try again in a moment";
         return std::nullopt;
     }
 
@@ -39,13 +40,15 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
     if (!sta.ok) {
         // STA never fully came up — tear down any partial STA state (lease/address/
         // routes), restore the GO, and stay in a legal S1. detail is the failure
-        // reason (surfaced to the app as a friendly message by U7).
+        // reason (surfaced to the app as a friendly message by U7 + error_message).
         spdlog::warn("ConnectivityArbiter: STA join failed ({}); reverting to P2P", sta.detail);
+        last_error_ = sta.detail;
         uplink_.TeardownWifiSta();
         hooks_.OnRevertedToP2p();
         mode_ = ConnectivityMode::kP2pOnly;
         return std::nullopt;
     }
+    last_error_.clear();  // this request succeeded — no stale reason for the app
 
     const MigrationId migration_id = ++migration_counter_;
     mode_ = ConnectivityMode::kMigrating;
@@ -137,6 +140,11 @@ auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId migration_id) -> void 
 auto ConnectivityArbiter::CurrentMode() const -> ConnectivityMode {
     std::lock_guard<std::mutex> lock(mtx_);
     return mode_;
+}
+
+auto ConnectivityArbiter::LastError() const -> std::string {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return last_error_;
 }
 
 auto ConnectivityArbiter::CurrentMigrationId() const -> MigrationId {
