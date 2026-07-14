@@ -30,6 +30,11 @@ constexpr int kAssocPollAttempts = 30;
 constexpr auto kAssocPollDelay = std::chrono::milliseconds{500};
 // DHCP lease acquisition bound (dhclient -1 exits after one lease attempt).
 constexpr auto kDhcpTimeout = std::chrono::seconds{20};
+// Regulatory-domain scan bounds (AdoptApRegDomain): trigger the scan via wpa_cli
+// then read the cached results. Kept short so a slow/again scan can never stall
+// the BLE command past the app's response timeout.
+constexpr auto kRegScanTimeout = std::chrono::seconds{5};
+constexpr auto kRegScanSettle = std::chrono::seconds{3};
 
 // The last whitespace-separated integer token in `text` (wpa_cli add_network
 // prints the new network id on its own line). Empty if none.
@@ -69,11 +74,21 @@ auto IfaceIpv4(const std::string& iface) -> std::string {
 // but is forbidden to START an association, so the join scans fine yet never
 // reaches wpa_state=COMPLETED. Move off "00" by adopting the target network's
 // own advertised 802.11d country before associating. The country is read from
-// the air (the AP's Country IE, surfaced by `iw scan`) each join and never
-// stored — the camera stays stateless about location. Best-effort: if no AP
-// advertises 11d, leave the domain as-is and let the association proceed.
+// the air (the AP's Country IE) each join and never stored — the camera stays
+// stateless about location. Best-effort: if no AP advertises 11d, leave the
+// domain as-is and let the association proceed.
+//
+// The scan is TRIGGERED through the wpa_supplicant that owns the iface (a raw
+// `iw dev … scan` conflicts with the running supplicant and can block for the
+// full apply timeout — long enough to blow past the app's BLE-command timeout,
+// which surfaces as a bare "setNetworkConfig failed"). The results are then read
+// from the kernel's cache (`scan dump` — no radio op, no conflict, instant).
+// Both steps are bounded short so this can never stall the command dispatcher.
 auto AdoptApRegDomain(const std::string& iface) -> void {
-    const std::string scan = CaptureBounded({"iw", "dev", iface, "scan"}, kApplyTimeout).output;
+    CaptureBounded({"wpa_cli", "-p", kWpaCtrlDir, "-i", iface, "scan"}, kRegScanTimeout);
+    std::this_thread::sleep_for(kRegScanSettle);
+    const std::string scan =
+        CaptureBounded({"iw", "dev", iface, "scan", "dump"}, kRegScanTimeout).output;
     // Lines look like: "\tCountry: US\tEnvironment: Indoor/Outdoor".
     const auto pos = scan.find("Country: ");
     if (pos == std::string::npos) {
