@@ -64,6 +64,34 @@ auto IfaceIpv4(const std::string& iface) -> std::string {
     return out.substr(start, end == std::string::npos ? std::string::npos : end - start);
 }
 
+// The radio boots at regulatory domain "00" (world), under which the operating
+// channels are flagged no-initiate/passive: the driver can SEE an AP in a scan
+// but is forbidden to START an association, so the join scans fine yet never
+// reaches wpa_state=COMPLETED. Move off "00" by adopting the target network's
+// own advertised 802.11d country before associating. The country is read from
+// the air (the AP's Country IE, surfaced by `iw scan`) each join and never
+// stored — the camera stays stateless about location. Best-effort: if no AP
+// advertises 11d, leave the domain as-is and let the association proceed.
+auto AdoptApRegDomain(const std::string& iface) -> void {
+    const std::string scan = CaptureBounded({"iw", "dev", iface, "scan"}, kApplyTimeout).output;
+    // Lines look like: "\tCountry: US\tEnvironment: Indoor/Outdoor".
+    const auto pos = scan.find("Country: ");
+    if (pos == std::string::npos) {
+        return;
+    }
+    const std::string country = scan.substr(pos + 9, 2);
+    const auto is_alpha = [](char chr) {
+        return std::isalpha(static_cast<unsigned char>(chr)) != 0;
+    };
+    if (country.size() != 2 || country == "00" || country == "XX" || !is_alpha(country[0]) ||
+        !is_alpha(country[1])) {
+        return;
+    }
+    RunBounded({"iw", "reg", "set", country}, kQueryTimeout);
+    spdlog::info("NmcliUplinkConfigurator: adopted regulatory domain {} from AP beacon (was 00)",
+                 country);
+}
+
 // Run a wpa_cli command against the dedicated wpa_supplicant on `iface` and return
 // its stdout. Bounded by the apply deadline.
 auto WpaCli(const std::string& iface, const std::vector<std::string>& args) -> std::string {
@@ -92,11 +120,11 @@ auto StaleStaNetworkIds(const std::string& iface) -> std::vector<std::string> {
             continue;
         }
         const auto tab2 = line.find('\t', tab1 + 1);
-        const std::string id = line.substr(0, tab1);
+        const std::string network_id = line.substr(0, tab1);
         const std::string ssid =
             line.substr(tab1 + 1, tab2 == std::string::npos ? std::string::npos : tab2 - tab1 - 1);
-        if (!id.empty() && ssid.rfind("DIRECT-", 0) != 0) {
-            ids.push_back(id);
+        if (!network_id.empty() && !ssid.starts_with("DIRECT-")) {
+            ids.push_back(network_id);
         }
     }
     return ids;
@@ -208,11 +236,11 @@ auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
         }
         std::string name = line.substr(start, end - start);
         // Drop a "wlP1p1s0@if3"-style suffix if the kernel added one.
-        const auto at = name.find('@');
-        if (at != std::string::npos) {
-            name = name.substr(0, at);
+        const auto at_pos = name.find('@');
+        if (at_pos != std::string::npos) {
+            name = name.substr(0, at_pos);
         }
-        if (name.rfind("wl", 0) == 0) {
+        if (name.starts_with("wl")) {
             return name;
         }
     }
@@ -234,6 +262,12 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     if (iface.empty()) {
         return {.ok = false, .detail = "no wifi device found"};
     }
+
+    // Adopt the target network's 802.11d country before associating — the radio
+    // boots at domain "00", under which association is forbidden on the operating
+    // channels (scan sees the AP, but the join never completes). Stateless: the
+    // country is read from the AP's beacon each join, never persisted.
+    AdoptApRegDomain(iface);
 
     // Remove stale STA networks from prior provisions first (they accumulate on
     // the long-lived daemon and can confuse a fresh join); keep the DIRECT-* P2P
