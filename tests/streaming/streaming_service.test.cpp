@@ -179,9 +179,9 @@ TEST_F(StreamingServiceTest, StartAppStreamReturnsFalseWhenAdapterRefuses) {
 // U3: rebinding a running preview onto a new address is a Stop + Start with the
 // new config (the RTSP server binds its address once at Start).
 TEST_F(StreamingServiceTest, RebindAppStreamRestartsOnNewAddress) {
-    AppStreamConfig go;
-    go.address = "192.168.49.1";
-    EXPECT_TRUE(service_->StartAppStream(go));
+    AppStreamConfig go_cfg;
+    go_cfg.address = "192.168.49.1";
+    EXPECT_TRUE(service_->StartAppStream(go_cfg));
     EXPECT_EQ(app_->start_calls, 1);
     EXPECT_EQ(app_->stop_calls, 0);
 

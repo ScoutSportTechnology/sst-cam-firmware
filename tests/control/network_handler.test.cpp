@@ -13,6 +13,10 @@
 
 namespace {
 
+// The fixed migration id the FakeArbiter mints, shared by the tests that drive
+// the confirm/echo path so the value is named, not a bare literal.
+constexpr sst::network::MigrationId kFakeMigrationId = 7;
+
 // Configurator whose ethernet apply outcome is parameterizable, so a test can
 // drive both the success and the apply-failure path.
 class FakeConfigurator final : public sst::network::IUplinkConfigurator {
@@ -84,8 +88,9 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
             ssid.clear();
             return std::nullopt;
         }
-        return sst::network::SharedWifiMigration{
-            .id = 7, .preview_endpoint = "10.0.0.9", .preview_credential = "cam:secret"};
+        return sst::network::SharedWifiMigration{.id = kFakeMigrationId,
+                                                 .preview_endpoint = "10.0.0.9",
+                                                 .preview_credential = "cam:secret"};
     }
     auto ConfirmSharedWifi(sst::network::MigrationId migration_id,
                            bool reachable) -> sst::network::ConnectivityMode override {
@@ -302,7 +307,7 @@ TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(arbiter.request_calls, 1);  // wifi routed to the arbiter
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
-    EXPECT_EQ(resp.network_config().migration_id(), 7U);
+    EXPECT_EQ(resp.network_config().migration_id(), kFakeMigrationId);
     EXPECT_EQ(resp.network_config().preview_endpoint(), "10.0.0.9");
     EXPECT_EQ(resp.network_config().preview_credential(), "cam:secret");
 }
@@ -360,17 +365,17 @@ TEST(NetworkHandlerTest, ConfirmPreviewReachableRoutesToArbiter) {
 
     sst_cam::Command cmd;
     auto* confirm = cmd.mutable_confirm_preview_reachable();
-    confirm->set_migration_id(7);
+    confirm->set_migration_id(kFakeMigrationId);
     confirm->set_reachable(true);
 
     const auto resp = handler.Handle(cmd);
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(arbiter.confirm_calls, 1);
-    EXPECT_EQ(arbiter.last_confirm_id, 7U);
+    EXPECT_EQ(arbiter.last_confirm_id, kFakeMigrationId);
     EXPECT_TRUE(arbiter.last_reachable);
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kConfirmPreviewReachable);
-    EXPECT_EQ(resp.confirm_preview_reachable().migration_id(), 7U);
+    EXPECT_EQ(resp.confirm_preview_reachable().migration_id(), kFakeMigrationId);
     EXPECT_TRUE(resp.confirm_preview_reachable().in_shared_wifi());
 }
 
@@ -446,7 +451,7 @@ TEST(NetworkHandlerTest, SetSameSsidDifferentPasswordReMigrates) {
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(arbiter.request_calls, 1);  // re-migrated, not short-circuited
     EXPECT_EQ(store.persist_calls, 1);    // persisted only after the arbiter validated
-    EXPECT_EQ(resp.network_config().migration_id(), 7U);
+    EXPECT_EQ(resp.network_config().migration_id(), kFakeMigrationId);
 }
 
 // R3: a change-networks to a NEW SSID that FAILS reports ERROR, does not persist,
