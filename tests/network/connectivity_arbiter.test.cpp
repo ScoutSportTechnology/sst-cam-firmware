@@ -64,12 +64,16 @@ class FakeUplink final : public sst::network::IUplinkConfigurator {
         return {.ok = false, .detail = ""};
     }
     auto ProbeWifiSta() -> sst::network::UplinkResult override {
-        return {.ok = false, .detail = ""};
+        ++probe_calls;
+        return probe_result;
     }
 
     sst::network::UplinkResult sta_result{.ok = true, .detail = "10.0.0.5"};
+    // Live STA carrier the D2a watchdog polls; default present.
+    sst::network::UplinkResult probe_result{.ok = true, .detail = "10.0.0.5"};
     int wifi_calls{0};
     int teardown_calls{0};
+    int probe_calls{0};
 
    private:
     CallLog& log_;
@@ -211,7 +215,9 @@ TEST(ConnectivityArbiterTest, InEpochConfirmFinalisesStaOnly) {
 
     EXPECT_EQ(mode, ConnectivityMode::kStaOnly);
     EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
-    EXPECT_FALSE(harness.timer.armed());
+    // The migration self-revert is disarmed, but the SAME timer is now re-armed as
+    // the S2 carrier watchdog (D2a) — so it is armed, not idle.
+    EXPECT_TRUE(harness.timer.armed());
     EXPECT_EQ(harness.hooks.reverted_calls, 0);
 }
 
@@ -436,6 +442,77 @@ TEST(ConnectivityArbiterTest, ChangeNetworksJoinFailureRevertsAndClearsSsid) {
     EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
     EXPECT_EQ(harness.arbiter.CurrentSsid(), "");
     EXPECT_FALSE(harness.timer.armed());
+}
+
+// Drive an arbiter to a settled kStaOnly (S2) with the carrier watchdog armed.
+auto EnterStaOnly(Harness& harness) -> void {
+    sst::config::WifiStaUplink cfg;
+    cfg.ssid = "NetA";
+    const auto migration = harness.arbiter.RequestSharedWifi(cfg);
+    if (!migration.has_value()) {
+        FAIL();
+        return;
+    }
+    harness.arbiter.ConfirmSharedWifi(migration.value().id, true);
+}
+
+// D2a: while kStaOnly, a SUSTAINED carrier loss (N consecutive failed checks)
+// auto-reverts to P2P so preview resumes over the GO even with a dead BLE link.
+TEST(ConnectivityArbiterTest, S2CarrierLossWatchdogAutoRevertsAfterStrikes) {
+    Harness harness;
+    EnterStaOnly(harness);
+    ASSERT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+
+    harness.uplink.probe_result = {.ok = false, .detail = "not connected"};
+    // First two lost-carrier checks keep watching (below the strike threshold).
+    harness.timer.Fire();
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    harness.timer.Fire();
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    // The third consecutive loss trips the watchdog → revert to P2P.
+    harness.timer.Fire();
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
+    EXPECT_EQ(harness.hooks.reverted_calls, 1);
+    EXPECT_EQ(harness.uplink.teardown_calls, 1);
+    EXPECT_FALSE(harness.timer.armed());  // watchdog disarmed after the revert
+
+    // A stale tick after the revert is a harmless no-op (no second revert).
+    harness.timer.Fire();
+    EXPECT_EQ(harness.hooks.reverted_calls, 1);
+}
+
+// D2a: a present carrier keeps S2 indefinitely — the watchdog re-arms and never
+// reverts while the link is healthy.
+TEST(ConnectivityArbiterTest, S2CarrierPresentKeepsStaOnly) {
+    Harness harness;
+    EnterStaOnly(harness);
+
+    constexpr int kHealthyChecks = 5;
+    for (int i = 0; i < kHealthyChecks; ++i) {
+        harness.timer.Fire();  // probe_result defaults to ok (carrier present)
+    }
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    EXPECT_EQ(harness.hooks.reverted_calls, 0);
+    EXPECT_TRUE(harness.timer.armed());
+}
+
+// D2a: a recovered carrier resets the loss streak — a brief flap does not
+// accumulate toward the revert threshold.
+TEST(ConnectivityArbiterTest, S2CarrierRecoveryResetsLossStreak) {
+    Harness harness;
+    EnterStaOnly(harness);
+
+    harness.uplink.probe_result = {.ok = false, .detail = "not connected"};
+    harness.timer.Fire();  // streak 1
+    harness.timer.Fire();  // streak 2
+    harness.uplink.probe_result = {.ok = true, .detail = "10.0.0.5"};
+    harness.timer.Fire();  // carrier back → streak reset to 0
+    harness.uplink.probe_result = {.ok = false, .detail = "not connected"};
+    harness.timer.Fire();  // streak 1 (not 3)
+    harness.timer.Fire();  // streak 2
+
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    EXPECT_EQ(harness.hooks.reverted_calls, 0);
 }
 
 }  // namespace

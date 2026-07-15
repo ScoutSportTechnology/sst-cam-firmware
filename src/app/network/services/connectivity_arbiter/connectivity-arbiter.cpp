@@ -9,6 +9,15 @@
 
 namespace sst::network {
 
+namespace {
+// S2 carrier watchdog (D2a): poll the STA link this often, and auto-revert to
+// P2P after this many CONSECUTIVE lost-carrier checks (interval * strikes ~=
+// the grace before recovery). Kept coarse — this is a stranding backstop for the
+// both-links-down case, not a fast failover.
+constexpr auto kCarrierCheckInterval = std::chrono::seconds{5};
+constexpr int kCarrierLossStrikes = 3;
+}  // namespace
+
 ConnectivityArbiter::ConnectivityArbiter(sst::control::IWifiManager& wifi,
                                          IUplinkConfigurator& uplink, ISelfRevertTimer& timer,
                                          IConnectivityTransitionHooks& hooks,
@@ -103,6 +112,11 @@ auto ConnectivityArbiter::ConfirmSharedWifi(MigrationId migration_id,
 
     if (reachable) {
         mode_ = ConnectivityMode::kStaOnly;
+        // D2a: the migration self-revert timer is now disarmed (above); repurpose
+        // the same timer as an S2 carrier watchdog so a later carrier loss with a
+        // dead BLE link still recovers to P2P instead of stranding the camera.
+        carrier_loss_streak_ = 0;
+        ArmCarrierWatchdogLocked();
         spdlog::info("ConnectivityArbiter: confirmed id={} -> {}", migration_id, mode_);
         return mode_;
     }
@@ -138,8 +152,51 @@ auto ConnectivityArbiter::DoRevertLocked() -> void {
     mode_ = ConnectivityMode::kP2pOnly;
     current_id_ = 0;
     current_ssid_.clear();
+    carrier_loss_streak_ = 0;
     preview_endpoint_.clear();
     preview_credential_.clear();
+}
+
+auto ConnectivityArbiter::ArmCarrierWatchdogLocked() -> void {
+    timer_.Arm(kCarrierCheckInterval, [this] { OnCarrierCheck(); });
+}
+
+auto ConnectivityArbiter::OnCarrierCheck() -> void {
+    // Only meaningful in S2. Snapshot the mode under the lock, then RELEASE it
+    // before probing — ProbeWifiSta shells wpa_cli and can take seconds, and the
+    // arbiter mutex serialises the BLE command thread, so we must not hold it
+    // across the probe.
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (mode_ != ConnectivityMode::kStaOnly) {
+            return;
+        }
+    }
+    const bool carrier_up = uplink_.ProbeWifiSta().ok;
+
+    std::lock_guard<std::mutex> lock(mtx_);
+    // Re-check: a confirm/revert on another thread may have left kStaOnly while we
+    // probed. If so this watchdog tick is stale — do nothing (and do not re-arm;
+    // whatever transitioned us owns the timer now).
+    if (mode_ != ConnectivityMode::kStaOnly) {
+        return;
+    }
+    if (carrier_up) {
+        carrier_loss_streak_ = 0;
+        ArmCarrierWatchdogLocked();
+        return;
+    }
+    if (++carrier_loss_streak_ >= kCarrierLossStrikes) {
+        spdlog::warn(
+            "ConnectivityArbiter: S2 carrier lost for {} consecutive checks — auto-reverting to "
+            "P2P (D2a watchdog)",
+            carrier_loss_streak_);
+        DoRevertLocked();  // disarms the timer, restores the GO, resets the streak
+        return;
+    }
+    spdlog::info("ConnectivityArbiter: S2 carrier check failed ({}/{}) — watching",
+                 carrier_loss_streak_, kCarrierLossStrikes);
+    ArmCarrierWatchdogLocked();
 }
 
 auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId migration_id) -> void {

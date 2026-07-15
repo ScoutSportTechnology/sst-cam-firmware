@@ -47,6 +47,14 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     auto DoRevertLocked() -> void;
     // Self-revert timer expiry — no-op unless still kMigrating on the same epoch.
     auto OnSelfRevertTimeout(MigrationId migration_id) -> void;
+    // Arm the S2 carrier watchdog (reuses `timer_`, which is idle in kStaOnly).
+    // Caller holds `mtx_`.
+    auto ArmCarrierWatchdogLocked() -> void;
+    // Periodic S2 carrier check (D2a). While kStaOnly, probes the STA link; on a
+    // sustained loss it auto-reverts to P2P so live preview resumes over the GO
+    // even if BLE is also down (removes the single-point app dependency). Runs on
+    // the timer thread; probes WITHOUT `mtx_` held (the probe shells wpa_cli).
+    auto OnCarrierCheck() -> void;
 
     sst::control::IWifiManager& wifi_;
     IUplinkConfigurator& uplink_;
@@ -60,8 +68,9 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     MigrationId current_id_{0};
     std::string preview_endpoint_;
     std::string preview_credential_;
-    std::string current_ssid_;  // SSID being joined / connected to (empty in kP2pOnly)
-    std::string last_error_;    // reason the last RequestSharedWifi failed (empty on success)
+    std::string current_ssid_;    // SSID being joined / connected to (empty in kP2pOnly)
+    std::string last_error_;      // reason the last RequestSharedWifi failed (empty on success)
+    int carrier_loss_streak_{0};  // consecutive S2 carrier-check failures (D2a watchdog)
 };
 
 }  // namespace sst::network
