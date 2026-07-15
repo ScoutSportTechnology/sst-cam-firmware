@@ -95,7 +95,31 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
         return resp;
     }
 
-    current_ = ProtoToUplink(proto);
+    const sst::config::UplinkData incoming = ProtoToUplink(proto);
+
+    // R3 already-connected short-circuit — BEFORE the arbiter, so an operator who
+    // re-taps Connect on the network they are ALREADY on gets a clean "connected"
+    // reply instead of the re-entrancy guard's "a network change is already in
+    // progress". A no-op requires the arbiter to be settled in S2 (kStaOnly) on the
+    // SAME SSID *and* the SAME passphrase: same SSID with a DIFFERENT passphrase is
+    // NOT a no-op — it must fall through and re-migrate so the arbiter validates the
+    // new creds before we persist them (otherwise saved-but-never-applied creds
+    // poison the next boot). On a true no-op we touch neither the radio nor the
+    // store; the connected state rides back on in_shared_wifi/current_ssid.
+    if (incoming.wifi.enabled.value_or(false) &&
+        arbiter_.CurrentMode() == sst::network::ConnectivityMode::kStaOnly &&
+        arbiter_.CurrentSsid() == incoming.wifi.ssid.value_or("") &&
+        current_.wifi.passphrase.value_or("") == incoming.wifi.passphrase.value_or("")) {
+        spdlog::info("NetworkHandler: SetNetworkConfig — already connected to '{}' (no-op)",
+                     arbiter_.CurrentSsid());
+        return BuildResponse(sst_cam::ResponseStatus::OK, std::nullopt);
+    }
+
+    // Commit the incoming config, but remember the previous one so a failed apply /
+    // migration can roll it back — current_ must never be left showing a network we
+    // did not actually join (a stale current_ would echo the wrong SSID/creds).
+    const sst::config::UplinkData previous = current_;
+    current_ = incoming;
 
     // Ethernet is applied directly (it is orthogonal to the radio). The WiFi-STA
     // radio is NOT applied here — it is owned by the connectivity arbiter (INV2:
@@ -107,24 +131,30 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
     if (applied.ethernet_enabled && !applied.ethernet.ok) {
         spdlog::error("NetworkHandler: ethernet apply failed ('{}') — not persisting, ERROR",
                       applied.ethernet.detail);
+        current_ = previous;  // roll back — the config did not take
         return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
                              "Wired network setup failed: " + applied.ethernet.detail);
     }
 
     // Route the WiFi-STA request through the arbiter. Enabled -> begin a P2P->STA
     // migration (GO down, STA up, mint credential, await the app's reachability
-    // confirm). Disabled -> ensure we are back in S1.
+    // confirm). From kStaOnly this is a change-networks (revert-then-migrate inside
+    // the arbiter). Disabled -> ensure we are back in S1.
     std::optional<sst::network::SharedWifiMigration> migration;
     if (current_.wifi.enabled.value_or(false)) {
         migration = arbiter_.RequestSharedWifi(current_.wifi);
         if (!migration) {
             // STA join failed (bad passphrase / isolation) or a migration was
-            // already in flight — the arbiter has reverted to a legal S1. Report
+            // already in flight — the arbiter has reverted to a legal state. Report
             // the failure so the app shows a friendly message (U7) rather than a
-            // false green, and do not persist a config that did not come up.
+            // false green, and do not persist a config that did not come up. Roll
+            // current_ back so a failed change-networks does not leave it (and the
+            // echoed config) pointing at the SSID/creds we failed to join — the
+            // displayed connected-state is sourced from the arbiter, now reverted.
             const std::string reason = arbiter_.LastError();
             spdlog::error("NetworkHandler: shared-wifi migration could not start ('{}') — ERROR",
                           reason);
+            current_ = previous;
             return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
                                  reason.empty() ? "Couldn't join that Wi-Fi network" : reason);
         }
@@ -171,6 +201,15 @@ auto NetworkHandler::BuildResponse(
     payload->set_ethernet_address(live.ethernet.detail);
     payload->set_wifi_up(live.wifi.ok);
     payload->set_wifi_status(live.wifi.detail);
+    // Ambient connected-state (R3): sourced from the arbiter's SETTLED mode — never
+    // the handler's in-flight current_, which a failed change-networks would leave
+    // stale. Read the SSID first, then the mode, and only emit the SSID when the
+    // arbiter is confirmed kStaOnly so a concurrent self-revert (timer thread) can
+    // only ever downgrade to "not connected", never surface a stale SSID.
+    const std::string arbiter_ssid = arbiter_.CurrentSsid();
+    const bool in_shared_wifi = arbiter_.CurrentMode() == sst::network::ConnectivityMode::kStaOnly;
+    payload->set_in_shared_wifi(in_shared_wifi);
+    payload->set_current_ssid(in_shared_wifi ? arbiter_ssid : "");
     // Shared-WiFi migration handshake (U9): populated only when this Set began a
     // P2P->STA migration — the app probes preview_endpoint (with preview_credential)
     // then replies with ConfirmPreviewReachableCommand{migration_id}.

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <string>
 
 #include "app/control/services/handlers/network.handler.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
@@ -76,6 +77,11 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
         -> std::optional<sst::network::SharedWifiMigration> override {
         ++request_calls;
         if (!request_ok) {
+            // Mimic the real arbiter: a failed request has already reverted to a
+            // legal kP2pOnly (STA torn down), so the settled state the handler reads
+            // back reflects "not connected", not the network it failed to join.
+            mode = sst::network::ConnectivityMode::kP2pOnly;
+            ssid.clear();
             return std::nullopt;
         }
         return sst::network::SharedWifiMigration{
@@ -91,8 +97,10 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     }
     auto RevertToP2p() -> void override { ++revert_calls; }
     [[nodiscard]] auto CurrentMode() const -> sst::network::ConnectivityMode override {
-        return sst::network::ConnectivityMode::kP2pOnly;
+        return mode;
     }
+    [[nodiscard]] auto CurrentSsid() const -> std::string override { return ssid; }
+    [[nodiscard]] auto LastError() const -> std::string override { return last_error; }
 
     bool request_ok{true};
     int request_calls{0};
@@ -100,6 +108,10 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     int revert_calls{0};
     sst::network::MigrationId last_confirm_id{0};
     bool last_reachable{false};
+    // Settled state the handler reads back for the R3 connected-state / short-circuit.
+    sst::network::ConnectivityMode mode{sst::network::ConnectivityMode::kP2pOnly};
+    std::string ssid;
+    std::string last_error;
 };
 
 // Build a SetNetworkConfig command that ENABLES ethernet with a valid static
@@ -360,6 +372,129 @@ TEST(NetworkHandlerTest, ConfirmPreviewReachableRoutesToArbiter) {
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kConfirmPreviewReachable);
     EXPECT_EQ(resp.confirm_preview_reachable().migration_id(), 7U);
     EXPECT_TRUE(resp.confirm_preview_reachable().in_shared_wifi());
+}
+
+// A wifi network under test: SSID + passphrase bundled so the two strings can't
+// be silently swapped at a call site (and so the helpers take one param, not two
+// adjacent std::strings).
+struct WifiCase {
+    std::string ssid;
+    std::string password;
+};
+
+// Build a SetNetworkConfig command enabling wifi for `net`.
+auto MakeSetWifiCommand(const WifiCase& net) -> sst_cam::Command {
+    sst_cam::Command cmd;
+    auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
+    wifi->set_enabled(true);
+    wifi->set_ssid(net.ssid);
+    wifi->set_password(net.password);
+    return cmd;
+}
+
+// A handler pre-seeded as "connected in S2 to `net`" — pair with an arbiter set to
+// kStaOnly on the same SSID; the last-applied config carries the passphrase.
+auto ConnectedInitial(const WifiCase& net) -> sst::config::UplinkData {
+    sst::config::UplinkData initial;
+    initial.wifi.enabled = true;
+    initial.wifi.ssid = net.ssid;
+    initial.wifi.passphrase = net.password;
+    return initial;
+}
+
+// R3: re-tapping Connect on the network we are ALREADY on (same SSID + same
+// passphrase) is a no-op — no arbiter call, no radio churn, NOT re-persisted — and
+// the reply reports the connected state (in_shared_wifi + current_ssid), not "in
+// progress".
+TEST(NetworkHandlerTest, SetSameNetworkWhileConnectedIsNoOpAndReportsConnected) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "PhoneNet";
+    sst::control::NetworkHandler handler(manager, store,
+                                         ConnectedInitial({"PhoneNet", "hunter2pw"}), arbiter);
+
+    const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "hunter2pw"}));
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.request_calls, 0);  // no migration attempted
+    EXPECT_EQ(arbiter.revert_calls, 0);   // no revert
+    EXPECT_EQ(store.persist_calls, 0);    // creds not re-persisted (already validated)
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
+    EXPECT_TRUE(resp.network_config().in_shared_wifi());
+    EXPECT_EQ(resp.network_config().current_ssid(), "PhoneNet");
+    EXPECT_EQ(resp.network_config().migration_id(), 0U);  // no handshake
+}
+
+// R3: same SSID but a DIFFERENT passphrase is NOT a no-op — it re-migrates so the
+// arbiter validates the new creds, and only then are they persisted (guards
+// saved-but-never-applied creds poisoning the next boot).
+TEST(NetworkHandlerTest, SetSameSsidDifferentPasswordReMigrates) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "PhoneNet";
+    sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"PhoneNet", "oldpw"}),
+                                         arbiter);
+
+    const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "newpassword"}));
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.request_calls, 1);  // re-migrated, not short-circuited
+    EXPECT_EQ(store.persist_calls, 1);    // persisted only after the arbiter validated
+    EXPECT_EQ(resp.network_config().migration_id(), 7U);
+}
+
+// R3: a change-networks to a NEW SSID that FAILS reports ERROR, does not persist,
+// rolls current_ back (echoes the previous SSID, not the failed one), and shows the
+// arbiter's reverted state (in_shared_wifi=false) — the destructive-failure path.
+TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "OldNet";
+    arbiter.request_ok = false;  // the new join fails; arbiter reverts to P2P
+    arbiter.last_error = "failed to join wifi (check the password)";
+    sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"OldNet", "oldpw"}),
+                                         arbiter);
+
+    const auto resp = handler.Handle(MakeSetWifiCommand({"NewNet", "newpw"}));
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_FALSE(resp.error_message().empty());
+    EXPECT_EQ(arbiter.request_calls, 1);
+    EXPECT_EQ(store.persist_calls, 0);  // failed config not persisted
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
+    EXPECT_FALSE(resp.network_config().in_shared_wifi());               // reverted to P2P
+    EXPECT_EQ(resp.network_config().config().wifi().ssid(), "OldNet");  // current_ rolled back
+}
+
+// R3: a plain Get while connected reports the connected state deterministically so
+// the app can render "connected to <ssid>" on reconnect without the handshake.
+TEST(NetworkHandlerTest, GetWhileConnectedReportsInSharedWifiAndSsid) {
+    FakeConfigurator configurator;
+    sst::network::UplinkManager manager(configurator);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "PhoneNet";
+    sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"PhoneNet", "pw"}),
+                                         arbiter);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_TRUE(resp.network_config().in_shared_wifi());
+    EXPECT_EQ(resp.network_config().current_ssid(), "PhoneNet");
+    EXPECT_EQ(configurator.ethernet_calls, 0);  // Get never applies
 }
 
 }  // namespace

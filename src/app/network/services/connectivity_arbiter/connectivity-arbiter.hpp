@@ -35,6 +35,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     auto RevertToP2p() -> void override;
     [[nodiscard]] auto CurrentMode() const -> ConnectivityMode override;
     [[nodiscard]] auto LastError() const -> std::string override;
+    [[nodiscard]] auto CurrentSsid() const -> std::string override;
 
     // Accessors for the network command handler (U4) to build NetworkConfigResponse.
     [[nodiscard]] auto CurrentMigrationId() const -> MigrationId;
@@ -59,7 +60,8 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     MigrationId current_id_{0};
     std::string preview_endpoint_;
     std::string preview_credential_;
-    std::string last_error_;  // reason the last RequestSharedWifi failed (empty on success)
+    std::string current_ssid_;  // SSID being joined / connected to (empty in kP2pOnly)
+    std::string last_error_;    // reason the last RequestSharedWifi failed (empty on success)
 };
 
 }  // namespace sst::network

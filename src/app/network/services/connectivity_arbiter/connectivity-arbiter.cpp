@@ -23,9 +23,10 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
     -> std::optional<SharedWifiMigration> {
     std::lock_guard<std::mutex> lock(mtx_);
 
-    // Re-entrancy guard: a migration already in flight (or already in S2) never
-    // starts a second radio transition. INV2 / AE5.
-    if (mode_ != ConnectivityMode::kP2pOnly) {
+    // Re-entrancy guard: a migration ALREADY IN FLIGHT is a real transient — never
+    // start a second radio transition on top of it. INV2 / AE5. (kStaOnly is NOT
+    // rejected here — see the change-networks path below.)
+    if (mode_ == ConnectivityMode::kMigrating) {
         spdlog::warn(
             "ConnectivityArbiter: RequestSharedWifi rejected — mode={} (migration in flight)",
             mode_);
@@ -33,8 +34,22 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
         return std::nullopt;
     }
 
-    // INV2: GO down FIRST, then STA up. The ordering is the whole point — no code
-    // path applies STA before the GO teardown returns.
+    // CHANGE-NETWORKS: already in S2 (kStaOnly) and asked to join a network. The
+    // handler has already short-circuited a same-network no-op before reaching us,
+    // so this is a genuine switch. One radio can't hold two STA sessions, so tear
+    // the current STA fully down (release lease, flush address/routes) and restore
+    // the GO FIRST — DoRevertLocked does exactly that and leaves us in a clean
+    // kP2pOnly to fall through into the normal migrate path with a fresh epoch.
+    if (mode_ == ConnectivityMode::kStaOnly) {
+        spdlog::info(
+            "ConnectivityArbiter: change-networks from kStaOnly (ssid={}) — reverting then "
+            "migrating",
+            current_ssid_);
+        DoRevertLocked();
+    }
+
+    // From here mode_ == kP2pOnly. INV2: GO down FIRST, then STA up. The ordering is
+    // the whole point — no code path applies STA before the GO teardown returns.
     wifi_.Stop();
     const UplinkResult sta = uplink_.ApplyWifiSta(uplink);
     if (!sta.ok) {
@@ -53,6 +68,8 @@ auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& up
     const MigrationId migration_id = ++migration_counter_;
     mode_ = ConnectivityMode::kMigrating;
     current_id_ = migration_id;
+    current_ssid_ =
+        uplink.ssid.value_or("");    // the network we're joining (tracked for CurrentSsid)
     preview_endpoint_ = sta.detail;  // the resolved STA LAN IP
     preview_credential_ = hooks_.OnSharedWifiJoined(preview_endpoint_);
 
@@ -120,6 +137,7 @@ auto ConnectivityArbiter::DoRevertLocked() -> void {
     }
     mode_ = ConnectivityMode::kP2pOnly;
     current_id_ = 0;
+    current_ssid_.clear();
     preview_endpoint_.clear();
     preview_credential_.clear();
 }
@@ -145,6 +163,11 @@ auto ConnectivityArbiter::CurrentMode() const -> ConnectivityMode {
 auto ConnectivityArbiter::LastError() const -> std::string {
     std::lock_guard<std::mutex> lock(mtx_);
     return last_error_;
+}
+
+auto ConnectivityArbiter::CurrentSsid() const -> std::string {
+    std::lock_guard<std::mutex> lock(mtx_);
+    return current_ssid_;
 }
 
 auto ConnectivityArbiter::CurrentMigrationId() const -> MigrationId {

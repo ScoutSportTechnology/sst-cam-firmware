@@ -306,4 +306,93 @@ TEST(ConnectivityArbiterTest, MigrationIdsAreMonotonic) {
     EXPECT_GT(second->id, first->id);
 }
 
+// U3: the arbiter tracks the SSID it is joining / connected to, and clears it on
+// revert (so CurrentSsid is only meaningful while kStaOnly).
+TEST(ConnectivityArbiterTest, CurrentSsidTracksTheConnectedNetwork) {
+    Harness h;
+    sst::config::WifiStaUplink cfg;
+    cfg.ssid = "NetA";
+
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "");  // nothing joined yet
+    const auto migration = h.arbiter.RequestSharedWifi(cfg);
+    ASSERT_TRUE(migration.has_value());
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "NetA");  // tracked from the request
+    h.arbiter.ConfirmSharedWifi(migration->id, true);
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "NetA");  // still tracked in kStaOnly
+
+    h.arbiter.RevertToP2p();
+    EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "");  // cleared on revert
+}
+
+// U3 / R3: a request while kStaOnly for a DIFFERENT SSID is a change-networks —
+// the arbiter reverts (tears the old STA down first) then migrates afresh with a
+// new epoch, ending kMigrating on the new SSID.
+TEST(ConnectivityArbiterTest, ChangeNetworksFromStaOnlyRevertsThenMigrates) {
+    Harness h;
+    sst::config::WifiStaUplink cfg_a;
+    cfg_a.ssid = "NetA";
+    const auto first = h.arbiter.RequestSharedWifi(cfg_a);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_EQ(h.arbiter.ConfirmSharedWifi(first->id, true), ConnectivityMode::kStaOnly);
+
+    sst::config::WifiStaUplink cfg_b;
+    cfg_b.ssid = "NetB";
+    const auto second = h.arbiter.RequestSharedWifi(cfg_b);
+
+    ASSERT_TRUE(second.has_value());
+    EXPECT_GT(second->id, first->id);  // fresh epoch minted
+    EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kMigrating);
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "NetB");
+    EXPECT_EQ(h.uplink.teardown_calls, 1);  // old STA torn down before the new join
+    EXPECT_EQ(h.uplink.wifi_calls, 2);      // STA applied for NetA, then NetB
+    EXPECT_EQ(h.hooks.reverted_calls, 1);   // GO restored during the internal revert
+    EXPECT_TRUE(h.timer.armed());           // self-revert re-armed for the new epoch
+}
+
+// U3: after a change-networks, only the NEW migration id finalises; a stale
+// confirm for the superseded old id is ignored (epoch guard holds across the
+// internal revert).
+TEST(ConnectivityArbiterTest, ChangeNetworksConfirmHonoursOnlyTheNewEpoch) {
+    Harness h;
+    sst::config::WifiStaUplink cfg_a;
+    cfg_a.ssid = "NetA";
+    const auto first = h.arbiter.RequestSharedWifi(cfg_a);
+    ASSERT_TRUE(first.has_value());
+    h.arbiter.ConfirmSharedWifi(first->id, true);
+
+    sst::config::WifiStaUplink cfg_b;
+    cfg_b.ssid = "NetB";
+    const auto second = h.arbiter.RequestSharedWifi(cfg_b);
+    ASSERT_TRUE(second.has_value());
+
+    // Stale confirm for the retired NetA epoch → no-op, still migrating on NetB.
+    EXPECT_EQ(h.arbiter.ConfirmSharedWifi(first->id, true), ConnectivityMode::kMigrating);
+    EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kMigrating);
+
+    EXPECT_EQ(h.arbiter.ConfirmSharedWifi(second->id, true), ConnectivityMode::kStaOnly);
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "NetB");
+}
+
+// U3: a change-networks whose new STA join FAILS reverts to a legal kP2pOnly and
+// clears the tracked SSID — it does not linger on the old or the failed network.
+TEST(ConnectivityArbiterTest, ChangeNetworksJoinFailureRevertsAndClearsSsid) {
+    Harness h;
+    sst::config::WifiStaUplink cfg_a;
+    cfg_a.ssid = "NetA";
+    const auto first = h.arbiter.RequestSharedWifi(cfg_a);
+    ASSERT_TRUE(first.has_value());
+    h.arbiter.ConfirmSharedWifi(first->id, true);
+
+    h.uplink.sta_result = {.ok = false, .detail = "wrong passphrase"};
+    sst::config::WifiStaUplink cfg_b;
+    cfg_b.ssid = "NetB";
+    const auto second = h.arbiter.RequestSharedWifi(cfg_b);
+
+    EXPECT_FALSE(second.has_value());
+    EXPECT_EQ(h.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
+    EXPECT_EQ(h.arbiter.CurrentSsid(), "");
+    EXPECT_FALSE(h.timer.armed());
+}
+
 }  // namespace

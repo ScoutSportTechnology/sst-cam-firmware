@@ -87,6 +87,13 @@ class IConnectivityArbiter {
     // ERROR, so the app can show why a join failed without a debugger. Default
     // returns empty so lightweight test doubles need not implement it.
     [[nodiscard]] virtual auto LastError() const -> std::string { return {}; }
+
+    // The SSID the camera is connected to while in kStaOnly (empty otherwise, and
+    // while migrating/reverting). Lets the command handler render "connected to
+    // <ssid>" sourced from the arbiter's SETTLED state — never the handler's
+    // in-flight config, which a failed change-networks would leave stale. Default
+    // empty so lightweight test doubles need not implement it.
+    [[nodiscard]] virtual auto CurrentSsid() const -> std::string { return {}; }
 };
 
 }  // namespace sst::network
