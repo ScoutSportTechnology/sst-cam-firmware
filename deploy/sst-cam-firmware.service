@@ -11,7 +11,9 @@
 
 [Unit]
 Description=SST Cam firmware runtime
-After=network-online.target
+# Order after the Argus camera daemon so the capture pipeline isn't racing its
+# socket at cold boot. Ordering-only: harmless if nvargus-daemon is absent.
+After=network-online.target nvargus-daemon.service
 Wants=network-online.target
 
 [Service]
