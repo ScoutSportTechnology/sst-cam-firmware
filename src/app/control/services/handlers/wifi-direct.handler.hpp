@@ -39,6 +39,7 @@ class WifiDirectHandler final : public ICommandHandler,
     // IConnectivityTransitionHooks
     auto OnSharedWifiJoined(const std::string& sta_lan_ip) -> std::string override;
     auto OnRevertedToP2p() -> bool override;
+    auto OnEthernetLanSelected(const std::string& ethernet_lan_ip) -> std::string override;
 
    private:
     auto HandleStart() -> sst_cam::CommandResponse;

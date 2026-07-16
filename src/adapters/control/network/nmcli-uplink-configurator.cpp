@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapters/control/network/gratuitous-arp.hpp"
 #include "adapters/control/network/subprocess.hpp"
 
 namespace sst::adapters::control {
@@ -263,12 +262,6 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
         return {.ok = false, .detail = "joined wifi but got no DHCP address"};
     }
     spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", ssid, iface, address);
-    // Best-effort: broadcast a gratuitous ARP for the just-assigned STA IP so a
-    // phone caching a stale/negative entry for it (from between migrations) MAY
-    // refresh sooner and connect on the first tap. Not load-bearing — the app's
-    // wider probe retry (U2) is what actually closes the one-tap gap; a neighbour
-    // is free to ignore an unsolicited ARP for a FAILED entry.
-    SendGratuitousArp(iface, address);
     return {.ok = true, .detail = address};
 }
 

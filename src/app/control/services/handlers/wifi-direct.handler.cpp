@@ -190,6 +190,22 @@ auto WifiDirectHandler::OnRevertedToP2p() -> bool {
     return true;
 }
 
+auto WifiDirectHandler::OnEthernetLanSelected(const std::string& ethernet_lan_ip) -> std::string {
+    // Ethernet-as-LAN is ORTHOGONAL to the radio (INV2 is radio-only): the arbiter
+    // does NOT stop the GO for an Ethernet LAN path, so unlike OnSharedWifiJoined
+    // there is no GO plumbing to tear down and no group to re-form here.
+    //
+    // U4 SCOPE: wire the decision only — the arbiter has already selected Ethernet
+    // and populated the endpoint (the Ethernet IP) + the shared-epoch confirm id.
+    // The empty credential returned here means the preview is NOT yet re-bound onto
+    // the Ethernet IP. U6 EXTENDS this body to mint a per-path RTSP credential and
+    // RebindAppStream onto the Ethernet IP (parallel to OnSharedWifiJoined's S2
+    // rebind) so the phone can authenticate the Ethernet preview before confirming.
+    spdlog::info("WifiDirectHandler: Ethernet LAN selected at {} (preview rebind is U6)",
+                 ethernet_lan_ip);
+    return {};
+}
+
 auto WifiDirectHandler::HandleStop() -> sst_cam::CommandResponse {
     if (session_.Phase() == sst::session::SessionPhase::kRecording ||
         session_.Snapshot().is_streaming) {

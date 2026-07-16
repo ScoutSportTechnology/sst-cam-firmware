@@ -60,6 +60,13 @@ class IEthernetController {
     // carrier-down interface (returns kDown, no address, never throws).
     virtual auto ProbeEthernet() -> EthernetProbe = 0;
 
+    // Tear the firmware-owned Ethernet LAN config down: flush the bound address +
+    // its routes off the wired iface. Called by the arbiter (U4) when a candidate
+    // Ethernet path is DE-SELECTED (R19 probe failed -> fall to STA/P2P) so a
+    // lingering same-subnet Ethernet address can never re-collide with the STA IP
+    // it is falling back to. Idempotent / self-healing; never throws.
+    virtual auto TeardownEthernet() -> void = 0;
+
     // Acquire a DHCP OFFER for the Ethernet interface WITHOUT binding the address
     // — so the arbiter (U4) can classify same-vs-different subnet BEFORE it
     // commits an address (the same-subnet dual-home window). Returns the offered

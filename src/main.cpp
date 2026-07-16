@@ -25,6 +25,7 @@
 #include "adapters/focus/i2c-focuser.hpp"
 #include "adapters/network/http/http-download-server.hpp"
 #include "adapters/network/json/json-uplink-store.hpp"
+#include "adapters/network/monitor/thread-ethernet-carrier-monitor.hpp"
 #include "adapters/network/timer/thread-self-revert-timer.hpp"
 #include "adapters/overlay/burn/opencv-overlay-burner.hpp"
 #include "adapters/overlay/caching/caching-overlay-sink.hpp"
@@ -361,9 +362,14 @@ auto RunFirmware() -> int {
     dispatcher.Register(wifi_direct_handler);
 
     sst::adapters::network::ThreadSelfRevertTimer self_revert_timer;
+    // Always-on Ethernet-carrier monitor (U4/R20): re-runs LAN-path arbitration on
+    // an Ethernet hotplug/unplug INDEPENDENT of the radio mode (the S2 carrier
+    // watchdog only arms in kStaOnly). Owns a poll thread off the BLE dispatcher;
+    // the arbiter Starts it in its ctor and Stops it in its dtor.
+    sst::adapters::network::ThreadEthernetCarrierMonitor ethernet_carrier_monitor;
     sst::network::ConnectivityArbiter connectivity_arbiter(
         wifi_manager, uplink_configurator, self_revert_timer, *wifi_direct_handler,
-        sst::runtime_defaults::kSelfRevertWindow);
+        ethernet_configurator, ethernet_carrier_monitor, sst::runtime_defaults::kSelfRevertWindow);
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =

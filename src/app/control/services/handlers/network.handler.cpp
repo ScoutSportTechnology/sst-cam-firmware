@@ -48,6 +48,35 @@ void UplinkToProto(const sst::config::UplinkData& data, sst_cam::NetworkConfig* 
     wifi->set_dns(data.wifi.dns.value_or(""));
 }
 
+// domain LanPath -> proto LanPath (proto v5). Orthogonal to the radio mode.
+auto ToProtoLanPath(sst::network::LanPath path) -> sst_cam::LanPath {
+    switch (path) {
+        case sst::network::LanPath::kEthernet:
+            return sst_cam::LAN_PATH_ETHERNET;
+        case sst::network::LanPath::kWifiSta:
+            return sst_cam::LAN_PATH_WIFI_STA;
+        case sst::network::LanPath::kP2p:
+            return sst_cam::LAN_PATH_P2P;
+        case sst::network::LanPath::kNone:
+            return sst_cam::LAN_PATH_NONE;
+    }
+    return sst_cam::LAN_PATH_NONE;
+}
+
+// proto LanPath -> domain LanPath (for the ConfirmLanPath verdict).
+auto FromProtoLanPath(sst_cam::LanPath path) -> sst::network::LanPath {
+    switch (path) {
+        case sst_cam::LAN_PATH_ETHERNET:
+            return sst::network::LanPath::kEthernet;
+        case sst_cam::LAN_PATH_WIFI_STA:
+            return sst::network::LanPath::kWifiSta;
+        case sst_cam::LAN_PATH_P2P:
+            return sst::network::LanPath::kP2p;
+        default:
+            return sst::network::LanPath::kNone;
+    }
+}
+
 }  // namespace
 
 NetworkHandler::NetworkHandler(sst::network::UplinkManager& manager,
@@ -64,21 +93,26 @@ NetworkHandler::NetworkHandler(sst::network::UplinkManager& manager,
 
 auto NetworkHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kSetNetworkConfig, sst_cam::Command::kGetNetworkConfig,
-            sst_cam::Command::kConfirmPreviewReachable};
+            sst_cam::Command::kConfirmPreviewReachable, sst_cam::Command::kConfirmLanPath};
 }
 
 auto NetworkHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse {
     if (cmd.payload_case() == sst_cam::Command::kSetNetworkConfig) {
-        return HandleSet(cmd.set_network_config().config());
+        return HandleSet(cmd.set_network_config());
     }
     if (cmd.payload_case() == sst_cam::Command::kConfirmPreviewReachable) {
         return HandleConfirmReachable(cmd.confirm_preview_reachable());
     }
+    if (cmd.payload_case() == sst_cam::Command::kConfirmLanPath) {
+        return HandleConfirmLanPath(cmd.confirm_lan_path());
+    }
     return HandleGet();
 }
 
-auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::CommandResponse {
+auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
+    -> sst_cam::CommandResponse {
     std::lock_guard lock(mtx_);
+    const sst_cam::NetworkConfig& proto = cmd.config();
 
     // INV6 / AE7: SetNetworkConfig carries the WiFi passphrase. If a credential-
     // link security gate is wired and the link is NOT encrypted/bonded, reject
@@ -117,51 +151,41 @@ auto NetworkHandler::HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::
         return BuildResponse(sst_cam::ResponseStatus::OK, std::nullopt);
     }
 
-    // Commit the incoming config, but remember the previous one so a failed apply /
-    // migration can roll it back — current_ must never be left showing a network we
-    // did not actually join (a stale current_ would echo the wrong SSID/creds).
+    // Commit the incoming config, but remember the previous one so a failed
+    // selection can roll it back — current_ must never be left showing a network we
+    // did not actually bring up (a stale current_ would echo the wrong SSID/creds).
     const sst::config::UplinkData previous = current_;
     current_ = incoming;
 
-    // Ethernet is applied directly (it is orthogonal to the radio). The WiFi-STA
-    // radio is NOT applied here — it is owned by the connectivity arbiter (INV2:
-    // the GO must be torn down before STA comes up), so we mask wifi out of the
-    // manager apply and route it through the arbiter below.
-    sst::config::UplinkData ethernet_only = current_;
-    ethernet_only.wifi.enabled = false;
-    const auto applied = manager_.Apply(ethernet_only);
-    if (applied.ethernet_enabled && !applied.ethernet.ok) {
-        spdlog::error("NetworkHandler: ethernet apply failed ('{}') — not persisting, ERROR",
-                      applied.ethernet.detail);
-        current_ = previous;  // roll back — the config did not take
+    // SINGLE DECISION SITE (R18): route BOTH Ethernet AND WiFi-STA through the
+    // arbiter — the handler no longer applies Ethernet directly (the removed
+    // manager_.Apply(ethernet_only) bypass). The arbiter picks exactly ONE LAN path
+    // (Ethernet-on-phone-subnet -> STA -> P2P) with probe-confirm-before-suppress
+    // and drives the transition. phone_subnet_cidr is a HINT (empty when the phone
+    // is not on any Wi-Fi); the arbiter reconciles it against ground truth.
+    const std::string phone_subnet = cmd.has_phone_subnet_cidr() ? cmd.phone_subnet_cidr() : "";
+    const auto selection = arbiter_.SelectLanPath(current_, phone_subnet);
+    if (!selection.ok) {
+        // An enabled interface failed to come up; the arbiter has reverted to a
+        // legal state. Roll current_ back (so the echoed config + displayed
+        // connected-state do not point at a network we failed to reach) and report
+        // the reason — no false green, and do not persist a config that did not take.
+        const std::string reason = selection.error.empty() ? arbiter_.LastError() : selection.error;
+        spdlog::error("NetworkHandler: LAN-path selection failed ('{}') — ERROR", reason);
+        current_ = previous;
         return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
-                             "Wired network setup failed: " + applied.ethernet.detail);
+                             reason.empty() ? "Couldn't set up that network" : reason);
     }
 
-    // Route the WiFi-STA request through the arbiter. Enabled -> begin a P2P->STA
-    // migration (GO down, STA up, mint credential, await the app's reachability
-    // confirm). From kStaOnly this is a change-networks (revert-then-migrate inside
-    // the arbiter). Disabled -> ensure we are back in S1.
+    // The STA migration handshake, populated only when THIS Set began a P2P->STA
+    // migration (the app probes preview_endpoint then replies with
+    // ConfirmPreviewReachableCommand). The Ethernet-LAN handshake rides the
+    // lan_path / ethernet_* fields, sourced from the arbiter in BuildResponse.
     std::optional<sst::network::SharedWifiMigration> migration;
-    if (current_.wifi.enabled.value_or(false)) {
-        migration = arbiter_.RequestSharedWifi(current_.wifi);
-        if (!migration) {
-            // STA join failed (bad passphrase / isolation) or a migration was
-            // already in flight — the arbiter has reverted to a legal state. Report
-            // the failure so the app shows a friendly message (U7) rather than a
-            // false green, and do not persist a config that did not come up. Roll
-            // current_ back so a failed change-networks does not leave it (and the
-            // echoed config) pointing at the SSID/creds we failed to join — the
-            // displayed connected-state is sourced from the arbiter, now reverted.
-            const std::string reason = arbiter_.LastError();
-            spdlog::error("NetworkHandler: shared-wifi migration could not start ('{}') — ERROR",
-                          reason);
-            current_ = previous;
-            return BuildResponse(sst_cam::ResponseStatus::ERROR, std::nullopt,
-                                 reason.empty() ? "Couldn't join that Wi-Fi network" : reason);
-        }
-    } else {
-        arbiter_.RevertToP2p();
+    if (selection.path == sst::network::LanPath::kWifiSta && selection.confirm_id != 0) {
+        migration = sst::network::SharedWifiMigration{.id = selection.confirm_id,
+                                                      .preview_endpoint = selection.endpoint,
+                                                      .preview_credential = selection.credential};
     }
 
     // Only durable once the config was accepted. autoconnect=no on the STA profile
@@ -186,6 +210,23 @@ auto NetworkHandler::HandleConfirmReachable(const sst_cam::ConfirmPreviewReachab
     spdlog::info("NetworkHandler: confirm id={} reachable={} -> in_shared_wifi={}",
                  cmd.migration_id(), cmd.reachable(),
                  mode == sst::network::ConnectivityMode::kStaOnly);
+    return resp;
+}
+
+auto NetworkHandler::HandleConfirmLanPath(const sst_cam::ConfirmLanPathCommand& cmd)
+    -> sst_cam::CommandResponse {
+    std::lock_guard lock(mtx_);
+    const auto committed =
+        arbiter_.ConfirmLanPath(cmd.confirm_id(), FromProtoLanPath(cmd.path()), cmd.reachable());
+    sst_cam::CommandResponse resp;
+    resp.set_status(sst_cam::ResponseStatus::OK);
+    auto* payload = resp.mutable_confirm_lan_path();
+    payload->set_confirm_id(cmd.confirm_id());
+    payload->set_committed_path(ToProtoLanPath(committed));
+    payload->set_committed(committed == FromProtoLanPath(cmd.path()) && cmd.reachable());
+    spdlog::info("NetworkHandler: confirm-lan-path id={} path={} reachable={} -> committed={}",
+                 cmd.confirm_id(), static_cast<int>(cmd.path()), cmd.reachable(),
+                 static_cast<int>(committed));
     return resp;
 }
 
@@ -230,6 +271,23 @@ auto NetworkHandler::BuildResponse(
         payload->set_migration_id(migration->id);
         payload->set_preview_endpoint(migration->preview_endpoint);
         payload->set_preview_credential(migration->preview_credential);
+    }
+
+    // Single LAN-path selection (R3, proto v5): the committed/committing path,
+    // sourced from the arbiter's settled state — reported on BOTH Set and Get so the
+    // app reflects the winning interface. Orthogonal to in_shared_wifi (radio-only).
+    const auto lan_path = arbiter_.CurrentLanPath();
+    payload->set_lan_path(ToProtoLanPath(lan_path));
+    // Ethernet-LAN handshake (R11): surfaced whenever Ethernet is the
+    // committing/committed LAN path (Set reply that selected it AND a plain Get on
+    // reconnect / after an unsolicited hotplug), so the app probes the Ethernet IP
+    // then replies with ConfirmLanPathCommand{ethernet_confirm_id}. Distinct from the
+    // STA migration handshake but sharing the same global epoch. (U6 fills the
+    // credential + preview rebind; U4 populates endpoint + confirm id.)
+    if (lan_path == sst::network::LanPath::kEthernet) {
+        payload->set_ethernet_endpoint(arbiter_.EthernetEndpoint());
+        payload->set_ethernet_credential(arbiter_.EthernetCredential());
+        payload->set_ethernet_confirm_id(arbiter_.EthernetConfirmId());
     }
     resp.set_status(status);
     // A concrete failure reason for the app to show (Details / friendly copy)

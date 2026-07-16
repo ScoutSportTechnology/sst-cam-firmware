@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -52,19 +53,19 @@ auto ReadTrimmed(const std::string& path) -> std::string {
 // skip lo/docker/veth/br-/virbr/wl/p2p/rndis/usb). Empty if none.
 auto DetectWiredIface() -> std::string {
     namespace fs = std::filesystem;
-    std::error_code ec;
+    std::error_code dir_ec;
     std::vector<std::string> names;
-    for (const auto& entry : fs::directory_iterator("/sys/class/net", ec)) {
+    for (const auto& entry : fs::directory_iterator("/sys/class/net", dir_ec)) {
         names.push_back(entry.path().filename().string());
     }
     // Deterministic order so the pick is stable across boots.
     std::sort(names.begin(), names.end());
     for (const auto& name : names) {
-        static constexpr const char* kSkipPrefixes[] = {"lo", "docker", "veth",  "br-", "virbr",
-                                                        "wl", "p2p",    "rndis", "usb"};
+        static constexpr std::array<const char*, 9> kSkipPrefixes = {
+            "lo", "docker", "veth", "br-", "virbr", "wl", "p2p", "rndis", "usb"};
         bool skip = (name == "lo");
         for (const auto* prefix : kSkipPrefixes) {
-            if (name.rfind(prefix, 0) == 0) {
+            if (name.starts_with(prefix)) {
                 skip = true;
                 break;
             }
@@ -72,7 +73,7 @@ auto DetectWiredIface() -> std::string {
         if (skip) {
             continue;
         }
-        if (fs::exists("/sys/class/net/" + name + "/wireless", ec)) {
+        if (fs::exists("/sys/class/net/" + name + "/wireless", dir_ec)) {
             continue;
         }
         if (ReadTrimmed("/sys/class/net/" + name + "/type") != "1") {
@@ -245,6 +246,19 @@ auto IpEthernetConfigurator::ProbeEthernet() -> sst::network::EthernetProbe {
         .mode = mode, .address = address, .carrier = carrier, .gateway = DefaultGatewayOn(iface)};
 }
 
+auto IpEthernetConfigurator::TeardownEthernet() -> void {
+    const std::string iface = DetectWiredIface();
+    if (iface.empty()) {
+        return;
+    }
+    // `ip addr flush` removes the bound address AND its connected route; any
+    // default route via this iface drops with the address. Best-effort/idempotent —
+    // flushing an already-clean iface is a harmless no-op.
+    RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
+    last_mode_ = sst::network::EthernetMode::kDown;
+    spdlog::info("IpEthernetConfigurator: ethernet torn down on {} (address flushed)", iface);
+}
+
 auto IpEthernetConfigurator::ProbeDhcpOffer() -> std::optional<std::string> {
     const std::string iface = DetectWiredIface();
     if (iface.empty()) {
@@ -272,9 +286,9 @@ auto IpEthernetConfigurator::ProbeDhcpOffer() -> std::optional<std::string> {
     // Stop the probe daemon (best-effort) and clean up the scratch files so a
     // stale offer can't leak into the next probe.
     RunBounded({"dhclient", "-x", "-pf", pid_file}, kQueryTimeout);
-    std::error_code ec;
-    std::filesystem::remove(lease_file, ec);
-    std::filesystem::remove(pid_file, ec);
+    std::error_code rm_ec;
+    std::filesystem::remove(lease_file, rm_ec);
+    std::filesystem::remove(pid_file, rm_ec);
     return offer;
 }
 

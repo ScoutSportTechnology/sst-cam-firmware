@@ -48,9 +48,11 @@ class FakeEthernet final : public sst::network::IEthernetController {
     auto ProbeEthernet() -> sst::network::EthernetProbe override {
         return {.mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = {}};
     }
+    auto TeardownEthernet() -> void override { ++teardown_calls; }
     auto ProbeDhcpOffer() -> std::optional<std::string> override { return std::nullopt; }
 
     int apply_calls{0};
+    int teardown_calls{0};
     bool apply_ok{true};
     bool last_apply_dhcp{true};
     // Default probe: a real STATIC link (the case that must never report DHCP).
@@ -83,25 +85,42 @@ class FakeLinkSecurity final : public sst::control::ILinkSecurity {
     bool secure_;
 };
 
-// Fake connectivity arbiter: records the wifi routing (request/confirm/revert)
-// and returns a parameterizable migration so the handler's shared-wifi path is
-// observable without the real radio.
+// Fake connectivity arbiter (U4): the single LAN-path decision site. SelectLanPath
+// mirrors precedence (Ethernet-on-subnet -> STA -> P2P) simply, so the handler's
+// routing + response mapping is observable without the real radio/Ethernet.
 class FakeArbiter final : public sst::network::IConnectivityArbiter {
    public:
-    auto RequestSharedWifi(const sst::config::WifiStaUplink& /*uplink*/)
-        -> std::optional<sst::network::SharedWifiMigration> override {
-        ++request_calls;
-        if (!request_ok) {
-            // Mimic the real arbiter: a failed request has already reverted to a
-            // legal kP2pOnly (STA torn down), so the settled state the handler reads
-            // back reflects "not connected", not the network it failed to join.
+    auto SelectLanPath(const sst::config::UplinkData& desired, const std::string& phone_subnet_cidr)
+        -> sst::network::LanSelectionResult override {
+        ++select_calls;
+        last_phone_subnet = phone_subnet_cidr;
+        if (!select_ok) {
+            // A failed selection has already reverted to a legal kP2pOnly.
             mode = sst::network::ConnectivityMode::kP2pOnly;
             ssid.clear();
-            return std::nullopt;
+            current_lan_path = sst::network::LanPath::kP2p;
+            return {.ok = false, .error = last_error, .path = sst::network::LanPath::kP2p};
         }
-        return sst::network::SharedWifiMigration{.id = kFakeMigrationId,
-                                                 .preview_endpoint = "10.0.0.9",
-                                                 .preview_credential = "cam:secret"};
+        if (desired.ethernet.enabled.value_or(false)) {
+            current_lan_path = sst::network::LanPath::kEthernet;
+            eth_endpoint = "10.10.1.30";
+            eth_confirm_id = kFakeMigrationId;
+            return {.ok = true,
+                    .path = sst::network::LanPath::kEthernet,
+                    .confirm_id = kFakeMigrationId,
+                    .endpoint = eth_endpoint,
+                    .credential = {}};
+        }
+        if (desired.wifi.enabled.value_or(false)) {
+            current_lan_path = sst::network::LanPath::kWifiSta;
+            return {.ok = true,
+                    .path = sst::network::LanPath::kWifiSta,
+                    .confirm_id = kFakeMigrationId,
+                    .endpoint = "10.0.0.9",
+                    .credential = "cam:secret"};
+        }
+        current_lan_path = sst::network::LanPath::kP2p;
+        return {.ok = true, .path = sst::network::LanPath::kP2p};
     }
     auto ConfirmSharedWifi(sst::network::MigrationId migration_id,
                            bool reachable) -> sst::network::ConnectivityMode override {
@@ -111,21 +130,45 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
         return reachable ? sst::network::ConnectivityMode::kStaOnly
                          : sst::network::ConnectivityMode::kP2pOnly;
     }
+    auto ConfirmLanPath(sst::network::MigrationId confirm_id, sst::network::LanPath path,
+                        bool reachable) -> sst::network::LanPath override {
+        ++confirm_lan_calls;
+        last_lan_confirm_id = confirm_id;
+        last_lan_confirm_path = path;
+        last_reachable = reachable;
+        current_lan_path = reachable ? path : sst::network::LanPath::kP2p;
+        return current_lan_path;
+    }
     auto RevertToP2p() -> void override { ++revert_calls; }
     [[nodiscard]] auto CurrentMode() const -> sst::network::ConnectivityMode override {
         return mode;
     }
+    [[nodiscard]] auto CurrentLanPath() const -> sst::network::LanPath override {
+        return current_lan_path;
+    }
     [[nodiscard]] auto CurrentSsid() const -> std::string override { return ssid; }
     [[nodiscard]] auto LastError() const -> std::string override { return last_error; }
+    [[nodiscard]] auto EthernetEndpoint() const -> std::string override { return eth_endpoint; }
+    [[nodiscard]] auto EthernetCredential() const -> std::string override { return {}; }
+    [[nodiscard]] auto EthernetConfirmId() const -> sst::network::MigrationId override {
+        return current_lan_path == sst::network::LanPath::kEthernet ? eth_confirm_id : 0;
+    }
 
-    bool request_ok{true};
-    int request_calls{0};
+    bool select_ok{true};
+    int select_calls{0};
     int confirm_calls{0};
+    int confirm_lan_calls{0};
     int revert_calls{0};
     sst::network::MigrationId last_confirm_id{0};
+    sst::network::MigrationId last_lan_confirm_id{0};
+    sst::network::LanPath last_lan_confirm_path{sst::network::LanPath::kNone};
     bool last_reachable{false};
+    std::string last_phone_subnet;
+    std::string eth_endpoint;
+    sst::network::MigrationId eth_confirm_id{0};
     // Settled state the handler reads back for the R3 connected-state / short-circuit.
     sst::network::ConnectivityMode mode{sst::network::ConnectivityMode::kP2pOnly};
+    sst::network::LanPath current_lan_path{sst::network::LanPath::kP2p};
     std::string ssid;
     std::string last_error;
 };
@@ -186,20 +229,23 @@ TEST(NetworkHandlerTest, SetAppliesPersistsAndEchoesStatus) {
     // Live status (probed, not the apply result).
     EXPECT_TRUE(resp.network_config().ethernet_up());
     EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
-    // Applied + persisted (apply succeeded).
-    EXPECT_EQ(ethernet.apply_calls, 1);
+    // Routed through the arbiter's single decision site (no direct-apply bypass) +
+    // persisted; the response reflects the winning LAN path.
+    EXPECT_EQ(arbiter.select_calls, 1);
     EXPECT_EQ(store.persist_calls, 1);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
 }
 
-// Apply fails for an ENABLED ethernet interface -> the response must NOT be a
-// plain OK/green, and the bad config must NOT be persisted as authoritative.
-TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
+// A failed LAN-path selection (an enabled interface could not come up) -> the
+// response must NOT be a plain OK/green, and the bad config must NOT be persisted.
+TEST(NetworkHandlerTest, SetWithFailedSelectionReportsErrorAndDoesNotPersist) {
     FakeConfigurator configurator;
     FakeEthernet ethernet;
-    ethernet.apply_ok = false;
     sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
+    arbiter.select_ok = false;  // the arbiter could not bring the interface up
+    arbiter.last_error = "wired network setup failed";
     sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     sst_cam::Command cmd;
@@ -207,11 +253,11 @@ TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
     eth->set_enabled(true);
     eth->set_dhcp(false);
     eth->set_address("10.10.1.30/24");
-    eth->set_gateway("192.168.99.1");  // off-subnet -> con up fails
+    eth->set_gateway("192.168.99.1");  // off-subnet -> apply fails inside the arbiter
 
     const auto resp = handler.Handle(cmd);
 
-    EXPECT_EQ(ethernet.apply_calls, 1);                     // it did attempt the apply
+    EXPECT_EQ(arbiter.select_calls, 1);                     // routed through the arbiter
     EXPECT_NE(resp.status(), sst_cam::ResponseStatus::OK);  // not a false green
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_EQ(store.persist_calls, 0);  // bad config not persisted as good
@@ -257,7 +303,7 @@ TEST(NetworkHandlerTest, SetOnInsecureLinkRejectedNotAppliedNotPersisted) {
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_FALSE(resp.error_message().empty());  // a clear reason for the app
-    EXPECT_EQ(ethernet.apply_calls, 0);          // apply never attempted
+    EXPECT_EQ(arbiter.select_calls, 0);          // arbiter never consulted
     EXPECT_EQ(store.persist_calls, 0);           // credentials not persisted
 }
 
@@ -275,7 +321,7 @@ TEST(NetworkHandlerTest, SetOnSecureLinkProceedsAppliesAndPersists) {
     const auto resp = handler.Handle(MakeSetEthernetCommand());
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(ethernet.apply_calls, 1);  // applied
+    EXPECT_EQ(arbiter.select_calls, 1);  // routed through the arbiter
     EXPECT_EQ(store.persist_calls, 1);   // persisted
 }
 
@@ -317,7 +363,9 @@ TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
     sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
     sst_cam::Command cmd;
-    auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
+    auto* set = cmd.mutable_set_network_config();
+    set->set_phone_subnet_cidr("10.10.1.0/24");
+    auto* wifi = set->mutable_config()->mutable_wifi();
     wifi->set_enabled(true);
     wifi->set_ssid("PhoneNet");
     wifi->set_password("hunter2pw");
@@ -325,11 +373,13 @@ TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
     const auto resp = handler.Handle(cmd);
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(arbiter.request_calls, 1);  // wifi routed to the arbiter
+    EXPECT_EQ(arbiter.select_calls, 1);                    // wifi routed to the arbiter
+    EXPECT_EQ(arbiter.last_phone_subnet, "10.10.1.0/24");  // phone-subnet hint plumbed
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
     EXPECT_EQ(resp.network_config().migration_id(), kFakeMigrationId);
     EXPECT_EQ(resp.network_config().preview_endpoint(), "10.0.0.9");
     EXPECT_EQ(resp.network_config().preview_credential(), "cam:secret");
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_WIFI_STA);
 }
 
 // A shared-wifi migration that cannot start (arbiter returns nullopt) -> ERROR,
@@ -340,7 +390,8 @@ TEST(NetworkHandlerTest, SetWithWifiMigrationFailureReportsError) {
     sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    arbiter.request_ok = false;
+    arbiter.select_ok = false;
+    arbiter.last_error = "couldn't join that Wi-Fi network";
     FakeLinkSecurity secure(/*secure=*/true);
     sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
@@ -352,12 +403,13 @@ TEST(NetworkHandlerTest, SetWithWifiMigrationFailureReportsError) {
     const auto resp = handler.Handle(cmd);
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
-    EXPECT_EQ(arbiter.request_calls, 1);
+    EXPECT_EQ(arbiter.select_calls, 1);
     EXPECT_EQ(store.persist_calls, 0);
 }
 
-// Disabling wifi ensures a revert to S1 (never leaves a dangling STA request).
-TEST(NetworkHandlerTest, SetWithWifiDisabledRevertsToP2p) {
+// Ethernet enabled + wifi disabled routes through the single decision site (not a
+// direct apply) and commits the Ethernet LAN path — no STA migration handshake.
+TEST(NetworkHandlerTest, SetEthernetOnlyRoutesThroughArbiterNoMigration) {
     FakeConfigurator configurator;
     FakeEthernet ethernet;
     sst::network::UplinkManager manager(configurator, ethernet);
@@ -368,8 +420,11 @@ TEST(NetworkHandlerTest, SetWithWifiDisabledRevertsToP2p) {
     const auto resp = handler.Handle(MakeSetEthernetCommand());  // wifi disabled
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(arbiter.request_calls, 0);
-    EXPECT_EQ(arbiter.revert_calls, 1);
+    EXPECT_EQ(arbiter.select_calls, 1);
+    EXPECT_EQ(resp.network_config().migration_id(), 0U);  // no STA handshake
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
+    EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
+    EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");
 }
 
 // ConfirmPreviewReachable routes the app verdict to the arbiter and echoes the
@@ -448,9 +503,9 @@ TEST(NetworkHandlerTest, SetSameNetworkWhileConnectedIsNoOpAndReportsConnected) 
     const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "hunter2pw"}));
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(arbiter.request_calls, 0);  // no migration attempted
-    EXPECT_EQ(arbiter.revert_calls, 0);   // no revert
-    EXPECT_EQ(store.persist_calls, 0);    // creds not re-persisted (already validated)
+    EXPECT_EQ(arbiter.select_calls, 0);  // no migration attempted
+    EXPECT_EQ(arbiter.revert_calls, 0);  // no revert
+    EXPECT_EQ(store.persist_calls, 0);   // creds not re-persisted (already validated)
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
     EXPECT_TRUE(resp.network_config().in_shared_wifi());
     EXPECT_EQ(resp.network_config().current_ssid(), "PhoneNet");
@@ -474,8 +529,8 @@ TEST(NetworkHandlerTest, SetSameSsidDifferentPasswordReMigrates) {
     const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "newpassword"}));
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(arbiter.request_calls, 1);  // re-migrated, not short-circuited
-    EXPECT_EQ(store.persist_calls, 1);    // persisted only after the arbiter validated
+    EXPECT_EQ(arbiter.select_calls, 1);  // re-migrated, not short-circuited
+    EXPECT_EQ(store.persist_calls, 1);   // persisted only after the arbiter validated
     EXPECT_EQ(resp.network_config().migration_id(), kFakeMigrationId);
 }
 
@@ -490,7 +545,7 @@ TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
     FakeArbiter arbiter;
     arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
     arbiter.ssid = "OldNet";
-    arbiter.request_ok = false;  // the new join fails; arbiter reverts to P2P
+    arbiter.select_ok = false;  // the new join fails; arbiter reverts to P2P
     arbiter.last_error = "failed to join wifi (check the password)";
     sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"OldNet", "oldpw"}),
                                          arbiter, ethernet);
@@ -499,7 +554,7 @@ TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_FALSE(resp.error_message().empty());
-    EXPECT_EQ(arbiter.request_calls, 1);
+    EXPECT_EQ(arbiter.select_calls, 1);
     EXPECT_EQ(store.persist_calls, 0);  // failed config not persisted
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
     EXPECT_FALSE(resp.network_config().in_shared_wifi());               // reverted to P2P
@@ -594,6 +649,39 @@ TEST(NetworkHandlerTest, GetReportsDownEthernetLeavesDhcpUnset) {
     EXPECT_FALSE(resp.network_config().ethernet_up());
     EXPECT_TRUE(resp.network_config().ethernet_address().empty());
     EXPECT_FALSE(resp.network_config().has_ethernet_dhcp());
+}
+
+// R11/R19: ConfirmLanPathCommand is handled — routed to the arbiter's ConfirmLanPath
+// (confirm id + path) and the committed path is echoed back.
+TEST(NetworkHandlerTest, ConfirmLanPathRoutesToArbiter) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+
+    EXPECT_NE(std::find(handler.HandledCases().begin(), handler.HandledCases().end(),
+                        sst_cam::Command::kConfirmLanPath),
+              handler.HandledCases().end());
+
+    sst_cam::Command cmd;
+    auto* confirm = cmd.mutable_confirm_lan_path();
+    confirm->set_confirm_id(kFakeMigrationId);
+    confirm->set_path(sst_cam::LAN_PATH_ETHERNET);
+    confirm->set_reachable(true);
+
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(arbiter.confirm_lan_calls, 1);
+    EXPECT_EQ(arbiter.last_lan_confirm_id, kFakeMigrationId);
+    EXPECT_EQ(arbiter.last_lan_confirm_path, sst::network::LanPath::kEthernet);
+    EXPECT_TRUE(arbiter.last_reachable);
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kConfirmLanPath);
+    EXPECT_EQ(resp.confirm_lan_path().confirm_id(), kFakeMigrationId);
+    EXPECT_EQ(resp.confirm_lan_path().committed_path(), sst_cam::LAN_PATH_ETHERNET);
+    EXPECT_TRUE(resp.confirm_lan_path().committed());
 }
 
 }  // namespace

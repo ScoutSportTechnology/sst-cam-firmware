@@ -2,20 +2,26 @@
 
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app/control/ports/wifi-manager.hpp"
 #include "app/network/ports/connectivity-arbiter.hpp"
+#include "app/network/ports/ethernet-carrier-monitor.hpp"
+#include "app/network/ports/ethernet-controller.hpp"
 #include "app/network/ports/self-revert-timer.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
 #include "app/network/services/connectivity_arbiter/connectivity-arbiter.hpp"
 #include "domain/config/models/uplink-config.hpp"
 #include "domain/network/models/connectivity-mode.hpp"
+#include "domain/network/models/ethernet-mode.hpp"
 
 namespace {
 
 using sst::network::ConnectivityMode;
+using sst::network::LanPath;
 
 // One shared ordered log across all fakes so tests can assert INV2's ordering:
 // the GO teardown (wifi.Stop) must precede the STA join (uplink.ApplyWifiSta),
@@ -113,8 +119,17 @@ class FakeHooks final : public sst::network::IConnectivityTransitionHooks {
         ++reverted_calls;
         return revert_ok;
     }
+    auto OnEthernetLanSelected(const std::string& ethernet_lan_ip) -> std::string override {
+        log_.Record("hooks.OnEthernetLanSelected");
+        last_ethernet_ip = ethernet_lan_ip;
+        ++ethernet_selected_calls;
+        return ethernet_credential;
+    }
 
     std::string credential{"cam:secret"};
+    std::string ethernet_credential;  // empty by default (U4: preview rebind is U6)
+    std::string last_ethernet_ip;
+    int ethernet_selected_calls{0};
     std::string last_sta_ip;
     int joined_calls{0};
     int reverted_calls{0};
@@ -124,15 +139,93 @@ class FakeHooks final : public sst::network::IConnectivityTransitionHooks {
     CallLog& log_;
 };
 
+// Firmware-owned Ethernet fake: scriptable probe (mode/address/carrier), apply
+// outcome, and DHCP offer so the LAN-path decision matrix is deterministic.
+class FakeEthernet final : public sst::network::IEthernetController {
+   public:
+    explicit FakeEthernet(CallLog& log) : log_(log) {}
+    auto ApplyEthernet(const sst::config::EthernetUplink& /*cfg*/)
+        -> sst::network::EthernetApplyResult override {
+        log_.Record("ethernet.Apply");
+        ++apply_calls;
+        return apply_ok ? sst::network::EthernetApplyResult{.ok = true, .detail = apply_address}
+                        : sst::network::EthernetApplyResult{.ok = false, .detail = "apply failed"};
+    }
+    auto ProbeEthernet() -> sst::network::EthernetProbe override {
+        return {.mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = {}};
+    }
+    auto TeardownEthernet() -> void override {
+        log_.Record("ethernet.Teardown");
+        ++teardown_calls;
+    }
+    auto ProbeDhcpOffer() -> std::optional<std::string> override {
+        ++offer_calls;
+        return dhcp_offer;
+    }
+
+    // Scriptable knobs.
+    bool carrier{false};
+    sst::network::EthernetMode probe_mode{sst::network::EthernetMode::kStatic};
+    std::string probe_address;
+    bool apply_ok{true};
+    std::string apply_address{"10.10.1.30/24"};
+    std::optional<std::string> dhcp_offer{std::nullopt};
+    int apply_calls{0};
+    int teardown_calls{0};
+    int offer_calls{0};
+
+   private:
+    CallLog& log_;
+};
+
+// Ethernet-carrier monitor fake: captures the arbiter callback so a test drives
+// carrier transitions synchronously (like FakeTimer::Fire).
+class FakeEthernetMonitor final : public sst::network::IEthernetCarrierMonitor {
+   public:
+    auto Start(std::function<void()> on_poll) -> void override { on_poll_ = std::move(on_poll); }
+    auto Stop() -> void override { on_poll_ = nullptr; }
+    // Simulate one carrier poll from the monitor thread.
+    auto Poll() -> void {
+        if (on_poll_) {
+            on_poll_();
+        }
+    }
+
+   private:
+    std::function<void()> on_poll_;
+};
+
 struct Harness {
     CallLog log;
     FakeWifi wifi{log};
     FakeUplink uplink{log};
     FakeTimer timer{log};
     FakeHooks hooks{log};
-    sst::network::ConnectivityArbiter arbiter{wifi, uplink, timer, hooks,
-                                              std::chrono::milliseconds{5000}};
+    FakeEthernet ethernet{log};
+    FakeEthernetMonitor monitor;
+    sst::network::ConnectivityArbiter arbiter{
+        wifi, uplink, timer, hooks, ethernet, monitor, std::chrono::milliseconds{5000}};
 };
+
+// Enable-wifi uplink config helper (ethernet disabled).
+auto WifiConfig(const std::string& ssid) -> sst::config::UplinkData {
+    sst::config::UplinkData cfg;
+    cfg.wifi.enabled = true;
+    cfg.wifi.ssid = ssid;
+    return cfg;
+}
+
+// Static-ethernet uplink config helper (wifi disabled).
+auto StaticEthernetConfig(const std::string& cidr,
+                          bool wifi_enabled = false) -> sst::config::UplinkData {
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = false;
+    cfg.ethernet.address = cidr;
+    cfg.wifi.enabled = wifi_enabled;
+    cfg.wifi.ssid = wifi_enabled ? std::optional<std::string>{"PhoneNet"} : std::nullopt;
+    return cfg;
+}
 
 auto IndexOf(const std::vector<std::string>& calls, const std::string& what) -> int {
     for (int i = 0; i < static_cast<int>(calls.size()); ++i) {
@@ -506,6 +599,325 @@ TEST(ConnectivityArbiterTest, S2CarrierRecoveryResetsLossStreak) {
 
     EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
     EXPECT_EQ(harness.hooks.reverted_calls, 0);
+}
+
+// ─────────────────────────── U4: LAN-path selection ───────────────────────────
+
+// Both enabled: static ethernet on `eth_cidr` + wifi `ssid`.
+auto BothEnabledConfig(const std::string& eth_cidr,
+                       const std::string& ssid) -> sst::config::UplinkData {
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = false;
+    cfg.ethernet.address = eth_cidr;
+    cfg.wifi.enabled = true;
+    cfg.wifi.ssid = ssid;
+    return cfg;
+}
+
+// Boot: the LAN path defaults to P2P (the phone reaches the camera over the GO).
+TEST(ConnectivityArbiterTest, BootLanPathIsP2p) {
+    Harness harness;
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kP2p);
+}
+
+// AE1: Ethernet on the phone's subnet + no STA -> LanPath=kEthernet, ethernet
+// applied, NO STA IP brought up on that subnet.
+TEST(ConnectivityArbiterTest, EthernetOnPhoneSubnetSelectedNoStaBroughtUp) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+
+    const auto sel = harness.arbiter.SelectLanPath(
+        StaticEthernetConfig("10.10.1.30/24", /*wifi_enabled=*/true), "10.10.1.0/24");
+
+    EXPECT_TRUE(sel.ok);
+    EXPECT_EQ(sel.path, LanPath::kEthernet);
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);
+    EXPECT_EQ(harness.uplink.wifi_calls, 0);      // STA never brought up
+    EXPECT_EQ(harness.uplink.teardown_calls, 0);  // and never suppressed
+    EXPECT_EQ(sel.endpoint, "10.10.1.30");        // bare Ethernet IP
+    EXPECT_NE(sel.confirm_id, 0U);                // handshake pending
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), sel.confirm_id);
+}
+
+// AE2: no Ethernet carrier, STA provisioned -> LanPath=kWifiSta; GO torn down
+// before STA (INV2); confirm settles kStaOnly.
+TEST(ConnectivityArbiterTest, StaOnlySelectedViaLanPathWhenNoEthernet) {
+    Harness harness;
+    harness.ethernet.carrier = false;  // no ethernet
+
+    const auto sel = harness.arbiter.SelectLanPath(WifiConfig("PhoneNet"), "10.10.1.0/24");
+
+    EXPECT_TRUE(sel.ok);
+    EXPECT_EQ(sel.path, LanPath::kWifiSta);
+    EXPECT_LT(IndexOf(harness.log.calls, "wifi.Stop"),
+              IndexOf(harness.log.calls, "uplink.ApplyWifiSta"));  // INV2 ordering
+    EXPECT_EQ(harness.ethernet.apply_calls, 0);
+
+    EXPECT_EQ(harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kWifiSta, true),
+              LanPath::kWifiSta);
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+}
+
+// Ethernet on a DIFFERENT subnet is NOT a LAN path: STA remains the LAN, ethernet
+// is neither applied nor does it suppress STA (uplink deferred to U7).
+TEST(ConnectivityArbiterTest, EthernetDifferentSubnetNotSelectedStaRemains) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    // Bring STA up first (ethernet carrier down so STA wins).
+    harness.ethernet.carrier = false;
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    const int teardowns_before = harness.uplink.teardown_calls;
+
+    // Ethernet appears on a DIFFERENT subnet than the phone's.
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN
+    EXPECT_EQ(harness.ethernet.apply_calls, 0);                      // ethernet not applied as LAN
+    EXPECT_EQ(harness.uplink.teardown_calls, teardowns_before);      // STA not suppressed
+}
+
+// AE7 / R19: candidate Ethernet, phone probe FAILS -> de-select, fall to STA; the
+// STA fallback is never suppressed prematurely (it is only brought up AFTER the
+// Ethernet probe fails).
+TEST(ConnectivityArbiterTest, EthernetProbeFailFallsToStaNeverSuppressesPrematurely) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+
+    const auto sel = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+    EXPECT_EQ(harness.uplink.wifi_calls, 0);      // STA never brought up while Ethernet pending
+    EXPECT_EQ(harness.uplink.teardown_calls, 0);  // and never suppressed
+
+    const auto committed =
+        harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kEthernet, false);
+
+    EXPECT_EQ(harness.ethernet.teardown_calls, 1);  // Ethernet de-selected (torn down)
+    EXPECT_EQ(committed, LanPath::kWifiSta);        // fell to STA
+    EXPECT_EQ(harness.uplink.wifi_calls, 1);        // STA brought up only AFTER the fail
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+}
+
+// AE10 / R20: mid-session same-subnet STATIC Ethernet hotplug tears the STA IP
+// down BEFORE binding Ethernet (no transient dual-home), and the mode-independent
+// monitor is what fires it.
+TEST(ConnectivityArbiterTest, SameSubnetStaticHotplugSuppressesStaBeforeEthernet) {
+    Harness harness;
+    harness.ethernet.carrier = false;  // STA wins first
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    ASSERT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
+    harness.log.calls.clear();
+
+    // Cable plugged in on the same subnet.
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);
+    // No transient dual-home: STA torn down BEFORE the Ethernet address is applied.
+    EXPECT_LT(IndexOf(harness.log.calls, "uplink.TeardownWifiSta"),
+              IndexOf(harness.log.calls, "ethernet.Apply"));
+    // Unsolicited hotplug "notification": a fresh Ethernet handshake the app
+    // re-probes on its next Get (pull model).
+    EXPECT_NE(harness.arbiter.EthernetConfirmId(), 0U);
+}
+
+// Ground-truth reconciliation (R2/A4): the phone reports a DIFFERENT subnet, but
+// STA's REAL address falls inside Ethernet's REAL subnet -> refuse the dual-config
+// and select Ethernet (single-path).
+TEST(ConnectivityArbiterTest, GroundTruthReconciliationRefusesBadCidrDualHome) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.0.0.5"};
+    harness.ethernet.carrier = false;
+    // STA up; the phone (mis)reports a different subnet than the real 10.0.0.0/24.
+    const auto sta = harness.arbiter.SelectLanPath(WifiConfig("PhoneNet"), "192.168.5.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+
+    // Operator switch: ethernet on 10.0.0.30/24 collides with STA's real 10.0.0.5
+    // despite the phone CIDR claiming 192.168.5.0/24.
+    harness.ethernet.carrier = true;
+    const auto sel = harness.arbiter.SelectLanPath(BothEnabledConfig("10.0.0.30/24", "PhoneNet"),
+                                                   "192.168.5.0/24");
+
+    EXPECT_EQ(sel.path, LanPath::kEthernet);  // reconciled to same-subnet, single-path
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    EXPECT_GE(harness.uplink.teardown_calls, 1);  // STA suppressed (no dual-home)
+}
+
+// R20 mode-independent monitor: an Ethernet hotplug in kP2pOnly (no STA) re-runs
+// arbitration and selects Ethernet — the kStaOnly-only carrier watchdog could not.
+TEST(ConnectivityArbiterTest, EthernetHotplugInP2pOnlySelectsEthernet) {
+    Harness harness;
+    harness.ethernet.carrier = false;
+    // Ethernet enabled but carrier down, no wifi -> P2P.
+    const auto sel = harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "");
+    ASSERT_EQ(sel.path, LanPath::kP2p);
+    ASSERT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kP2pOnly);
+
+    harness.ethernet.carrier = true;  // cable plugged in while kP2pOnly
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);
+}
+
+// R20 mode-independent monitor: an Ethernet UNPLUG while LanPath=kEthernet (radio
+// kP2pOnly, so the kStaOnly watchdog is idle) re-arbitrates to the next provider.
+TEST(ConnectivityArbiterTest, EthernetUnplugWhileCommittedReArbitratesToSta) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    const auto sel = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+    harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kEthernet, true);
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+
+    harness.ethernet.carrier = false;  // cable pulled
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.ethernet.teardown_calls, 1);
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // fell to STA
+}
+
+// R21 DHCP-pending: carrier up, no lease/offer -> not yet a candidate; LAN falls to
+// STA (ethernet not applied).
+TEST(ConnectivityArbiterTest, DhcpPendingEthernetIsNotACandidate) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    harness.ethernet.dhcp_offer = std::nullopt;  // no lease yet
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDown;
+    harness.ethernet.probe_address = "";
+
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = true;
+    cfg.wifi.enabled = true;
+    cfg.wifi.ssid = "PhoneNet";
+    const auto sel = harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+
+    EXPECT_EQ(sel.path, LanPath::kWifiSta);      // fell to STA
+    EXPECT_EQ(harness.ethernet.apply_calls, 0);  // ethernet not applied
+    EXPECT_GE(harness.ethernet.offer_calls, 1);  // an offer WAS probed (acquire-without-bind)
+}
+
+// R21 no-surprise-migrate: a LATE same-subnet DHCP lease onto a HEALTHY STA session
+// does NOT auto-migrate (no unsolicited preview drop); the offer is classified
+// without binding, so nothing dual-homes.
+TEST(ConnectivityArbiterTest, LateDhcpLeaseDoesNotAutoMigrateHealthySta) {
+    Harness harness;
+    harness.ethernet.carrier = false;  // STA wins first
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = true;
+    cfg.wifi.enabled = true;
+    cfg.wifi.ssid = "PhoneNet";
+    const auto sta = harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    const int teardowns_before = harness.uplink.teardown_calls;
+
+    // The DHCP lease lands ~30s later on the same subnet — carrier transitions up.
+    harness.ethernet.carrier = true;
+    harness.ethernet.dhcp_offer = "10.10.1.30/24";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA kept
+    EXPECT_EQ(harness.ethernet.apply_calls, 0);                      // ethernet NOT bound
+    EXPECT_EQ(harness.uplink.teardown_calls, teardowns_before);      // STA not suppressed
+}
+
+// Acquire-without-bind on an OPERATOR DHCP switch: the STA IP is suppressed BEFORE
+// the Ethernet address is bound, so the two are never simultaneously addressed.
+TEST(ConnectivityArbiterTest, OperatorDhcpSwitchSuppressesStaBeforeBindingEthernet) {
+    Harness harness;
+    harness.ethernet.carrier = false;  // STA up first
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = true;
+    cfg.wifi.enabled = true;
+    cfg.wifi.ssid = "PhoneNet";
+    const auto sta = harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    harness.log.calls.clear();
+
+    // Operator re-selects with the DHCP lease now available on the same subnet.
+    harness.ethernet.carrier = true;
+    harness.ethernet.dhcp_offer = "10.10.1.30/24";
+    const auto sel = harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+
+    EXPECT_EQ(sel.path, LanPath::kEthernet);
+    EXPECT_LT(IndexOf(harness.log.calls, "uplink.TeardownWifiSta"),
+              IndexOf(harness.log.calls, "ethernet.Apply"));  // no dual-home window
+}
+
+// Single-counter epoch: a stale confirm id (wrong epoch) is a no-op.
+TEST(ConnectivityArbiterTest, StaleConfirmLanPathIdIsNoOp) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    const auto sel = harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+
+    const auto committed =
+        harness.arbiter.ConfirmLanPath(sel.confirm_id + 99, LanPath::kEthernet, true);
+
+    EXPECT_EQ(committed, LanPath::kEthernet);  // unchanged (still committing)
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), sel.confirm_id);
+}
+
+// Single-counter epoch: a confirm for the WRONG path (right id) is a no-op.
+TEST(ConnectivityArbiterTest, ConfirmLanPathWrongPathIsNoOp) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    const auto sel = harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+
+    const auto committed = harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kWifiSta, true);
+
+    EXPECT_EQ(committed, LanPath::kEthernet);  // wrong path -> ignored
+}
+
+// The critical single-counter guard: select-Ethernet -> flap-to-STA ->
+// re-select-Ethernet. The stale FIRST Ethernet confirm (same path, old id) must NOT
+// finalize the superseded pick — the monotonic counter advanced.
+TEST(ConnectivityArbiterTest, FlapThenStaleEthernetConfirmIsNoOp) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    const auto first = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                     "10.10.1.0/24");
+    ASSERT_EQ(first.path, LanPath::kEthernet);
+
+    // Flap: unplug -> STA, then re-plug -> Ethernet again (a NEW epoch each time).
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();  // -> STA (id advances)
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();  // -> Ethernet again (id advances again)
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+
+    const auto live_id = harness.arbiter.EthernetConfirmId();
+    EXPECT_GT(live_id, first.confirm_id);
+
+    // The stale FIRST Ethernet confirm (old id, same kEthernet path) is a no-op.
+    harness.arbiter.ConfirmLanPath(first.confirm_id, LanPath::kEthernet, true);
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), live_id);  // unchanged
+
+    // The LIVE confirm commits.
+    EXPECT_EQ(harness.arbiter.ConfirmLanPath(live_id, LanPath::kEthernet, true),
+              LanPath::kEthernet);
 }
 
 }  // namespace

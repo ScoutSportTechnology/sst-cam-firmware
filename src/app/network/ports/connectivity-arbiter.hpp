@@ -36,6 +36,44 @@ class IConnectivityTransitionHooks {
     // reports kP2pOnly (the radio is no longer STA), but the caller has logged a
     // degraded preview.
     virtual auto OnRevertedToP2p() -> bool = 0;
+
+    // Called when the arbiter selects Ethernet as the LAN path at `ethernet_lan_ip`
+    // (R11 Ethernet-LAN handshake). Parallel IN SHAPE to OnSharedWifiJoined but the
+    // Ethernet path forms NO WiFi-Direct group and never touches the radio (INV2
+    // stays radio-only): rebind the authenticated live preview onto the Ethernet IP
+    // and return the RTSP credential ("user:pass"; empty = none) so the phone can
+    // identity-probe the Ethernet endpoint before it is confirmed.
+    //
+    // U4 wires the DECISION + endpoint + shared-epoch confirm id; U6 fills the
+    // real body (mint the per-path credential + rebind the RTSP preview server onto
+    // the Ethernet IP). A U4-only impl returning "" is a correct minimal body (the
+    // endpoint + lan_path are still surfaced; the preview simply is not yet
+    // re-bound), NOT a stub.
+    virtual auto OnEthernetLanSelected(const std::string& ethernet_lan_ip) -> std::string = 0;
+};
+
+// The outcome of a single LAN-path arbitration (U4): which path the arbiter
+// selected and, when the phone must confirm reachability before the arbiter
+// suppresses the losing alternate (R19), the handshake to probe.
+struct LanSelectionResult {
+    // false = a HARD failure (e.g. an enabled STA join failed) the handler surfaces
+    // as ERROR with `error`; true = a legal selection (which may still be P2P).
+    bool ok{true};
+    std::string error;  // failure reason, empty on success
+
+    sst::network::LanPath path{sst::network::LanPath::kNone};  // the LAN path selected/committing
+
+    // The reachability handshake the phone must confirm before the arbiter finalizes
+    // the pick / suppresses the alternate. confirm_id == 0 means no handshake is
+    // pending (already committed — e.g. P2P, or an unsolicited same-subnet hotplug
+    // that suppressed STA immediately per R2>R19 and is re-probed on the next Get).
+    // Non-zero: the app probes `endpoint` (with `credential`) then replies
+    // ConfirmLanPath / ConfirmPreviewReachable carrying this id. For the STA path
+    // this mirrors SharedWifiMigration; for the Ethernet path these are the
+    // ethernet_endpoint / ethernet_credential / ethernet_confirm_id proto fields.
+    MigrationId confirm_id{0};
+    std::string endpoint;
+    std::string credential;
 };
 
 // The result of a successful P2P->STA migration request: what the app needs to
@@ -59,27 +97,56 @@ class IConnectivityArbiter {
     IConnectivityArbiter(IConnectivityArbiter&&) = delete;
     auto operator=(IConnectivityArbiter&&) -> IConnectivityArbiter& = delete;
 
-    // Begin migrating from P2P to the phone's shared WiFi: tear the GO down, join
-    // STA, mint the preview credential, arm the self-revert timer, and enter
-    // kMigrating. Returns the migration descriptor, or nullopt when a migration is
-    // already in flight (re-entrancy guard) or the STA join failed — in the
-    // failure case the arbiter has already reverted to a legal kP2pOnly state.
-    virtual auto RequestSharedWifi(const sst::config::WifiStaUplink& uplink)
-        -> std::optional<SharedWifiMigration> = 0;
+    // The SINGLE LAN-path decision site (R3/R18): given the desired uplink config +
+    // the phone-reported subnet (a HINT), pick exactly ONE LAN path — Ethernet-on-
+    // phone-subnet -> WiFi-STA -> WiFi-Direct P2P — and drive the transition
+    // (probe-confirm-before-suppress, R19). Replaces both the handler's removed
+    // direct Ethernet apply and its direct RequestSharedWifi call. The returned
+    // handshake, when present, is what the app probes then confirms via
+    // ConfirmLanPath / ConfirmPreviewReachable. `ok == false` => an enabled
+    // interface failed to come up (handler reports ERROR); the arbiter has already
+    // reverted to a legal state.
+    virtual auto SelectLanPath(const sst::config::UplinkData& desired,
+                               const std::string& phone_subnet_cidr) -> LanSelectionResult = 0;
 
     // The app's reachability verdict for a migration epoch (KTD5). Only honoured
     // when `id` is the in-flight migration and the arbiter is still kMigrating:
     // reachable=true disarms the timer and finalises kStaOnly; reachable=false
     // reverts to kP2pOnly. A stale/superseded id is a no-op. Returns the resulting
-    // mode.
+    // mode. (The STA leg of the LAN-path handshake; ConfirmLanPath generalises it.)
     virtual auto ConfirmSharedWifi(MigrationId migration_id,
                                    bool reachable) -> ConnectivityMode = 0;
+
+    // The app's reachability verdict for a LAN-path selection (R19), generalising
+    // ConfirmSharedWifi to any path. Finalises the pick ONLY when BOTH
+    // `confirm_id == the live epoch` AND `path == the committed selection` (the
+    // single-counter epoch guard, KTD): a verdict whose id OR path is stale is a
+    // no-op. reachable=true commits `path` and suppresses the losing alternate;
+    // reachable=false de-selects and the arbiter falls to the next provider
+    // (Ethernet -> STA -> P2P). Returns the LAN path now committed.
+    virtual auto ConfirmLanPath(MigrationId confirm_id, sst::network::LanPath path,
+                                bool reachable) -> sst::network::LanPath = 0;
 
     // Force the radio back to P2P-only (STA drop / cleared config / app deny).
     // No-op when already kP2pOnly.
     virtual auto RevertToP2p() -> void = 0;
 
     [[nodiscard]] virtual auto CurrentMode() const -> ConnectivityMode = 0;
+
+    // The LAN path currently committed / committing (R3). Orthogonal to CurrentMode
+    // (radio-only). Default so lightweight test doubles need not implement it.
+    [[nodiscard]] virtual auto CurrentLanPath() const -> sst::network::LanPath {
+        return sst::network::LanPath::kNone;
+    }
+
+    // The Ethernet-LAN handshake to surface in NetworkConfigResponse while Ethernet
+    // is the committing/committed LAN path (proto ethernet_endpoint / _credential /
+    // _confirm_id). confirm-id 0 / empty strings => no Ethernet handshake pending.
+    // U6 fills the credential + preview rebind; U4 populates endpoint + confirm id.
+    // Defaults so lightweight doubles need not implement them.
+    [[nodiscard]] virtual auto EthernetEndpoint() const -> std::string { return {}; }
+    [[nodiscard]] virtual auto EthernetCredential() const -> std::string { return {}; }
+    [[nodiscard]] virtual auto EthernetConfirmId() const -> MigrationId { return 0; }
 
     // A human-readable reason the most recent RequestSharedWifi failed (empty
     // when the last request succeeded or none has run). Lets the command handler

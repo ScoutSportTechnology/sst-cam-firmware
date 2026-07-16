@@ -46,10 +46,17 @@ class NetworkHandler final : public ICommandHandler {
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
 
    private:
-    auto HandleSet(const sst_cam::NetworkConfig& proto) -> sst_cam::CommandResponse;
-    // Handle ConfirmPreviewReachableCommand (U4): route the app's reachability
+    // Route the FULL SetNetworkConfigCommand (config + the phone_subnet_cidr hint)
+    // through the arbiter's SINGLE LAN-path decision site (R18) — no direct Ethernet
+    // apply bypass.
+    auto HandleSet(const sst_cam::SetNetworkConfigCommand& cmd) -> sst_cam::CommandResponse;
+    // Handle ConfirmPreviewReachableCommand (STA leg): route the app's reachability
     // verdict to the arbiter's epoch-guarded confirm and report the settled mode.
     auto HandleConfirmReachable(const sst_cam::ConfirmPreviewReachableCommand& cmd)
+        -> sst_cam::CommandResponse;
+    // Handle ConfirmLanPathCommand (R11/R19): route the app's LAN-path reachability
+    // verdict (confirm id + path) to the arbiter and report the committed path.
+    auto HandleConfirmLanPath(const sst_cam::ConfirmLanPathCommand& cmd)
         -> sst_cam::CommandResponse;
     // Build the Set/Get response (current config + live per-interface status).
     // `migration`, when present, carries the P2P->STA migration id / STA preview

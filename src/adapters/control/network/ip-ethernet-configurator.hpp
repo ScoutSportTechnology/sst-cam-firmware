@@ -30,6 +30,7 @@ class IpEthernetConfigurator final : public sst::network::IEthernetController {
     auto ApplyEthernet(const sst::config::EthernetUplink& cfg)
         -> sst::network::EthernetApplyResult override;
     auto ProbeEthernet() -> sst::network::EthernetProbe override;
+    auto TeardownEthernet() -> void override;
     auto ProbeDhcpOffer() -> std::optional<std::string> override;
 
    private:

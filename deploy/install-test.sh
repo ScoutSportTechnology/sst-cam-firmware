@@ -126,18 +126,17 @@ if grep -qE 'video render' "$INSTALL_SH"; then ok; else bad "install.sh must gra
 #     wpa_supplicant control socket; without it WiFi-Direct fails with EACCES.
 if grep -qE 'video render netdev' "$INSTALL_SH"; then ok; else bad "install.sh must grant SERVICE_USER the netdev group (wpa_supplicant)"; fi
 
-# 7c. WiFi data plane: the systemd unit must grant CAP_NET_ADMIN (assign the GO IP)
-#     and CAP_NET_BIND_SERVICE (dnsmasq DHCP port 67) ambiently; without them the
-#     non-root service cannot bring the P2P data plane up and preview fails.
-if grep -qE 'AmbientCapabilities=.*CAP_NET_ADMIN.*CAP_NET_BIND_SERVICE.*CAP_NET_RAW' "$INSTALL_SH"; then
-  ok
+# 7c. Process model: the firmware owns every network adapter (Ethernet + WiFi
+#     radio NM-unmanaged, direct ip/dhclient, writes /etc/resolv.conf), so the
+#     unit runs as root — no CAP_NET_* juggling. Assert root and that the old
+#     ambient-capability lines are gone (the security bound is U7's LAN-only bind
+#     + egress-only uplink firewall, not confinement).
+if grep -qE '^User=root' "$INSTALL_SH"; then ok; else bad "embedded_unit must run as User=root"; fi
+if grep -qE '^Group=root' "$INSTALL_SH"; then ok; else bad "embedded_unit must run as Group=root"; fi
+if grep -qE 'AmbientCapabilities=|CapabilityBoundingSet=' "$INSTALL_SH"; then
+  bad "embedded_unit must NOT set AmbientCapabilities/CapabilityBoundingSet under the root process model"
 else
-  bad "embedded_unit must set AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW"
-fi
-if grep -qE 'CapabilityBoundingSet=.*CAP_NET_ADMIN.*CAP_NET_BIND_SERVICE.*CAP_NET_RAW' "$INSTALL_SH"; then
   ok
-else
-  bad "embedded_unit must set a matching CapabilityBoundingSet (incl. CAP_NET_RAW)"
 fi
 
 # 8. Camera overlay provisioning: an idempotent, fdtoverlay-based merge that wires

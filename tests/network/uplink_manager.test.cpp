@@ -45,6 +45,7 @@ class FakeEthernet final : public sst::network::IEthernetController {
                 .carrier = true,
                 .gateway = {}};
     }
+    auto TeardownEthernet() -> void override {}
     auto ProbeDhcpOffer() -> std::optional<std::string> override { return std::nullopt; }
 
     int ethernet_calls{0};
