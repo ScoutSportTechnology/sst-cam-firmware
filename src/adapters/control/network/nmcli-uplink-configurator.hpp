@@ -6,12 +6,13 @@
 
 namespace sst::adapters::control {
 
-// nmcli-backed uplink configurator (hardware-bound — fork/exec `nmcli`). The
-// camera's ethernet + wifi are NetworkManager-managed (only the P2P radio is
-// firmware-owned), so the uplink is driven through NM rather than raw `ip`,
-// which NM would override. The ethernet connection name + iface are discovered
-// at runtime (e.g. "Wired connection 1" / enP8p1s0), not hardcoded. Verified
-// on-device.
+// WiFi-STA uplink configurator (hardware-bound — fork/exec `wpa_cli`/`dhclient`/
+// `ip`). Ethernet is NO LONGER handled here — it moved to the firmware-owned
+// IpEthernetConfigurator (ip/dhclient, NM carve-out) so the real static-vs-DHCP
+// mode is reported (R12). This adapter owns only the WiFi-STA join: the radio is
+// NM-unmanaged (dedicated to the firmware-owned wpa_supplicant for the
+// WiFi-Direct GO), so the STA join runs through that same wpa_supplicant + a
+// dhclient lease, not NetworkManager. Verified on-device.
 class NmcliUplinkConfigurator final : public sst::network::IUplinkConfigurator {
    public:
     NmcliUplinkConfigurator() = default;
@@ -22,19 +23,11 @@ class NmcliUplinkConfigurator final : public sst::network::IUplinkConfigurator {
     NmcliUplinkConfigurator(NmcliUplinkConfigurator&&) = delete;
     auto operator=(NmcliUplinkConfigurator&&) -> NmcliUplinkConfigurator& = delete;
 
-    auto ApplyEthernet(const sst::config::EthernetUplink& cfg)
-        -> sst::network::UplinkResult override;
     auto ApplyWifiSta(const sst::config::WifiStaUplink& cfg) -> sst::network::UplinkResult override;
     auto TeardownWifiSta() -> void override;
-    auto ProbeEthernet() -> sst::network::UplinkResult override;
     auto ProbeWifiSta() -> sst::network::UplinkResult override;
 
    private:
-    // Discover the managed ethernet connection name (empty if none). Runs
-    // `nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status`.
-    static auto DetectEthernetConnection() -> std::string;
-    // Current IPv4 address (CIDR) NM reports for `connection`, empty if none.
-    static auto CurrentAddress(const std::string& connection) -> std::string;
     // The base WiFi station device (TYPE=="wifi", i.e. wlP1p1s0 — NOT a
     // "wifi-p2p" virtual iface), empty if none. Runs
     // `nmcli -t -f DEVICE,TYPE device status`.

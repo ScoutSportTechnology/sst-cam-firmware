@@ -7,6 +7,7 @@
 #include "app/control/ports/handler.hpp"
 #include "app/control/ports/link-security.hpp"
 #include "app/network/ports/connectivity-arbiter.hpp"
+#include "app/network/ports/ethernet-controller.hpp"
 #include "app/network/ports/uplink-store.hpp"
 #include "app/network/services/uplink-manager/uplink-manager.hpp"
 #include "bluetooth.pb.h"
@@ -38,6 +39,7 @@ class NetworkHandler final : public ICommandHandler {
    public:
     NetworkHandler(sst::network::UplinkManager& manager, sst::network::IUplinkStore& store,
                    sst::config::UplinkData initial, sst::network::IConnectivityArbiter& arbiter,
+                   sst::network::IEthernetController& ethernet,
                    const ILinkSecurity* link_security = nullptr);
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
@@ -63,6 +65,10 @@ class NetworkHandler final : public ICommandHandler {
     // Owns the P2P<->STA radio transition; the WiFi-STA uplink is driven through
     // it (never directly via the manager) so INV2 holds.
     sst::network::IConnectivityArbiter& arbiter_;
+    // Firmware-owned Ethernet interface — the source of truth for the REAL
+    // static-vs-DHCP mode + address the response reports (R12), replacing the old
+    // default-DHCP placeholder.
+    sst::network::IEthernetController& ethernet_;
     // Optional credential-link security gate (INV6/AE7). Null = no gate (non-BLE
     // wiring). Non-owning: the BLE transport that implements it outlives this.
     const ILinkSecurity* link_security_;

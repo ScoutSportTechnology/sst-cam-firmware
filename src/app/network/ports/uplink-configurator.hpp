@@ -12,11 +12,13 @@ struct UplinkResult {
     std::string detail;  // address on success, or the failure reason
 };
 
-// Port for bringing the camera's internet uplink up/down — the cloud-streaming
-// path, SEPARATE from the WiFi-Direct GO. Implemented by an nmcli-backed adapter
-// (the camera's ethernet + wifi are NetworkManager-managed, unlike the
-// firmware-owned P2P radio, so we coordinate with NM rather than fight it).
-// Hardware-bound; the real adapter forks `nmcli` and is verified on-device.
+// Port for the camera's WiFi-STA uplink — joining the phone's network as a
+// client, SEPARATE from the WiFi-Direct GO. Ethernet is NO LONGER owned here: it
+// moved to the firmware-owned IEthernetController (ip/dhclient, NM carve-out) so
+// GetNetworkConfig can report the real static-vs-DHCP mode (R12). The STA join is
+// driven through the firmware-owned wpa_supplicant + dhclient (the radio is
+// NM-unmanaged, dedicated to the WiFi-Direct GO). Hardware-bound; the real
+// adapter forks `wpa_cli`/`dhclient`/`ip` and is verified on-device.
 class IUplinkConfigurator {
    public:
     IUplinkConfigurator() = default;
@@ -26,9 +28,6 @@ class IUplinkConfigurator {
     auto operator=(const IUplinkConfigurator&) -> IUplinkConfigurator& = delete;
     IUplinkConfigurator(IUplinkConfigurator&&) = delete;
     auto operator=(IUplinkConfigurator&&) -> IUplinkConfigurator& = delete;
-
-    // Apply the ethernet uplink (DHCP or static) via NM and bring it up.
-    virtual auto ApplyEthernet(const sst::config::EthernetUplink& cfg) -> UplinkResult = 0;
 
     // Apply the WiFi-STA uplink (join the phone's network as a client). The
     // single-radio GO+STA concurrency hazard is designed out by the connectivity
@@ -43,12 +42,9 @@ class IUplinkConfigurator {
     // the same subnet) or leave the iface dirty for the WiFi-Direct GO. Idempotent.
     virtual auto TeardownWifiSta() -> void = 0;
 
-    // Probe the LIVE state of each interface (not the last-applied config) so the
-    // app's Settings -> Network shows reality: the camera's ethernet is
-    // NM-managed and may be up with an address even when the firmware uplink
-    // config has it disabled. `ok` = the interface currently has connectivity;
-    // `detail` = its current address (ethernet) / status (wifi).
-    virtual auto ProbeEthernet() -> UplinkResult = 0;
+    // Probe the LIVE WiFi-STA state (not the last-applied config) so the app's
+    // Settings -> Network shows reality. `ok` = associated to a real AP with an
+    // address; `detail` = its current address / status.
     virtual auto ProbeWifiSta() -> UplinkResult = 0;
 };
 

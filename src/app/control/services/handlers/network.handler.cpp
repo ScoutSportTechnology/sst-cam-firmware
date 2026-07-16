@@ -53,11 +53,13 @@ void UplinkToProto(const sst::config::UplinkData& data, sst_cam::NetworkConfig* 
 NetworkHandler::NetworkHandler(sst::network::UplinkManager& manager,
                                sst::network::IUplinkStore& store, sst::config::UplinkData initial,
                                sst::network::IConnectivityArbiter& arbiter,
+                               sst::network::IEthernetController& ethernet,
                                const ILinkSecurity* link_security)
     : manager_(manager),
       store_(store),
       current_(std::move(initial)),
       arbiter_(arbiter),
+      ethernet_(ethernet),
       link_security_(link_security) {}
 
 auto NetworkHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
@@ -191,14 +193,25 @@ auto NetworkHandler::BuildResponse(
     sst_cam::ResponseStatus status,
     const std::optional<sst::network::SharedWifiMigration>& migration,
     const std::string& error_message) -> sst_cam::CommandResponse {
-    // Live interface state (reality), not the last-applied result — the camera's
-    // ethernet is NM-managed and may be up even when the uplink config disables it.
+    // Live interface state (reality), not the last-applied result.
     const auto live = manager_.QueryStatus();
+    // Ethernet is sourced from the firmware-owned controller's REAL probe (the
+    // firmware owns the config, so it reports the mode it actually set) — NOT the
+    // old default-DHCP placeholder that reported "DHCP active" for a static link
+    // (the DHCP-when-static bug, R12).
+    const auto eth = ethernet_.ProbeEthernet();
+    const bool ethernet_up = eth.mode != sst::network::EthernetMode::kDown;
     sst_cam::CommandResponse resp;
     auto* payload = resp.mutable_network_config();
     UplinkToProto(current_, payload->mutable_config());
-    payload->set_ethernet_up(live.ethernet.ok);
-    payload->set_ethernet_address(live.ethernet.detail);
+    payload->set_ethernet_up(ethernet_up);
+    payload->set_ethernet_address(eth.address);
+    // ethernet_dhcp (proto field 12) is PRESENT only when Ethernet is up: true for
+    // DHCP, false for static. Left absent when down — "unknown", never a defaulted
+    // DHCP. This is the field the app uses to render the real addressing mode.
+    if (ethernet_up) {
+        payload->set_ethernet_dhcp(eth.mode == sst::network::EthernetMode::kDhcp);
+    }
     payload->set_wifi_up(live.wifi.ok);
     payload->set_wifi_status(live.wifi.detail);
     // Ambient connected-state (R3): sourced from the arbiter's SETTLED mode — never

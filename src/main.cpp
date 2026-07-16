@@ -13,6 +13,7 @@
 
 #include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
+#include "adapters/control/network/ip-ethernet-configurator.hpp"
 #include "adapters/control/network/ip-route-uplink-probe.hpp"
 #include "adapters/control/network/iw-station-rssi-probe.hpp"
 #include "adapters/control/network/nmcli-uplink-configurator.hpp"
@@ -194,6 +195,9 @@ auto RunFirmware() -> int {
     // persisted config on boot; re-pushable from the app over BLE (U4). Driven via
     // NetworkManager (the camera's ethernet is NM-managed, unlike the P2P radio).
     sst::adapters::control::NmcliUplinkConfigurator uplink_configurator;
+    // Firmware-owned Ethernet (ip/dhclient, out of NetworkManager per U2) — the
+    // source of truth for the real static-vs-DHCP mode GetNetworkConfig reports.
+    sst::adapters::control::IpEthernetConfigurator ethernet_configurator;
     sst::adapters::control::IpRouteUplinkProbe uplink_probe;
     // Telemetry signals that need a subprocess to read — internet uplink (`ip
     // route`) and WiFi-Direct peer RSSI (`iw`) — are sampled on a background
@@ -204,7 +208,7 @@ auto RunFirmware() -> int {
     sst::adapters::control::IwStationRssiProbe wifi_signal_probe;
     sst::control::TelemetryProbe telemetry_probe(uplink_probe, wifi_signal_probe);
     telemetry_probe.Start();
-    sst::network::UplinkManager uplink_manager(uplink_configurator);
+    sst::network::UplinkManager uplink_manager(uplink_configurator, ethernet_configurator);
     sst::adapters::network::JsonUplinkStore uplink_store(std::string(sst::paths::kConfigDir) +
                                                          "/uplink.json");
     // Bring up enabled uplinks on boot OFF the main path: nmcli con up can stall
@@ -494,7 +498,8 @@ auto RunFirmware() -> int {
     // reports the bonded/encrypted state via ILinkSecurity (org.bluez Device1
     // Paired/Bonded); the handler rejects credentials until the link is encrypted.
     dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(
-        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, &ble_transport));
+        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, ethernet_configurator,
+        &ble_transport));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.

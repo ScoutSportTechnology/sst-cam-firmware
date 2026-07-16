@@ -46,10 +46,6 @@ class FakeWifi final : public sst::control::IWifiManager {
 class FakeUplink final : public sst::network::IUplinkConfigurator {
    public:
     explicit FakeUplink(CallLog& log) : log_(log) {}
-    auto ApplyEthernet(const sst::config::EthernetUplink& /*cfg*/)
-        -> sst::network::UplinkResult override {
-        return {.ok = true, .detail = ""};
-    }
     auto ApplyWifiSta(const sst::config::WifiStaUplink& /*cfg*/)
         -> sst::network::UplinkResult override {
         log_.Record("uplink.ApplyWifiSta");
@@ -59,9 +55,6 @@ class FakeUplink final : public sst::network::IUplinkConfigurator {
     auto TeardownWifiSta() -> void override {
         log_.Record("uplink.TeardownWifiSta");
         ++teardown_calls;
-    }
-    auto ProbeEthernet() -> sst::network::UplinkResult override {
-        return {.ok = false, .detail = ""};
     }
     auto ProbeWifiSta() -> sst::network::UplinkResult override {
         ++probe_calls;

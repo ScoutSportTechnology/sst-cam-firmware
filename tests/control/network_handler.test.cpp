@@ -5,11 +5,13 @@
 #include <string>
 
 #include "app/control/services/handlers/network.handler.hpp"
+#include "app/network/ports/ethernet-controller.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
 #include "app/network/ports/uplink-store.hpp"
 #include "app/network/services/uplink-manager/uplink-manager.hpp"
 #include "bluetooth.pb.h"
 #include "domain/config/models/uplink-config.hpp"
+#include "domain/network/models/ethernet-mode.hpp"
 
 namespace {
 
@@ -17,35 +19,44 @@ namespace {
 // the confirm/echo path so the value is named, not a bare literal.
 constexpr sst::network::MigrationId kFakeMigrationId = 7;
 
-// Configurator whose ethernet apply outcome is parameterizable, so a test can
-// drive both the success and the apply-failure path.
+// WiFi-STA configurator fake (Ethernet moved to IEthernetController below).
 class FakeConfigurator final : public sst::network::IUplinkConfigurator {
    public:
-    explicit FakeConfigurator(bool ethernet_apply_ok = true)
-        : ethernet_apply_ok_(ethernet_apply_ok) {}
-
-    auto ApplyEthernet(const sst::config::EthernetUplink& /*cfg*/)
-        -> sst::network::UplinkResult override {
-        ++ethernet_calls;
-        return ethernet_apply_ok_
-                   ? sst::network::UplinkResult{.ok = true, .detail = "10.10.1.30/24"}
-                   : sst::network::UplinkResult{.ok = false, .detail = "nmcli con up failed"};
-    }
     auto ApplyWifiSta(const sst::config::WifiStaUplink& /*cfg*/)
         -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};
     }
     auto TeardownWifiSta() -> void override {}
-    auto ProbeEthernet() -> sst::network::UplinkResult override {
-        return {.ok = true, .detail = "10.10.1.30/24"};
-    }
     auto ProbeWifiSta() -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};
     }
-    int ethernet_calls{0};
+};
 
-   private:
-    bool ethernet_apply_ok_;
+// Firmware-owned Ethernet fake: the apply outcome + the probed mode/address are
+// parameterizable so a test can drive success, apply-failure, and — crucially —
+// the REAL static-vs-DHCP reporting the handler now sources from here (R12/AE5).
+class FakeEthernet final : public sst::network::IEthernetController {
+   public:
+    auto ApplyEthernet(const sst::config::EthernetUplink& cfg)
+        -> sst::network::EthernetApplyResult override {
+        ++apply_calls;
+        last_apply_dhcp = cfg.dhcp.value_or(true);
+        return apply_ok
+                   ? sst::network::EthernetApplyResult{.ok = true, .detail = "10.10.1.30/24"}
+                   : sst::network::EthernetApplyResult{.ok = false, .detail = "ip replace failed"};
+    }
+    auto ProbeEthernet() -> sst::network::EthernetProbe override {
+        return {.mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = {}};
+    }
+    auto ProbeDhcpOffer() -> std::optional<std::string> override { return std::nullopt; }
+
+    int apply_calls{0};
+    bool apply_ok{true};
+    bool last_apply_dhcp{true};
+    // Default probe: a real STATIC link (the case that must never report DHCP).
+    sst::network::EthernetMode probe_mode{sst::network::EthernetMode::kStatic};
+    std::string probe_address{"10.10.1.30/24"};
+    bool carrier{true};
 };
 
 // In-memory store: records what (if anything) was persisted, so a test can
@@ -134,10 +145,11 @@ auto MakeSetEthernetCommand() -> sst_cam::Command {
 
 TEST(NetworkHandlerTest, HandlesSetAndGet) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     const auto cases = handler.HandledCases();
     EXPECT_NE(std::find(cases.begin(), cases.end(), sst_cam::Command::kSetNetworkConfig),
@@ -148,10 +160,11 @@ TEST(NetworkHandlerTest, HandlesSetAndGet) {
 
 TEST(NetworkHandlerTest, SetAppliesPersistsAndEchoesStatus) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     sst_cam::Command cmd;
     auto* eth = cmd.mutable_set_network_config()->mutable_config()->mutable_ethernet();
@@ -174,18 +187,20 @@ TEST(NetworkHandlerTest, SetAppliesPersistsAndEchoesStatus) {
     EXPECT_TRUE(resp.network_config().ethernet_up());
     EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
     // Applied + persisted (apply succeeded).
-    EXPECT_EQ(configurator.ethernet_calls, 1);
+    EXPECT_EQ(ethernet.apply_calls, 1);
     EXPECT_EQ(store.persist_calls, 1);
 }
 
 // Apply fails for an ENABLED ethernet interface -> the response must NOT be a
 // plain OK/green, and the bad config must NOT be persisted as authoritative.
 TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
-    FakeConfigurator configurator(/*ethernet_apply_ok=*/false);
-    sst::network::UplinkManager manager(configurator);
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.apply_ok = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     sst_cam::Command cmd;
     auto* eth = cmd.mutable_set_network_config()->mutable_config()->mutable_ethernet();
@@ -196,7 +211,7 @@ TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
 
     const auto resp = handler.Handle(cmd);
 
-    EXPECT_EQ(configurator.ethernet_calls, 1);              // it did attempt the apply
+    EXPECT_EQ(ethernet.apply_calls, 1);                     // it did attempt the apply
     EXPECT_NE(resp.status(), sst_cam::ResponseStatus::OK);  // not a false green
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_EQ(store.persist_calls, 0);  // bad config not persisted as good
@@ -204,7 +219,8 @@ TEST(NetworkHandlerTest, SetWithFailedApplyReportsErrorAndDoesNotPersist) {
 
 TEST(NetworkHandlerTest, GetReturnsInitialConfigWithoutApplying) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
 
@@ -212,7 +228,7 @@ TEST(NetworkHandlerTest, GetReturnsInitialConfigWithoutApplying) {
     initial.ethernet.enabled = true;
     initial.ethernet.address = "192.168.0.5/24";
 
-    sst::control::NetworkHandler handler(manager, store, initial, arbiter);
+    sst::control::NetworkHandler handler(manager, store, initial, arbiter, ethernet);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -222,7 +238,7 @@ TEST(NetworkHandlerTest, GetReturnsInitialConfigWithoutApplying) {
     EXPECT_TRUE(resp.network_config().config().ethernet().enabled());
     EXPECT_EQ(resp.network_config().config().ethernet().address(), "192.168.0.5/24");
     EXPECT_TRUE(resp.network_config().ethernet_up());
-    EXPECT_EQ(configurator.ethernet_calls, 0);  // Get does not re-apply
+    EXPECT_EQ(ethernet.apply_calls, 0);  // Get does not re-apply
 }
 
 // AE7: SetNetworkConfig arriving on an unencrypted/unbonded link is rejected —
@@ -230,17 +246,18 @@ TEST(NetworkHandlerTest, GetReturnsInitialConfigWithoutApplying) {
 // never crosses cleartext).
 TEST(NetworkHandlerTest, SetOnInsecureLinkRejectedNotAppliedNotPersisted) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     FakeLinkSecurity insecure(/*secure=*/false);
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &insecure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &insecure);
 
     const auto resp = handler.Handle(MakeSetEthernetCommand());
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
     EXPECT_FALSE(resp.error_message().empty());  // a clear reason for the app
-    EXPECT_EQ(configurator.ethernet_calls, 0);   // apply never attempted
+    EXPECT_EQ(ethernet.apply_calls, 0);          // apply never attempted
     EXPECT_EQ(store.persist_calls, 0);           // credentials not persisted
 }
 
@@ -248,24 +265,26 @@ TEST(NetworkHandlerTest, SetOnInsecureLinkRejectedNotAppliedNotPersisted) {
 // exactly as before — applied and persisted.
 TEST(NetworkHandlerTest, SetOnSecureLinkProceedsAppliesAndPersists) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     FakeLinkSecurity secure(/*secure=*/true);
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
     const auto resp = handler.Handle(MakeSetEthernetCommand());
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(configurator.ethernet_calls, 1);  // applied
-    EXPECT_EQ(store.persist_calls, 1);          // persisted
+    EXPECT_EQ(ethernet.apply_calls, 1);  // applied
+    EXPECT_EQ(store.persist_calls, 1);   // persisted
 }
 
 // GetNetworkConfig is not credential-bearing, so the link-security gate must not
 // affect it even on an insecure link (reconnect/status UX preserved).
 TEST(NetworkHandlerTest, GetUnaffectedByInsecureLink) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     FakeLinkSecurity insecure(/*secure=*/false);
@@ -273,7 +292,7 @@ TEST(NetworkHandlerTest, GetUnaffectedByInsecureLink) {
     sst::config::UplinkData initial;
     initial.ethernet.enabled = true;
     initial.ethernet.address = "192.168.0.5/24";
-    sst::control::NetworkHandler handler(manager, store, initial, arbiter, &insecure);
+    sst::control::NetworkHandler handler(manager, store, initial, arbiter, ethernet, &insecure);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -283,18 +302,19 @@ TEST(NetworkHandlerTest, GetUnaffectedByInsecureLink) {
     ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
     EXPECT_TRUE(resp.network_config().config().ethernet().enabled());
     EXPECT_EQ(resp.network_config().config().ethernet().address(), "192.168.0.5/24");
-    EXPECT_EQ(configurator.ethernet_calls, 0);  // Get never applies
+    EXPECT_EQ(ethernet.apply_calls, 0);  // Get never applies
 }
 
 // Enabling WiFi routes through the arbiter (never the manager directly, so INV2
 // holds) and the reply carries the migration id / STA endpoint / credential.
 TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     FakeLinkSecurity secure(/*secure=*/true);
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
     sst_cam::Command cmd;
     auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
@@ -316,12 +336,13 @@ TEST(NetworkHandlerTest, SetWithWifiBeginsMigrationAndReportsEndpoint) {
 // nothing persisted.
 TEST(NetworkHandlerTest, SetWithWifiMigrationFailureReportsError) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     arbiter.request_ok = false;
     FakeLinkSecurity secure(/*secure=*/true);
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter, &secure);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
     sst_cam::Command cmd;
     auto* wifi = cmd.mutable_set_network_config()->mutable_config()->mutable_wifi();
@@ -338,10 +359,11 @@ TEST(NetworkHandlerTest, SetWithWifiMigrationFailureReportsError) {
 // Disabling wifi ensures a revert to S1 (never leaves a dangling STA request).
 TEST(NetworkHandlerTest, SetWithWifiDisabledRevertsToP2p) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     const auto resp = handler.Handle(MakeSetEthernetCommand());  // wifi disabled
 
@@ -354,10 +376,11 @@ TEST(NetworkHandlerTest, SetWithWifiDisabledRevertsToP2p) {
 // settled mode.
 TEST(NetworkHandlerTest, ConfirmPreviewReachableRoutesToArbiter) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
 
     EXPECT_NE(std::find(handler.HandledCases().begin(), handler.HandledCases().end(),
                         sst_cam::Command::kConfirmPreviewReachable),
@@ -413,13 +436,14 @@ auto ConnectedInitial(const WifiCase& net) -> sst::config::UplinkData {
 // progress".
 TEST(NetworkHandlerTest, SetSameNetworkWhileConnectedIsNoOpAndReportsConnected) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
     arbiter.ssid = "PhoneNet";
-    sst::control::NetworkHandler handler(manager, store,
-                                         ConnectedInitial({"PhoneNet", "hunter2pw"}), arbiter);
+    sst::control::NetworkHandler handler(
+        manager, store, ConnectedInitial({"PhoneNet", "hunter2pw"}), arbiter, ethernet);
 
     const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "hunter2pw"}));
 
@@ -438,13 +462,14 @@ TEST(NetworkHandlerTest, SetSameNetworkWhileConnectedIsNoOpAndReportsConnected) 
 // saved-but-never-applied creds poisoning the next boot).
 TEST(NetworkHandlerTest, SetSameSsidDifferentPasswordReMigrates) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
     arbiter.ssid = "PhoneNet";
     sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"PhoneNet", "oldpw"}),
-                                         arbiter);
+                                         arbiter, ethernet);
 
     const auto resp = handler.Handle(MakeSetWifiCommand({"PhoneNet", "newpassword"}));
 
@@ -459,7 +484,8 @@ TEST(NetworkHandlerTest, SetSameSsidDifferentPasswordReMigrates) {
 // arbiter's reverted state (in_shared_wifi=false) — the destructive-failure path.
 TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
@@ -467,7 +493,7 @@ TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
     arbiter.request_ok = false;  // the new join fails; arbiter reverts to P2P
     arbiter.last_error = "failed to join wifi (check the password)";
     sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"OldNet", "oldpw"}),
-                                         arbiter);
+                                         arbiter, ethernet);
 
     const auto resp = handler.Handle(MakeSetWifiCommand({"NewNet", "newpw"}));
 
@@ -484,13 +510,14 @@ TEST(NetworkHandlerTest, SetChangeNetworksFailureRollsBackAndReportsError) {
 // the app can render "connected to <ssid>" on reconnect without the handshake.
 TEST(NetworkHandlerTest, GetWhileConnectedReportsInSharedWifiAndSsid) {
     FakeConfigurator configurator;
-    sst::network::UplinkManager manager(configurator);
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
     FakeArbiter arbiter;
     arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
     arbiter.ssid = "PhoneNet";
     sst::control::NetworkHandler handler(manager, store, ConnectedInitial({"PhoneNet", "pw"}),
-                                         arbiter);
+                                         arbiter, ethernet);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -499,7 +526,74 @@ TEST(NetworkHandlerTest, GetWhileConnectedReportsInSharedWifiAndSsid) {
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_TRUE(resp.network_config().in_shared_wifi());
     EXPECT_EQ(resp.network_config().current_ssid(), "PhoneNet");
-    EXPECT_EQ(configurator.ethernet_calls, 0);  // Get never applies
+    EXPECT_EQ(ethernet.apply_calls, 0);  // Get never applies
+}
+
+// AE5 / R12: GetNetworkConfig sources the Ethernet mode from the REAL probe, so a
+// statically configured link reports ethernet_dhcp = FALSE (present) — never the
+// old default-DHCP placeholder ("DHCP active" for a static link).
+TEST(NetworkHandlerTest, GetReportsRealStaticEthernetNeverFalseDhcp) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kStatic;
+    ethernet.probe_address = "10.10.1.30/24";
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    ASSERT_EQ(resp.payload_case(), sst_cam::CommandResponse::kNetworkConfig);
+    EXPECT_TRUE(resp.network_config().ethernet_up());
+    EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
+    // ethernet_dhcp is PRESENT and FALSE — the DHCP-when-static bug is gone.
+    ASSERT_TRUE(resp.network_config().has_ethernet_dhcp());
+    EXPECT_FALSE(resp.network_config().ethernet_dhcp());
+}
+
+// R12: a DHCP link reports ethernet_dhcp = TRUE (present).
+TEST(NetworkHandlerTest, GetReportsRealDhcpEthernet) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    ethernet.probe_address = "192.168.1.42/24";
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    ASSERT_TRUE(resp.network_config().has_ethernet_dhcp());
+    EXPECT_TRUE(resp.network_config().ethernet_dhcp());
+    EXPECT_TRUE(resp.network_config().ethernet_up());
+}
+
+// R12: a down link leaves ethernet_dhcp ABSENT (unknown, not a defaulted DHCP) and
+// reports ethernet_up=false with no address.
+TEST(NetworkHandlerTest, GetReportsDownEthernetLeavesDhcpUnset) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDown;
+    ethernet.probe_address = "";
+    ethernet.carrier = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_FALSE(resp.network_config().ethernet_up());
+    EXPECT_TRUE(resp.network_config().ethernet_address().empty());
+    EXPECT_FALSE(resp.network_config().has_ethernet_dhcp());
 }
 
 }  // namespace

@@ -9,7 +9,8 @@ auto UplinkManager::Apply(const sst::config::UplinkData& cfg) -> UplinkStatus {
 
     status.ethernet_enabled = cfg.ethernet.enabled.value_or(false);
     if (status.ethernet_enabled) {
-        status.ethernet = configurator_.ApplyEthernet(cfg.ethernet);
+        const auto applied = ethernet_.ApplyEthernet(cfg.ethernet);
+        status.ethernet = {.ok = applied.ok, .detail = applied.detail};
         spdlog::info("UplinkManager: ethernet uplink {} ({})", status.ethernet.ok ? "up" : "FAILED",
                      status.ethernet.detail);
     } else {
@@ -30,7 +31,11 @@ auto UplinkManager::Apply(const sst::config::UplinkData& cfg) -> UplinkStatus {
 
 auto UplinkManager::QueryStatus() -> UplinkStatus {
     UplinkStatus status;
-    status.ethernet = configurator_.ProbeEthernet();
+    // Ethernet: reality from the firmware-owned controller. up == a usable mode
+    // (not kDown); detail == the real CIDR. The handler reads the richer
+    // EthernetProbe directly for the static-vs-DHCP mode (R12).
+    const auto eth = ethernet_.ProbeEthernet();
+    status.ethernet = {.ok = eth.mode != sst::network::EthernetMode::kDown, .detail = eth.address};
     status.ethernet_enabled = status.ethernet.ok;
     status.wifi = configurator_.ProbeWifiSta();
     status.wifi_enabled = status.wifi.ok;
