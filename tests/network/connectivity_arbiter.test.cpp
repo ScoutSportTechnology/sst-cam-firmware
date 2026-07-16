@@ -920,4 +920,87 @@ TEST(ConnectivityArbiterTest, FlapThenStaleEthernetConfirmIsNoOp) {
               LanPath::kEthernet);
 }
 
+// ─────────────────────── U6: Ethernet-LAN confirmation handshake ───────────────
+
+// AE8: Ethernet-only on a shared LAN -> the arbiter mints a per-path credential (via
+// the transition hook) + an endpoint on the Ethernet IP; ConfirmLanPath(eth_id,
+// kEthernet, true) commits kEthernet and the surfaced credential is NON-EMPTY.
+TEST(ConnectivityArbiterTest, EthernetLanHandshakeMintsCredentialAndCommitsNonEmpty) {
+    Harness harness;
+    harness.hooks.ethernet_credential = "cam:ethsecret";  // U6: hook mints the RTSP cred
+    harness.ethernet.carrier = true;
+
+    const auto sel = harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "");
+
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+    EXPECT_EQ(harness.hooks.ethernet_selected_calls, 1);
+    EXPECT_EQ(harness.hooks.last_ethernet_ip, "10.10.1.30");  // hook got the bare Ethernet IP
+    EXPECT_EQ(sel.endpoint, "10.10.1.30");
+    EXPECT_EQ(sel.credential, "cam:ethsecret");  // handshake carries the cred
+    EXPECT_EQ(harness.arbiter.EthernetCredential(), "cam:ethsecret");
+    EXPECT_NE(sel.confirm_id, 0U);
+
+    const auto committed = harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kEthernet, true);
+
+    EXPECT_EQ(committed, LanPath::kEthernet);
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    // Credential survives the commit (still the live, non-empty per-path secret).
+    EXPECT_EQ(harness.arbiter.EthernetCredential(), "cam:ethsecret");
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), sel.confirm_id);
+}
+
+// R19: preview NOT reachable on the Ethernet IP (probe fails) -> de-select, fall to
+// STA, and the Ethernet credential + endpoint are CLEARED (they reflect only the
+// live selection — a de-selected path exposes no stale secret).
+TEST(ConnectivityArbiterTest, EthernetProbeFailDeselectsAndClearsCredential) {
+    Harness harness;
+    harness.hooks.ethernet_credential = "cam:ethsecret";
+    harness.ethernet.carrier = true;
+
+    const auto sel = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+    ASSERT_EQ(harness.arbiter.EthernetCredential(), "cam:ethsecret");
+
+    const auto committed =
+        harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kEthernet, false);
+
+    EXPECT_EQ(committed, LanPath::kWifiSta);              // fell to STA (R19)
+    EXPECT_EQ(harness.ethernet.teardown_calls, 1);        // Ethernet torn down
+    EXPECT_EQ(harness.arbiter.EthernetCredential(), "");  // stale secret cleared
+    EXPECT_EQ(harness.arbiter.EthernetEndpoint(), "");
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), 0U);  // not kEthernet -> no handshake
+}
+
+// The credential/endpoint reflect the LIVE selection only: after a flap that
+// supersedes the first Ethernet pick, a stale confirm for the OLD id is a no-op and
+// the surfaced credential remains the live one (no resurrection of a superseded pick).
+TEST(ConnectivityArbiterTest, SupersededEthernetConfirmKeepsLiveCredential) {
+    Harness harness;
+    harness.hooks.ethernet_credential = "cam:ethsecret";
+    harness.ethernet.carrier = true;
+
+    const auto first = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                     "10.10.1.0/24");
+    ASSERT_EQ(first.path, LanPath::kEthernet);
+
+    // Flap: unplug -> STA (id advances, Ethernet cred cleared), re-plug -> Ethernet
+    // again (new id, cred re-minted).
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    const auto live_id = harness.arbiter.EthernetConfirmId();
+    ASSERT_GT(live_id, first.confirm_id);
+
+    // Stale confirm for the FIRST (superseded) Ethernet id is a no-op; the live cred
+    // is untouched.
+    harness.arbiter.ConfirmLanPath(first.confirm_id, LanPath::kEthernet, false);
+    EXPECT_EQ(harness.arbiter.EthernetConfirmId(), live_id);
+    EXPECT_EQ(harness.arbiter.EthernetCredential(), "cam:ethsecret");
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+}
+
 }  // namespace

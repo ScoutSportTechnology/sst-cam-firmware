@@ -188,14 +188,21 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
                                                       .preview_credential = selection.credential};
     }
 
+    // The Ethernet-LAN handshake credential (R11) rides ONLY the Set that selected
+    // Ethernet — surfaced from the arbiter in BuildResponse, gated to this Set so a
+    // plain Get never leaks it (U8 broadens credential-on-Get). Mirrors the STA
+    // migration credential, which is likewise only carried on a Set reply.
+    const bool ethernet_handshake = selection.path == sst::network::LanPath::kEthernet;
+
     // Only durable once the config was accepted. autoconnect=no on the STA profile
     // holds R-BOOT (no self-join on the next boot).
     if (!store_.Persist(current_)) {
         spdlog::error("NetworkHandler: uplink accepted but persistence failed");
         return BuildResponse(sst_cam::ResponseStatus::ERROR, migration,
-                             "Network applied but could not be saved on the camera");
+                             "Network applied but could not be saved on the camera",
+                             ethernet_handshake);
     }
-    return BuildResponse(sst_cam::ResponseStatus::OK, migration);
+    return BuildResponse(sst_cam::ResponseStatus::OK, migration, {}, ethernet_handshake);
 }
 
 auto NetworkHandler::HandleConfirmReachable(const sst_cam::ConfirmPreviewReachableCommand& cmd)
@@ -233,7 +240,8 @@ auto NetworkHandler::HandleConfirmLanPath(const sst_cam::ConfirmLanPathCommand& 
 auto NetworkHandler::BuildResponse(
     sst_cam::ResponseStatus status,
     const std::optional<sst::network::SharedWifiMigration>& migration,
-    const std::string& error_message) -> sst_cam::CommandResponse {
+    const std::string& error_message,
+    bool surface_ethernet_credential) -> sst_cam::CommandResponse {
     // Live interface state (reality), not the last-applied result.
     const auto live = manager_.QueryStatus();
     // Ethernet is sourced from the firmware-owned controller's REAL probe (the
@@ -278,16 +286,24 @@ auto NetworkHandler::BuildResponse(
     // app reflects the winning interface. Orthogonal to in_shared_wifi (radio-only).
     const auto lan_path = arbiter_.CurrentLanPath();
     payload->set_lan_path(ToProtoLanPath(lan_path));
-    // Ethernet-LAN handshake (R11): surfaced whenever Ethernet is the
-    // committing/committed LAN path (Set reply that selected it AND a plain Get on
-    // reconnect / after an unsolicited hotplug), so the app probes the Ethernet IP
-    // then replies with ConfirmLanPathCommand{ethernet_confirm_id}. Distinct from the
-    // STA migration handshake but sharing the same global epoch. (U6 fills the
-    // credential + preview rebind; U4 populates endpoint + confirm id.)
+    // Ethernet-LAN handshake (R11): the endpoint + confirm id are surfaced whenever
+    // Ethernet is the committing/committed LAN path — on BOTH the Set reply that
+    // selected it AND a plain Get on reconnect / after an unsolicited hotplug — so the
+    // app can identify the live handshake and reply with
+    // ConfirmLanPathCommand{ethernet_confirm_id}. Distinct from the STA migration
+    // handshake but sharing the same global epoch.
     if (lan_path == sst::network::LanPath::kEthernet) {
         payload->set_ethernet_endpoint(arbiter_.EthernetEndpoint());
-        payload->set_ethernet_credential(arbiter_.EthernetCredential());
         payload->set_ethernet_confirm_id(arbiter_.EthernetConfirmId());
+        // The credential (the secret half) is exposed ONLY on the Set that just
+        // selected Ethernet (surface_ethernet_credential) — never a plain Get.
+        // Reaching here on that path means HandleSet already passed the INV6
+        // link-security gate, so the Ethernet credential inherits the SAME
+        // encrypted/bonded exposure guard as the STA preview_credential. U8 broadens
+        // credential-on-Get with a fresh per-committed-path credential.
+        if (surface_ethernet_credential) {
+            payload->set_ethernet_credential(arbiter_.EthernetCredential());
+        }
     }
     resp.set_status(status);
     // A concrete failure reason for the app to show (Details / friendly copy)

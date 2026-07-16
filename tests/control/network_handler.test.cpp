@@ -109,7 +109,7 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
                     .path = sst::network::LanPath::kEthernet,
                     .confirm_id = kFakeMigrationId,
                     .endpoint = eth_endpoint,
-                    .credential = {}};
+                    .credential = eth_credential};
         }
         if (desired.wifi.enabled.value_or(false)) {
             current_lan_path = sst::network::LanPath::kWifiSta;
@@ -149,7 +149,7 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     [[nodiscard]] auto CurrentSsid() const -> std::string override { return ssid; }
     [[nodiscard]] auto LastError() const -> std::string override { return last_error; }
     [[nodiscard]] auto EthernetEndpoint() const -> std::string override { return eth_endpoint; }
-    [[nodiscard]] auto EthernetCredential() const -> std::string override { return {}; }
+    [[nodiscard]] auto EthernetCredential() const -> std::string override { return eth_credential; }
     [[nodiscard]] auto EthernetConfirmId() const -> sst::network::MigrationId override {
         return current_lan_path == sst::network::LanPath::kEthernet ? eth_confirm_id : 0;
     }
@@ -165,6 +165,7 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     bool last_reachable{false};
     std::string last_phone_subnet;
     std::string eth_endpoint;
+    std::string eth_credential;  // U6: the Ethernet-LAN handshake credential
     sst::network::MigrationId eth_confirm_id{0};
     // Settled state the handler reads back for the R3 connected-state / short-circuit.
     sst::network::ConnectivityMode mode{sst::network::ConnectivityMode::kP2pOnly};
@@ -425,6 +426,55 @@ TEST(NetworkHandlerTest, SetEthernetOnlyRoutesThroughArbiterNoMigration) {
     EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
     EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
     EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");
+}
+
+// U6 / R11: the Set that selects Ethernet surfaces the Ethernet-LAN handshake
+// credential (proto field 14) sourced from the arbiter — alongside the endpoint +
+// confirm id — so the app can identity-probe the Ethernet IP before ConfirmLanPath.
+TEST(NetworkHandlerTest, SetEthernetSurfacesEthernetCredentialOnHandshake) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.eth_credential = "cam:ethsecret";  // the hook-minted per-path credential
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    const auto resp = handler.Handle(MakeSetEthernetCommand());  // wifi disabled
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
+    EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");
+    EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
+    EXPECT_EQ(resp.network_config().ethernet_credential(), "cam:ethsecret");
+}
+
+// U6: a plain Get with Ethernet committed surfaces the endpoint + confirm id (so the
+// app can re-probe on reconnect) but NOT the credential — that secret rides only the
+// Set handshake here; U8 broadens credential-on-Get with per-path scoping.
+TEST(NetworkHandlerTest, GetDoesNotSurfaceEthernetCredential) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    // Arbiter settled with Ethernet committed + a live credential.
+    arbiter.current_lan_path = sst::network::LanPath::kEthernet;
+    arbiter.eth_endpoint = "10.10.1.30";
+    arbiter.eth_confirm_id = kFakeMigrationId;
+    arbiter.eth_credential = "cam:ethsecret";
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
+    EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");
+    EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
+    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());  // not on a plain Get
 }
 
 // ConfirmPreviewReachable routes the app verdict to the arbiter and echoes the

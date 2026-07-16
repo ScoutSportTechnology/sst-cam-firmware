@@ -193,17 +193,33 @@ auto WifiDirectHandler::OnRevertedToP2p() -> bool {
 auto WifiDirectHandler::OnEthernetLanSelected(const std::string& ethernet_lan_ip) -> std::string {
     // Ethernet-as-LAN is ORTHOGONAL to the radio (INV2 is radio-only): the arbiter
     // does NOT stop the GO for an Ethernet LAN path, so unlike OnSharedWifiJoined
-    // there is no GO plumbing to tear down and no group to re-form here.
+    // there is no GO plumbing (DHCP / GO address) to tear down and no group to
+    // re-form here — the arbiter has already applied the Ethernet address before
+    // calling this hook.
     //
-    // U4 SCOPE: wire the decision only — the arbiter has already selected Ethernet
-    // and populated the endpoint (the Ethernet IP) + the shared-epoch confirm id.
-    // The empty credential returned here means the preview is NOT yet re-bound onto
-    // the Ethernet IP. U6 EXTENDS this body to mint a per-path RTSP credential and
-    // RebindAppStream onto the Ethernet IP (parallel to OnSharedWifiJoined's S2
-    // rebind) so the phone can authenticate the Ethernet preview before confirming.
-    spdlog::info("WifiDirectHandler: Ethernet LAN selected at {} (preview rebind is U6)",
+    // Mint the SAME per-session RTSP Basic-auth credential the STA migration mints
+    // (MintPreviewCredential — identity-strength parity, R8/R11: the phone
+    // authenticates the Ethernet endpoint with exactly this string, so a weaker
+    // secret would break the identity check), then rebind the authenticated live
+    // preview onto the Ethernet IP so the phone can probe it before ConfirmLanPath.
+    // Binding the SPECIFIC Ethernet IP (not 0.0.0.0 like the STA path) keeps the
+    // preview on the Ethernet LAN path only and off the internet (R6) — safe here
+    // because the arbiter applied the address synchronously before this hook, so
+    // there is no settling-lease race that forced the STA rebind onto 0.0.0.0.
+    //
+    // An adapter reform can leave Argus capture mid-teardown (~1-2s); the
+    // ProducerLoop watchdog restarts capture, so we do NOT block on frame readiness
+    // here — the RTSP server rebinds now and serves frames as they resume.
+    const std::string credential = MintPreviewCredential();
+    if (!streaming_.RebindAppStream(MakePreviewConfig(ethernet_lan_ip, credential))) {
+        spdlog::warn(
+            "WifiDirectHandler: failed to rebind preview onto Ethernet {} (the phone probe will "
+            "fail and the arbiter de-selects per R19)",
+            ethernet_lan_ip);
+    }
+    spdlog::info("WifiDirectHandler: preview switched to Ethernet LAN {} (authenticated)",
                  ethernet_lan_ip);
-    return {};
+    return credential;
 }
 
 auto WifiDirectHandler::HandleStop() -> sst_cam::CommandResponse {

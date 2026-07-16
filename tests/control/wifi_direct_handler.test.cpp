@@ -370,4 +370,61 @@ TEST(WifiDirectHandlerTest, PreviewFailureIsDegradedNotFatal) {
     EXPECT_EQ(manager.Phase(), sst::session::SessionPhase::kWifiReady);
 }
 
+// U6 / R6, R11: OnEthernetLanSelected mints a per-session RTSP credential (the SAME
+// generator as the STA migration) and rebinds the authenticated preview onto the
+// Ethernet IP — the arbiter-driven preview transport for the Ethernet LAN path. No
+// WiFi-Direct group is formed/torn down (Ethernet is orthogonal to the radio).
+TEST(WifiDirectHandlerTest, OnEthernetLanSelectedMintsCredentialAndRebindsOntoEthernetIp) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    WifiDirectHandler handler(manager, wifi, netcfg, dhcp, streaming,
+                              sst::control::PreviewPort{kPreviewPort},
+                              sst::control::DownloadPort{kDownloadPort});
+
+    const std::string credential = handler.OnEthernetLanSelected("10.10.1.30");
+
+    // A real per-session credential (same "cam:<hex>" shape the STA path mints).
+    EXPECT_FALSE(credential.empty());
+    EXPECT_EQ(credential.rfind("cam:", 0), 0U);
+    // Preview rebound (not a fresh Start) onto the SPECIFIC Ethernet IP with auth so
+    // the phone can identity-probe it before confirming (R6: rides the Ethernet path).
+    EXPECT_EQ(streaming.app_rebinds, 1);
+    EXPECT_EQ(streaming.last_config.address, "10.10.1.30");
+    EXPECT_EQ(streaming.last_config.port, kPreviewPort);
+    EXPECT_EQ(streaming.last_config.auth_credential, credential);
+    // No radio / GO plumbing touched — Ethernet-as-LAN never forms a WiFi-Direct group.
+    EXPECT_EQ(wifi.starts, 0);
+    EXPECT_EQ(wifi.stops, 0);
+    EXPECT_EQ(dhcp.starts, 0);
+    EXPECT_EQ(dhcp.stops, 0);
+    EXPECT_EQ(netcfg.clears, 0);
+}
+
+// U6: a rebind failure is degraded-but-not-fatal — the hook still returns the minted
+// credential (the arbiter surfaces it; the phone probe simply fails and the arbiter
+// de-selects per R19), matching the STA rebind's degraded-not-fatal contract.
+TEST(WifiDirectHandlerTest, OnEthernetLanSelectedReturnsCredentialEvenWhenRebindFails) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    streaming.app_start_ok = false;  // RebindAppStream fails
+    WifiDirectHandler handler(manager, wifi, netcfg, dhcp, streaming,
+                              sst::control::PreviewPort{kPreviewPort},
+                              sst::control::DownloadPort{kDownloadPort});
+
+    const std::string credential = handler.OnEthernetLanSelected("10.10.1.30");
+
+    EXPECT_FALSE(credential.empty());  // still minted despite the rebind failure
+    EXPECT_EQ(streaming.app_rebinds, 1);
+}
+
 }  // namespace

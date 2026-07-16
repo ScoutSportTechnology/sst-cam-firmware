@@ -61,9 +61,16 @@ class NetworkHandler final : public ICommandHandler {
     // Build the Set/Get response (current config + live per-interface status).
     // `migration`, when present, carries the P2P->STA migration id / STA preview
     // endpoint / per-session credential this Set began (U9 fields).
+    // `surface_ethernet_credential` (U6): expose the Ethernet-LAN handshake
+    // credential (the secret half) ONLY on the Set that just selected Ethernet —
+    // never a plain Get (U8 broadens credential-on-Get with per-path scoping). It is
+    // only ever set true from HandleSet, which already passed the INV6 link-security
+    // gate, so the Ethernet credential inherits the SAME encrypted/bonded exposure
+    // guard as the STA preview_credential (likewise only carried on a Set).
     auto BuildResponse(sst_cam::ResponseStatus status,
                        const std::optional<sst::network::SharedWifiMigration>& migration,
-                       const std::string& error_message = {}) -> sst_cam::CommandResponse;
+                       const std::string& error_message = {},
+                       bool surface_ethernet_credential = false) -> sst_cam::CommandResponse;
     auto HandleGet() -> sst_cam::CommandResponse;
 
     sst::network::UplinkManager& manager_;
