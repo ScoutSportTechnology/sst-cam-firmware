@@ -287,6 +287,63 @@ polkit.addRule(function(action, subject) {
 RULE
 }
 
+# BLE-only Bluetooth + device category. The camera is a GATT/LE peripheral, NOT a
+# classic (BR/EDR) device. A DUAL controller makes Android bond BOTH transports on
+# pairing: the LE bond succeeds but the BR/EDR bond fails (mgmt status 0x0e) and
+# the phone then REJECTS the whole pairing — the camera shows as "not paired" even
+# though the app holds a working GATT link. Forcing the controller LE-only removes
+# the BR/EDR bond attempt so pairing completes cleanly (validated on-metal, Galaxy
+# Tab S11). Also: set a real Class of Device (Imaging/Camera) for the phone's
+# device category, and mask PipeWire/WirePlumber — desktop-audio cruft on a
+# headless camera whose bluez module registers a phantom Hands-Free BR/EDR profile
+# that mis-categorises the camera. Idempotent; restarts bluetoothd only on change.
+BT_MAIN_CONF="/etc/bluetooth/main.conf"
+ensure_ble_config() {
+  [ -f "$BT_MAIN_CONF" ] || { log "BLE: ${BT_MAIN_CONF} absent — skipping LE-only config."; return 0; }
+  local bt_changed="no"
+
+  # 1. LE-only controller — the load-bearing pairing fix.
+  if ! grep -qE '^[[:space:]]*ControllerMode[[:space:]]*=[[:space:]]*le\b' "$BT_MAIN_CONF"; then
+    if grep -qE '^[[:space:]]*#?[[:space:]]*ControllerMode[[:space:]]*=' "$BT_MAIN_CONF"; then
+      sed -i -E 's|^[[:space:]]*#?[[:space:]]*ControllerMode[[:space:]]*=.*|ControllerMode = le|' "$BT_MAIN_CONF"
+    else
+      sed -i '/^\[General\]/a ControllerMode = le' "$BT_MAIN_CONF"
+    fi
+    log "BLE: set ControllerMode = le (LE-only pairing)."
+    bt_changed="yes"
+  fi
+
+  # 2. Class of Device = Imaging/Camera (device category / icon on the phone).
+  if ! grep -qE '^[[:space:]]*Class[[:space:]]*=[[:space:]]*0x000620\b' "$BT_MAIN_CONF"; then
+    if grep -qE '^[[:space:]]*#?[[:space:]]*Class[[:space:]]*=' "$BT_MAIN_CONF"; then
+      sed -i -E 's|^[[:space:]]*#?[[:space:]]*Class[[:space:]]*=.*|Class = 0x000620|' "$BT_MAIN_CONF"
+    else
+      sed -i '/^\[General\]/a Class = 0x000620' "$BT_MAIN_CONF"
+    fi
+    log "BLE: set Class of Device = 0x000620 (Imaging/Camera)."
+    bt_changed="yes"
+  fi
+
+  # 3. Mask PipeWire/WirePlumber (headless camera; kills the phantom Hands-Free
+  #    profile + frees the audio-daemon RAM). --global masks it for every user —
+  #    they start via the user session, not a system unit.
+  if command -v systemctl >/dev/null 2>&1; then
+    for _u in wireplumber.service pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket; do
+      if [ ! -L "/etc/systemd/user/${_u}" ]; then
+        systemctl --global mask "$_u" >/dev/null 2>&1 || true
+        bt_changed="yes"
+      fi
+    done
+    for _p in wireplumber pipewire pipewire-pulse; do pkill -x "$_p" 2>/dev/null || true; done
+  fi
+
+  # 4. Restart bluetoothd to re-read main.conf — only when something changed.
+  if [ "$bt_changed" = "yes" ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl restart bluetooth >/dev/null 2>&1 || true
+    log "BLE: restarted bluetooth to apply LE-only + Class."
+  fi
+}
+
 ensure_setup() {
   local changed="no"
 
@@ -350,6 +407,10 @@ ensure_setup() {
     changed="yes"
   fi
   systemctl enable "$SERVICE" >/dev/null 2>&1 || true
+
+  # BLE-only Bluetooth + device category so the camera pairs cleanly and shows as
+  # a paired camera on the phone (see ensure_ble_config).
+  ensure_ble_config
 
   # Headless boot WITH the GPU alive: install a bare Xorg (GPU/EGL init only, no
   # desktop), order nvargus-daemon after it, and default to multi-user.target.
