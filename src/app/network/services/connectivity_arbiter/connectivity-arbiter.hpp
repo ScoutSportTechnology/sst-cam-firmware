@@ -9,6 +9,7 @@
 #include "app/network/ports/connectivity-arbiter.hpp"
 #include "app/network/ports/ethernet-carrier-monitor.hpp"
 #include "app/network/ports/ethernet-controller.hpp"
+#include "app/network/ports/policy-routing.hpp"
 #include "app/network/ports/self-revert-timer.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
 #include "domain/config/models/uplink-config.hpp"
@@ -43,7 +44,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     ConnectivityArbiter(sst::control::IWifiManager& wifi, IUplinkConfigurator& uplink,
                         ISelfRevertTimer& timer, IConnectivityTransitionHooks& hooks,
                         IEthernetController& ethernet, IEthernetCarrierMonitor& monitor,
-                        std::chrono::milliseconds revert_after);
+                        IPolicyRouting& policy_routing, std::chrono::milliseconds revert_after);
     ~ConnectivityArbiter() override;
 
     ConnectivityArbiter(const ConnectivityArbiter&) = delete;
@@ -99,6 +100,12 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     // Classify the Ethernet interface against the phone subnet (acquire-without-bind
     // for DHCP). Caller holds `mtx_`.
     auto ClassifyEthernetLocked(const EthernetProbe& eth) -> EthernetClassification;
+    // U7: apply (or tear down) the different-subnet uplink policy routing +
+    // egress-only firewall to match the classification. `want` == Ethernet is a
+    // different-subnet uplink; `cidr`/`eth` supply the uplink address + gateway.
+    // Idempotent — the adapter converges from any prior state. Caller holds `mtx_`.
+    auto SyncUplinkRoutingLocked(bool want, const EthernetProbe& eth,
+                                 const std::string& cidr) -> void;
     // Commit (or begin committing) Ethernet as the LAN path. Caller holds `mtx_`.
     auto SelectEthernetLanLocked(const std::string& cidr, bool unsolicited) -> LanSelectionResult;
     // Route the LAN path to WiFi-STA (wraps RequestSharedWifi). Caller holds `mtx_`.
@@ -142,6 +149,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     IConnectivityTransitionHooks& hooks_;
     IEthernetController& ethernet_;
     IEthernetCarrierMonitor& eth_monitor_;
+    IPolicyRouting& policy_routing_;
     const std::chrono::milliseconds revert_after_;
 
     mutable std::mutex mtx_;
@@ -170,6 +178,9 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     // Last observed Ethernet carrier, so OnEthernetCarrierPoll de-dupes and only
     // re-arbitrates on a real up/down transition.
     bool ethernet_carrier_{false};
+    // U7: whether the different-subnet uplink policy routing + firewall is currently
+    // installed, so a transition away from the uplink tears it down exactly once.
+    bool uplink_routing_active_{false};
 };
 
 }  // namespace sst::network

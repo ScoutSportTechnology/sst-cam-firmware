@@ -11,6 +11,7 @@
 #include "app/network/ports/connectivity-arbiter.hpp"
 #include "app/network/ports/ethernet-carrier-monitor.hpp"
 #include "app/network/ports/ethernet-controller.hpp"
+#include "app/network/ports/policy-routing.hpp"
 #include "app/network/ports/self-revert-timer.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
 #include "app/network/services/connectivity_arbiter/connectivity-arbiter.hpp"
@@ -152,7 +153,8 @@ class FakeEthernet final : public sst::network::IEthernetController {
                         : sst::network::EthernetApplyResult{.ok = false, .detail = "apply failed"};
     }
     auto ProbeEthernet() -> sst::network::EthernetProbe override {
-        return {.mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = {}};
+        return {
+            .mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = gateway};
     }
     auto TeardownEthernet() -> void override {
         log_.Record("ethernet.Teardown");
@@ -167,6 +169,7 @@ class FakeEthernet final : public sst::network::IEthernetController {
     bool carrier{false};
     sst::network::EthernetMode probe_mode{sst::network::EthernetMode::kStatic};
     std::string probe_address;
+    std::string gateway;  // default gateway the probe reports (U7 uplink routing)
     bool apply_ok{true};
     std::string apply_address{"10.10.1.30/24"};
     std::optional<std::string> dhcp_offer{std::nullopt};
@@ -195,6 +198,23 @@ class FakeEthernetMonitor final : public sst::network::IEthernetCarrierMonitor {
     std::function<void()> on_poll_;
 };
 
+// Policy-routing fake (U7): records apply/teardown for the different-subnet uplink
+// so the R4 apply/teardown transitions are asserted without touching `ip`/`nft`.
+class FakePolicyRouting final : public sst::network::IPolicyRouting {
+   public:
+    auto ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& cfg) -> bool override {
+        ++apply_calls;
+        last_cfg = cfg;
+        return apply_ok;
+    }
+    auto TeardownUplinkRouting() -> void override { ++teardown_calls; }
+
+    bool apply_ok{true};
+    int apply_calls{0};
+    int teardown_calls{0};
+    sst::network::UplinkRoutingConfig last_cfg;
+};
+
 struct Harness {
     CallLog log;
     FakeWifi wifi{log};
@@ -203,8 +223,10 @@ struct Harness {
     FakeHooks hooks{log};
     FakeEthernet ethernet{log};
     FakeEthernetMonitor monitor;
+    FakePolicyRouting policy_routing;
     sst::network::ConnectivityArbiter arbiter{
-        wifi, uplink, timer, hooks, ethernet, monitor, std::chrono::milliseconds{5000}};
+        wifi,     uplink,  timer,          hooks,
+        ethernet, monitor, policy_routing, std::chrono::milliseconds{5000}};
 };
 
 // Enable-wifi uplink config helper (ethernet disabled).
@@ -683,6 +705,56 @@ TEST(ConnectivityArbiterTest, EthernetDifferentSubnetNotSelectedStaRemains) {
     EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN
     EXPECT_EQ(harness.ethernet.apply_calls, 0);                      // ethernet not applied as LAN
     EXPECT_EQ(harness.uplink.teardown_calls, teardowns_before);      // STA not suppressed
+}
+
+// U7 / R4 / AE3: a different-subnet Ethernet uplink APPLIES policy routing (the
+// uplink address + gateway flow into the routing config) while STA stays the LAN —
+// the one legit concurrent dual-interface config.
+TEST(ConnectivityArbiterTest, EthernetDifferentSubnetAppliesUplinkPolicyRouting) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.ethernet.carrier = false;  // STA wins the LAN first
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+
+    // Ethernet appears on a different subnet WITH a gateway.
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN (R4)
+    EXPECT_EQ(harness.policy_routing.apply_calls, 1);                // uplink routing applied
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_address_cidr, "192.168.9.30/24");
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_gateway, "192.168.9.1");
+}
+
+// U7 / R4: when the different-subnet uplink is UNPLUGGED, the policy routing is
+// torn down (exactly once) so no stale table/firewall lingers.
+TEST(ConnectivityArbiterTest, EthernetUplinkUnplugTearsDownPolicyRouting) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.ethernet.carrier = false;
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.policy_routing.apply_calls, 1);
+
+    // Cable pulled -> the carrier transition re-arbitrates and tears the uplink down.
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.policy_routing.teardown_calls, 1);
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA unaffected
 }
 
 // AE7 / R19: candidate Ethernet, phone probe FAILS -> de-select, fall to STA; the

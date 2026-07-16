@@ -120,8 +120,8 @@ auto SameSubnet(const std::string& lhs_cidr, const std::string& rhs_cidr) -> boo
 
 // True iff `host_ip` falls inside `network_cidr`'s subnet (ground-truth
 // reconciliation: STA's real IP inside Ethernet's real subnet). Fail closed on a
-// malformed input.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) // floor-ok: distinct roles (network CIDR vs host IP), single call site
+// malformed input. floor-ok: distinct roles (network CIDR vs host IP), single call site.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 auto NetworkContains(const std::string& network_cidr, const std::string& host_ip) -> bool {
     const auto network = ParseCidr(network_cidr);
     const auto host = ParseIpv4(AddressOnly(host_ip));
@@ -138,6 +138,7 @@ ConnectivityArbiter::ConnectivityArbiter(sst::control::IWifiManager& wifi,
                                          IConnectivityTransitionHooks& hooks,
                                          IEthernetController& ethernet,
                                          IEthernetCarrierMonitor& monitor,
+                                         IPolicyRouting& policy_routing,
                                          std::chrono::milliseconds revert_after)
     : wifi_(wifi),
       uplink_(uplink),
@@ -145,6 +146,7 @@ ConnectivityArbiter::ConnectivityArbiter(sst::control::IWifiManager& wifi,
       hooks_(hooks),
       ethernet_(ethernet),
       eth_monitor_(monitor),
+      policy_routing_(policy_routing),
       revert_after_(revert_after) {
     // R-BOOT: the arbiter is born in kP2pOnly (LAN path P2P over the GO) and never
     // auto-applies a stored uplink — a shared LAN is only ever reached through an
@@ -160,6 +162,12 @@ ConnectivityArbiter::ConnectivityArbiter(sst::control::IWifiManager& wifi,
 ConnectivityArbiter::~ConnectivityArbiter() {
     // Stop the monitor FIRST so no carrier poll fires into a half-torn-down arbiter.
     eth_monitor_.Stop();
+    // U7: leave the routing table clean on shutdown so stale uplink rules/firewall
+    // don't linger past the process (a fresh boot re-applies idempotently anyway).
+    if (uplink_routing_active_) {
+        policy_routing_.TeardownUplinkRouting();
+        uplink_routing_active_ = false;
+    }
 }
 
 auto ConnectivityArbiter::SelectLanPath(const sst::config::UplinkData& desired,
@@ -181,21 +189,34 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited) -> LanSelectionResul
     const EthernetProbe eth = ethernet_.ProbeEthernet();
     ethernet_carrier_ = eth.carrier;
 
+    std::optional<EthernetClassification> classification;
     if (desired_uplink_.ethernet.enabled.value_or(false) && eth.carrier) {
-        const auto classification = ClassifyEthernetLocked(eth);
-        if (classification.role == EthernetRole::kLanSameSubnet) {
-            return SelectEthernetLanLocked(classification.cidr, unsolicited);
+        classification = ClassifyEthernetLocked(eth);
+    }
+
+    // U7 (R4): the ONE legit concurrent dual-interface case — Ethernet on a DIFFERENT
+    // subnet as an internet uplink — gets source-based policy routing + an egress-only
+    // firewall; EVERY other outcome tears that down. Sync BEFORE branching so a
+    // transition (uplink -> same-subnet LAN, or uplink -> unplugged) always cleans up.
+    const bool want_uplink_routing =
+        classification && classification->role == EthernetRole::kUplinkDifferentSubnet;
+    SyncUplinkRoutingLocked(want_uplink_routing, eth,
+                            classification ? classification->cidr : std::string{});
+
+    if (classification) {
+        if (classification->role == EthernetRole::kLanSameSubnet) {
+            return SelectEthernetLanLocked(classification->cidr, unsolicited);
         }
-        if (classification.role == EthernetRole::kDhcpPending) {
+        if (classification->role == EthernetRole::kDhcpPending) {
             // R21: carrier up, no lease yet — not yet a candidate. Fall to STA/P2P;
             // a later lease re-arbitrates via the carrier monitor.
             spdlog::info("ConnectivityArbiter: Ethernet DHCP-pending — not yet a LAN candidate");
-        } else if (classification.role == EthernetRole::kUplinkDifferentSubnet) {
+        } else if (classification->role == EthernetRole::kUplinkDifferentSubnet) {
             // R4: a different-subnet Ethernet is an internet uplink, NOT a LAN path.
-            // The uplink apply + policy routing is U7; here LAN falls to STA/P2P.
+            // Policy routing is now applied (above); LAN falls to STA/P2P.
             spdlog::info(
-                "ConnectivityArbiter: Ethernet on a different subnet — uplink only (U7), LAN falls "
-                "to STA/P2P");
+                "ConnectivityArbiter: Ethernet on a different subnet — uplink policy routing "
+                "applied (U7), LAN falls to STA/P2P");
         }
     }
 
@@ -208,6 +229,30 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited) -> LanSelectionResul
         return SelectStaLocked(unsolicited);
     }
     return SelectP2pLocked();
+}
+
+auto ConnectivityArbiter::SyncUplinkRoutingLocked(bool want, const EthernetProbe& eth,
+                                                  const std::string& cidr) -> void {
+    if (want) {
+        // Idempotent apply (the adapter flushes-then-adds). `cidr` is the uplink's
+        // bound address WITH prefix; the gateway comes from the real Ethernet probe
+        // (empty => no default route installed, only the source rule + connected
+        // route). A failed apply leaves STA as the LAN with no uplink egress.
+        const UplinkRoutingConfig cfg{.uplink_address_cidr = cidr, .uplink_gateway = eth.gateway};
+        if (policy_routing_.ApplyUplinkRouting(cfg)) {
+            uplink_routing_active_ = true;
+        } else {
+            spdlog::warn(
+                "ConnectivityArbiter: uplink policy routing apply failed — STA remains the LAN, no "
+                "uplink egress");
+            uplink_routing_active_ = false;
+        }
+        return;
+    }
+    if (uplink_routing_active_) {
+        policy_routing_.TeardownUplinkRouting();
+        uplink_routing_active_ = false;
+    }
 }
 
 auto ConnectivityArbiter::ClassifyEthernetLocked(const EthernetProbe& eth)

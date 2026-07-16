@@ -17,6 +17,7 @@
 #include "adapters/control/network/ip-route-uplink-probe.hpp"
 #include "adapters/control/network/iw-station-rssi-probe.hpp"
 #include "adapters/control/network/nmcli-uplink-configurator.hpp"
+#include "adapters/control/network/policy-routing.hpp"
 #include "adapters/control/network/subprocess.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
@@ -199,7 +200,13 @@ auto RunFirmware() -> int {
     // Firmware-owned Ethernet (ip/dhclient, out of NetworkManager per U2) — the
     // source of truth for the real static-vs-DHCP mode GetNetworkConfig reports.
     sst::adapters::control::IpEthernetConfigurator ethernet_configurator;
+    // Per-interface internet reachability (R7): the real SO_BINDTODEVICE connects
+    // run on this probe's OWN background poll thread into a cache, so the streaming
+    // handler's egress selection reads it instantly (never an inline connect on the
+    // BLE dispatcher). Started here; self-stops in its dtor (declared before
+    // telemetry_probe, which borrows it, so it outlives that borrow).
     sst::adapters::control::IpRouteUplinkProbe uplink_probe;
+    uplink_probe.Start();
     // Telemetry signals that need a subprocess to read — internet uplink (`ip
     // route`) and WiFi-Direct peer RSSI (`iw`) — are sampled on a background
     // thread, not inline on the BLE dispatcher. A per-telemetry-request fork
@@ -367,9 +374,15 @@ auto RunFirmware() -> int {
     // watchdog only arms in kStaOnly). Owns a poll thread off the BLE dispatcher;
     // the arbiter Starts it in its ctor and Stops it in its dtor.
     sst::adapters::network::ThreadEthernetCarrierMonitor ethernet_carrier_monitor;
+    // U7: the different-subnet uplink (R4) gets source-based policy routing + an
+    // egress-only firewall (the security bound for running as root, B1). The arbiter
+    // applies it when it classifies Ethernet as a different-subnet uplink and tears
+    // it down on any transition away.
+    sst::adapters::control::PolicyRouting policy_routing;
     sst::network::ConnectivityArbiter connectivity_arbiter(
         wifi_manager, uplink_configurator, self_revert_timer, *wifi_direct_handler,
-        ethernet_configurator, ethernet_carrier_monitor, sst::runtime_defaults::kSelfRevertWindow);
+        ethernet_configurator, ethernet_carrier_monitor, policy_routing,
+        sst::runtime_defaults::kSelfRevertWindow);
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
