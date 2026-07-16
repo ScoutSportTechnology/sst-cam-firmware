@@ -330,11 +330,10 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
     // NM does not manage this iface, so dhclient is free to lease an address (+ the
     // DHCP default route, which HasInternetUplink keys on for the streaming gate).
-    // Point the lease/pid files at a writable path (the service runs as sst-cam,
-    // not root, so the default /var/lib/dhcp + /var/run are read-only to it).
-    RunBounded({"dhclient", "-1", "-4", "-lf", "/tmp/sst-dhclient.leases", "-pf",
-                "/tmp/sst-dhclient.pid", iface},
-               kDhcpTimeout);
+    // The firmware runs as root (U2), so dhclient uses its default lease/pid paths
+    // (/var/lib/dhcp, /var/run) and its dhclient-script writes /etc/resolv.conf
+    // directly — the old /tmp lease/pid redirection (a non-root workaround) is gone.
+    RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
     const std::string address = IfaceIpv4(iface);
     if (address.empty()) {
         WpaCli(iface, {"disconnect"});
@@ -356,13 +355,12 @@ auto NmcliUplinkConfigurator::TeardownWifiSta() -> void {
     if (iface.empty()) {
         return;
     }
-    // Release the lease + kill the dhclient we started (matched by its lease/pid
-    // files), disconnect the wpa association, then flush any address + routes off
-    // the radio so nothing (a stale default/subnet route, a leftover STA IP) can
-    // linger to fight another interface or dirty the iface for the GO.
-    RunBounded({"dhclient", "-r", "-lf", "/tmp/sst-dhclient.leases", "-pf", "/tmp/sst-dhclient.pid",
-                iface},
-               kDhcpTimeout);
+    // Release the lease + kill the dhclient we started, disconnect the wpa
+    // association, then flush any address + routes off the radio so nothing (a
+    // stale default/subnet route, a leftover STA IP) can linger to fight another
+    // interface or dirty the iface for the GO. Root uses dhclient's default
+    // lease/pid paths (U2), so no /tmp redirection is needed to match the client.
+    RunBounded({"dhclient", "-r", "-4", iface}, kDhcpTimeout);
     WpaCli(iface, {"disconnect"});
     RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
     RunBounded({"ip", "route", "flush", "dev", iface}, kApplyTimeout);

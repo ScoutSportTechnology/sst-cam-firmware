@@ -220,18 +220,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Non-root system user. ensure_setup() grants it the video + render groups for
-# camera + GPU/CUDA access; BlueZ/GPIO/NVENC may need further udev rules on the
-# device.
-User=sst-cam
-Group=sst-cam
-# WiFi-Direct data plane: the service assigns the group-owner IP to the P2P
-# interface (CAP_NET_ADMIN), and spawns dnsmasq, which binds DHCP port 67
-# (CAP_NET_BIND_SERVICE) and uses raw sockets for DHCP (CAP_NET_RAW). Ambient so
-# the forked ip/dnsmasq children inherit them; bounding set caps the ceiling.
-# Without these the service has no capabilities and WiFi preview fails.
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
+User=root
+Group=root
 WorkingDirectory=/opt/sst-cam
 ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure
@@ -727,6 +717,75 @@ ensure_wifi_direct_provisioning() {
   fi
 }
 
+# First wired Ethernet-type interface (ARPHRD_ETHER, non-wireless, non-virtual).
+# Empty if none present.
+detect_eth_iface() {
+  local i name
+  for i in /sys/class/net/*; do
+    name="$(basename "$i")"
+    case "$name" in
+      lo|docker*|veth*|br-*|virbr*|wl*|p2p*|rndis*|usb*) continue ;;
+    esac
+    [ -e "/sys/class/net/${name}/wireless" ] && continue
+    [ "$(cat "/sys/class/net/${name}/type" 2>/dev/null)" = "1" ] || continue
+    printf '%s\n' "$name"
+    return 0
+  done
+  return 0
+}
+
+# Take the wired Ethernet interface out of NetworkManager so the firmware owns it
+# directly (ip/dhclient), exactly as the WiFi radio is carved out for WiFi-Direct.
+# The firmware is the single owner of every LAN adapter (one-LAN-path arbitration):
+# NM must not DHCP the Ethernet or rewrite /etc/resolv.conf underneath it. Root
+# firmware then leases/configures Ethernet and writes DNS itself. Idempotent.
+ensure_ethernet_provisioning() {
+  local iface
+  iface="$(detect_eth_iface)"
+  if [ -z "$iface" ]; then
+    log "Ethernet: no wired interface detected — skipping NM carve-out."
+    return 0
+  fi
+
+  local changed="no"
+  local nm_conf="/etc/NetworkManager/conf.d/98-sst-cam-ethernet.conf"
+  local nm_want
+  nm_want="$(printf '[keyfile]\nunmanaged-devices=interface-name:%s\n' "$iface")"
+  if [ "$(cat "$nm_conf" 2>/dev/null)" != "$nm_want" ]; then
+    printf '%s\n' "$nm_want" >"$nm_conf"
+    changed="yes"
+  fi
+
+  # Firmware (root dhclient-script) writes /etc/resolv.conf on an Ethernet lease.
+  # If resolv.conf is a symlink (systemd-resolved stub / NM), dereference it to a
+  # regular file so those writes land instead of being swallowed by the resolver.
+  if [ -L /etc/resolv.conf ]; then
+    local cur
+    cur="$(readlink -f /etc/resolv.conf 2>/dev/null)"
+    rm -f /etc/resolv.conf
+    if [ -n "$cur" ] && [ -f "$cur" ]; then
+      cp "$cur" /etc/resolv.conf
+    else
+      : >/etc/resolv.conf
+    fi
+    changed="yes"
+    log "Ethernet: converted /etc/resolv.conf to a firmware-owned regular file."
+  fi
+
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "$iface" managed no >/dev/null 2>&1 || true
+  fi
+  systemctl restart NetworkManager >/dev/null 2>&1 || true
+
+  if [ "$changed" = "yes" ]; then
+    log "Ethernet: ${iface} is NM-unmanaged; firmware owns Ethernet + DNS."
+  else
+    log "Ethernet: provisioning already in place (${iface})."
+  fi
+  # Deferred on-device check: `nmcli con show` should show no OTHER active
+  # connection relying on NM for DNS before this carve-out is trusted in prod.
+}
+
 # Install the runtime shared-library packages the binary needs but a base JetPack
 # flash lacks. Idempotent: dpkg-query skips already-installed packages, so the
 # common (everything-present) path costs a few queries and no apt-get. Best-
@@ -784,6 +843,7 @@ if [ "$DO_SETUP" = "yes" ]; then
   ensure_device_identity
   ensure_camera_overlay
   ensure_wifi_direct_provisioning
+  ensure_ethernet_provisioning
 fi
 # Runtime deps are about the binary, not host setup — install them even with
 # --no-setup so an unloadable binary is never deployed.
