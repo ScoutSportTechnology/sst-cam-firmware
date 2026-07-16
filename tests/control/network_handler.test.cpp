@@ -153,6 +153,11 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     [[nodiscard]] auto EthernetConfirmId() const -> sst::network::MigrationId override {
         return current_lan_path == sst::network::LanPath::kEthernet ? eth_confirm_id : 0;
     }
+    // U8: the committed STA LAN handshake the handler surfaces on a plain Get.
+    [[nodiscard]] auto PreviewEndpoint() const -> std::string override { return preview_endpoint; }
+    [[nodiscard]] auto PreviewCredential() const -> std::string override {
+        return preview_credential;
+    }
 
     bool select_ok{true};
     int select_calls{0};
@@ -167,6 +172,9 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     std::string eth_endpoint;
     std::string eth_credential;  // U6: the Ethernet-LAN handshake credential
     sst::network::MigrationId eth_confirm_id{0};
+    // U8: the committed STA LAN handshake surfaced on a plain Get.
+    std::string preview_endpoint;
+    std::string preview_credential;
     // Settled state the handler reads back for the R3 connected-state / short-circuit.
     sst::network::ConnectivityMode mode{sst::network::ConnectivityMode::kP2pOnly};
     sst::network::LanPath current_lan_path{sst::network::LanPath::kP2p};
@@ -450,21 +458,28 @@ TEST(NetworkHandlerTest, SetEthernetSurfacesEthernetCredentialOnHandshake) {
     EXPECT_EQ(resp.network_config().ethernet_credential(), "cam:ethsecret");
 }
 
-// U6: a plain Get with Ethernet committed surfaces the endpoint + confirm id (so the
-// app can re-probe on reconnect) but NOT the credential — that secret rides only the
-// Set handshake here; U8 broadens credential-on-Get with per-path scoping.
-TEST(NetworkHandlerTest, GetDoesNotSurfaceEthernetCredential) {
-    FakeConfigurator configurator;
-    FakeEthernet ethernet;
-    sst::network::UplinkManager manager(configurator, ethernet);
-    FakeStore store;
-    FakeArbiter arbiter;
-    // Arbiter settled with Ethernet committed + a live credential.
+// A handler whose arbiter is settled with Ethernet committed as the LAN path + a
+// live per-path credential — the reconnect state a plain Get must surface (R8).
+auto EthernetCommittedArbiter(FakeArbiter& arbiter) -> void {
     arbiter.current_lan_path = sst::network::LanPath::kEthernet;
     arbiter.eth_endpoint = "10.10.1.30";
     arbiter.eth_confirm_id = kFakeMigrationId;
     arbiter.eth_credential = "cam:ethsecret";
-    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet);
+}
+
+// U8 / R8 / AE5 / AE9: a plain Get with Ethernet committed surfaces lan_path, the
+// real Ethernet mode + address, AND the endpoint + confirm id + credential over an
+// encrypted/bonded link — so the app can identity-gate "connected" on reconnect
+// WITHOUT replaying a migration.
+TEST(NetworkHandlerTest, GetWithEthernetCommittedSurfacesCredentialOnSecureLink) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;  // default: real STATIC link at 10.10.1.30/24
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    EthernetCommittedArbiter(arbiter);
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
     sst_cam::Command cmd;
     cmd.mutable_get_network_config();
@@ -472,9 +487,182 @@ TEST(NetworkHandlerTest, GetDoesNotSurfaceEthernetCredential) {
 
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
+    // Real per-interface state (AE5): static mode + address from the live probe.
+    EXPECT_TRUE(resp.network_config().ethernet_up());
+    EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
+    ASSERT_TRUE(resp.network_config().has_ethernet_dhcp());
+    EXPECT_FALSE(resp.network_config().ethernet_dhcp());
+    // Endpoint + confirm id + credential all present for the identity probe (R8).
     EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");
     EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
-    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());  // not on a plain Get
+    EXPECT_EQ(resp.network_config().ethernet_credential(), "cam:ethsecret");
+    EXPECT_EQ(ethernet.apply_calls, 0);  // Get never applies
+}
+
+// U8 SECURITY (INV6): a plain Get over an UNENCRYPTED/unbonded link surfaces the
+// endpoint + confirm id (non-secret, needed to address the probe) but NEVER the
+// credential — its confidentiality rests entirely on the encrypted BLE link.
+TEST(NetworkHandlerTest, GetWithEthernetCommittedHidesCredentialOnInsecureLink) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    EthernetCommittedArbiter(arbiter);
+    FakeLinkSecurity insecure(/*secure=*/false);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &insecure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
+    EXPECT_EQ(resp.network_config().ethernet_endpoint(), "10.10.1.30");  // addressing ok
+    EXPECT_EQ(resp.network_config().ethernet_confirm_id(), kFakeMigrationId);
+    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());  // GATED off cleartext
+}
+
+// U8 / R8: a plain Get with WiFi-STA committed surfaces lan_path=kWifiSta, the
+// current SSID, AND the STA preview endpoint + credential over a secure link — with
+// NO in-flight migration (migration_id == 0) so the app re-probes without a Set.
+TEST(NetworkHandlerTest, GetWithStaCommittedSurfacesPreviewHandshakeOnSecureLink) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDown;  // Ethernet is not the LAN here
+    ethernet.probe_address = "";
+    ethernet.carrier = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "PhoneNet";
+    arbiter.current_lan_path = sst::network::LanPath::kWifiSta;
+    arbiter.preview_endpoint = "10.10.1.142";
+    arbiter.preview_credential = "cam:stasecret";
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_WIFI_STA);
+    EXPECT_TRUE(resp.network_config().in_shared_wifi());
+    EXPECT_EQ(resp.network_config().current_ssid(), "PhoneNet");
+    EXPECT_EQ(resp.network_config().preview_endpoint(), "10.10.1.142");
+    EXPECT_EQ(resp.network_config().preview_credential(), "cam:stasecret");
+    EXPECT_EQ(resp.network_config().migration_id(), 0U);  // no migration in flight
+}
+
+// U8 SECURITY: the committed-STA credential is likewise gated off an insecure link.
+TEST(NetworkHandlerTest, GetWithStaCommittedHidesPreviewCredentialOnInsecureLink) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDown;
+    ethernet.probe_address = "";
+    ethernet.carrier = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kStaOnly;
+    arbiter.ssid = "PhoneNet";
+    arbiter.current_lan_path = sst::network::LanPath::kWifiSta;
+    arbiter.preview_endpoint = "10.10.1.142";
+    arbiter.preview_credential = "cam:stasecret";
+    FakeLinkSecurity insecure(/*secure=*/false);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &insecure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_WIFI_STA);
+    EXPECT_EQ(resp.network_config().preview_endpoint(), "10.10.1.142");  // addressing ok
+    EXPECT_TRUE(resp.network_config().preview_credential().empty());     // GATED
+}
+
+// U8: a P2P-only committed path surfaces lan_path=kP2p and NO LAN credential /
+// endpoint of either kind — there is nothing to hand out.
+TEST(NetworkHandlerTest, GetWithP2pOnlySurfacesNoLanCredential) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDown;  // no Ethernet reality to derive
+    ethernet.probe_address = "";
+    ethernet.carrier = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.current_lan_path = sst::network::LanPath::kP2p;
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_P2P);
+    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());
+    EXPECT_TRUE(resp.network_config().ethernet_endpoint().empty());
+    EXPECT_TRUE(resp.network_config().preview_credential().empty());
+    EXPECT_TRUE(resp.network_config().preview_endpoint().empty());
+}
+
+// U8 boot-before-Set gap (R12): before any operator Set has engaged the arbiter (it
+// still reports its kP2p boot default), a plain Get derives lan_path from the LIVE
+// Ethernet probe so it reports REALITY — but surfaces NO credential (none is
+// committed/minted yet; the app commits via a Set to obtain one).
+TEST(NetworkHandlerTest, GetBeforeAnySetDerivesEthernetLanFromLiveProbe) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;  // default: real STATIC link up at 10.10.1.30/24
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;  // pristine: kP2p boot default, never engaged by a Set
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);  // reality
+    EXPECT_TRUE(resp.network_config().ethernet_up());
+    EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
+    ASSERT_TRUE(resp.network_config().has_ethernet_dhcp());
+    EXPECT_FALSE(resp.network_config().ethernet_dhcp());  // real static, never defaulted DHCP
+    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());  // nothing committed
+    EXPECT_EQ(arbiter.select_calls, 0);                                // Get never selects
+}
+
+// U8 boot-before-Set gap: once a Set HAS engaged the arbiter and it committed kP2p
+// (e.g. a different-subnet Ethernet uplink → LAN falls to P2P), a plain Get trusts
+// the arbiter and does NOT derive kEthernet from the (up) uplink interface — the
+// uplink is never mislabeled as the LAN path.
+TEST(NetworkHandlerTest, GetAfterSetTrustsArbiterAndDoesNotDeriveUplinkAsLan) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;  // Ethernet interface is up (a different-subnet uplink)
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    // Model the arbiter having run a Set that committed P2P as the LAN (uplink case).
+    arbiter.current_lan_path = sst::network::LanPath::kP2p;
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    // Drive a Set first (P2P outcome) so arbiter_engaged_ is set in the handler.
+    sst_cam::Command set;
+    set.mutable_set_network_config();  // no interfaces enabled -> arbiter returns kP2p
+    handler.Handle(set);
+
+    sst_cam::Command get;
+    get.mutable_get_network_config();
+    const auto resp = handler.Handle(get);
+
+    EXPECT_EQ(arbiter.select_calls, 1);
+    EXPECT_TRUE(resp.network_config().ethernet_up());                    // uplink is up
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_P2P);  // NOT derived Ethernet
+    EXPECT_TRUE(resp.network_config().ethernet_credential().empty());
 }
 
 // ConfirmPreviewReachable routes the app verdict to the arbiter and echoes the

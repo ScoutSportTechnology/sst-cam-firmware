@@ -148,6 +148,9 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
         current_.wifi.passphrase.value_or("") == incoming.wifi.passphrase.value_or("")) {
         spdlog::info("NetworkHandler: SetNetworkConfig — already connected to '{}' (no-op)",
                      arbiter_.CurrentSsid());
+        // The arbiter is already committed (kStaOnly from a prior Set) — its
+        // CurrentLanPath() is authoritative, so a plain Get must never derive.
+        arbiter_engaged_ = true;
         return BuildResponse(sst_cam::ResponseStatus::OK, std::nullopt);
     }
 
@@ -165,6 +168,10 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
     // is not on any Wi-Fi); the arbiter reconciles it against ground truth.
     const std::string phone_subnet = cmd.has_phone_subnet_cidr() ? cmd.phone_subnet_cidr() : "";
     const auto selection = arbiter_.SelectLanPath(current_, phone_subnet);
+    // From here on the arbiter has classified the operator's intent, so its
+    // CurrentLanPath() is authoritative (even a failed selection reverted to a legal
+    // state it now owns) — a plain Get must trust it, never derive from a raw probe.
+    arbiter_engaged_ = true;
     if (!selection.ok) {
         // An enabled interface failed to come up; the arbiter has reverted to a
         // legal state. Roll current_ back (so the echoed config + displayed
@@ -188,21 +195,14 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
                                                       .preview_credential = selection.credential};
     }
 
-    // The Ethernet-LAN handshake credential (R11) rides ONLY the Set that selected
-    // Ethernet — surfaced from the arbiter in BuildResponse, gated to this Set so a
-    // plain Get never leaks it (U8 broadens credential-on-Get). Mirrors the STA
-    // migration credential, which is likewise only carried on a Set reply.
-    const bool ethernet_handshake = selection.path == sst::network::LanPath::kEthernet;
-
     // Only durable once the config was accepted. autoconnect=no on the STA profile
     // holds R-BOOT (no self-join on the next boot).
     if (!store_.Persist(current_)) {
         spdlog::error("NetworkHandler: uplink accepted but persistence failed");
         return BuildResponse(sst_cam::ResponseStatus::ERROR, migration,
-                             "Network applied but could not be saved on the camera",
-                             ethernet_handshake);
+                             "Network applied but could not be saved on the camera");
     }
-    return BuildResponse(sst_cam::ResponseStatus::OK, migration, {}, ethernet_handshake);
+    return BuildResponse(sst_cam::ResponseStatus::OK, migration);
 }
 
 auto NetworkHandler::HandleConfirmReachable(const sst_cam::ConfirmPreviewReachableCommand& cmd)
@@ -240,8 +240,7 @@ auto NetworkHandler::HandleConfirmLanPath(const sst_cam::ConfirmLanPathCommand& 
 auto NetworkHandler::BuildResponse(
     sst_cam::ResponseStatus status,
     const std::optional<sst::network::SharedWifiMigration>& migration,
-    const std::string& error_message,
-    bool surface_ethernet_credential) -> sst_cam::CommandResponse {
+    const std::string& error_message) -> sst_cam::CommandResponse {
     // Live interface state (reality), not the last-applied result.
     const auto live = manager_.QueryStatus();
     // Ethernet is sourced from the firmware-owned controller's REAL probe (the
@@ -272,39 +271,80 @@ auto NetworkHandler::BuildResponse(
     const bool in_shared_wifi = arbiter_.CurrentMode() == sst::network::ConnectivityMode::kStaOnly;
     payload->set_in_shared_wifi(in_shared_wifi);
     payload->set_current_ssid(in_shared_wifi ? arbiter_ssid : "");
-    // Shared-WiFi migration handshake (U9): populated only when this Set began a
-    // P2P->STA migration — the app probes preview_endpoint (with preview_credential)
-    // then replies with ConfirmPreviewReachableCommand{migration_id}.
-    if (migration.has_value()) {
-        payload->set_migration_id(migration->id);
-        payload->set_preview_endpoint(migration->preview_endpoint);
-        payload->set_preview_credential(migration->preview_credential);
-    }
+    // Single LAN-path selection (R3, proto v5): the COMMITTED/committing path from the
+    // arbiter's settled state — authoritative, and it already EXCLUDES a
+    // different-subnet Ethernet UPLINK (U7 keeps them orthogonal). Drives the LAN
+    // handshake below.
+    const auto committed_path = arbiter_.CurrentLanPath();
 
-    // Single LAN-path selection (R3, proto v5): the committed/committing path,
-    // sourced from the arbiter's settled state — reported on BOTH Set and Get so the
-    // app reflects the winning interface. Orthogonal to in_shared_wifi (radio-only).
-    const auto lan_path = arbiter_.CurrentLanPath();
-    payload->set_lan_path(ToProtoLanPath(lan_path));
-    // Ethernet-LAN handshake (R11): the endpoint + confirm id are surfaced whenever
-    // Ethernet is the committing/committed LAN path — on BOTH the Set reply that
-    // selected it AND a plain Get on reconnect / after an unsolicited hotplug — so the
-    // app can identify the live handshake and reply with
-    // ConfirmLanPathCommand{ethernet_confirm_id}. Distinct from the STA migration
-    // handshake but sharing the same global epoch.
-    if (lan_path == sst::network::LanPath::kEthernet) {
+    // Boot-before-Set gap (KNOWN GAP flagged by U4): the arbiter boots kP2p and is
+    // only driven to a real LAN path by an operator Set (R-BOOT forbids the arbiter
+    // auto-applying a stored uplink), yet boot-apply (uplink_manager.Apply on a
+    // detached thread) brings a PERSISTED Ethernet/STA up OUTSIDE the arbiter. So
+    // before the first Set has engaged the arbiter, derive the REPORTED lan_path from
+    // the live probes so a plain Get reports REALITY (R12). This can NEVER mislabel a
+    // different-subnet uplink as the LAN: an uplink only becomes one once a Set feeds
+    // the arbiter a phone subnet (it then applies policy routing and commits kP2p /
+    // kWifiSta) — from that point arbiter_engaged_ holds and CurrentLanPath() is
+    // authoritative, so we never derive. Before any phone subnet is known, "Ethernet
+    // is the LAN" matches the arbiter's own empty-phone-subnet classification.
+    auto reported_path = committed_path;
+    if (!arbiter_engaged_ && (committed_path == sst::network::LanPath::kP2p ||
+                              committed_path == sst::network::LanPath::kNone)) {
+        if (ethernet_up) {
+            reported_path = sst::network::LanPath::kEthernet;
+        } else if (live.wifi.ok) {
+            reported_path = sst::network::LanPath::kWifiSta;
+        }
+    }
+    payload->set_lan_path(ToProtoLanPath(reported_path));
+
+    // Credential-exposure gate (INV6, U8): the LAN credential (STA preview OR
+    // Ethernet) now transits on essentially EVERY Get, so its confidentiality rests
+    // entirely on the encrypted/bonded BLE link. HandleGet does NOT pass through the
+    // HandleSet INV6 gate, so apply it HERE: surface the SECRET half only when the
+    // link is encrypted/bonded. A null gate = non-BLE / test wiring = no-gate (as in
+    // HandleSet). The endpoint / confirm-id (non-secret) always ride so the app can
+    // address its probe. The credential handed out is the arbiter's LIVE
+    // per-committed-path value (Ethernet minted per Ethernet commit, STA per
+    // migration; each cleared when the path changes), so a captured value dies with
+    // the path — no long-lived static credential.
+    const bool credential_link_secure =
+        link_security_ == nullptr || link_security_->IsCredentialLinkSecure();
+
+    if (committed_path == sst::network::LanPath::kWifiSta) {
+        // STA LAN handshake. migration_id rides ONLY the Set that STARTED the P2P->STA
+        // migration (the app replies ConfirmPreviewReachableCommand{migration_id}); on
+        // a plain Get of a settled kStaOnly LAN there is no in-flight migration, so the
+        // app just re-probes the endpoint to identity-gate "connected" (R8) — no Set.
+        if (migration.has_value()) {
+            payload->set_migration_id(migration->id);
+            payload->set_preview_endpoint(migration->preview_endpoint);
+            if (credential_link_secure) {
+                payload->set_preview_credential(migration->preview_credential);
+            }
+        } else {
+            payload->set_preview_endpoint(arbiter_.PreviewEndpoint());
+            if (credential_link_secure) {
+                payload->set_preview_credential(arbiter_.PreviewCredential());
+            }
+        }
+    } else if (committed_path == sst::network::LanPath::kEthernet) {
+        // Ethernet-LAN handshake (R11): endpoint + confirm id whenever Ethernet is the
+        // committed LAN path — on BOTH the Set reply that selected it AND a plain Get
+        // on reconnect / after an unsolicited hotplug — so the app can reply
+        // ConfirmLanPathCommand{ethernet_confirm_id}. Distinct from the STA migration
+        // handshake but sharing the same global epoch. U8 broadens the credential from
+        // the Set-only exposure to a plain Get, behind the same link-security gate.
         payload->set_ethernet_endpoint(arbiter_.EthernetEndpoint());
         payload->set_ethernet_confirm_id(arbiter_.EthernetConfirmId());
-        // The credential (the secret half) is exposed ONLY on the Set that just
-        // selected Ethernet (surface_ethernet_credential) — never a plain Get.
-        // Reaching here on that path means HandleSet already passed the INV6
-        // link-security gate, so the Ethernet credential inherits the SAME
-        // encrypted/bonded exposure guard as the STA preview_credential. U8 broadens
-        // credential-on-Get with a fresh per-committed-path credential.
-        if (surface_ethernet_credential) {
+        if (credential_link_secure) {
             payload->set_ethernet_credential(arbiter_.EthernetCredential());
         }
     }
+    // committed_path kP2p / kNone (including a boot-DERIVED reported_path with no
+    // committed handshake): no LAN credential is surfaced — there is nothing to hand
+    // out until the arbiter commits a path.
     resp.set_status(status);
     // A concrete failure reason for the app to show (Details / friendly copy)
     // instead of a bare ERROR that surfaces as "null". Empty on success.

@@ -74,10 +74,12 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     auto RequestSharedWifi(const sst::config::WifiStaUplink& uplink)
         -> std::optional<SharedWifiMigration>;
 
-    // Accessors for the network command handler (U4) to build NetworkConfigResponse.
+    // Accessors for the network command handler (U4/U8) to build
+    // NetworkConfigResponse. PreviewEndpoint/PreviewCredential override the port so
+    // the handler can surface the committed STA LAN handshake on a plain Get (U8).
     [[nodiscard]] auto CurrentMigrationId() const -> MigrationId;
-    [[nodiscard]] auto PreviewEndpoint() const -> std::string;
-    [[nodiscard]] auto PreviewCredential() const -> std::string;
+    [[nodiscard]] auto PreviewEndpoint() const -> std::string override;
+    [[nodiscard]] auto PreviewCredential() const -> std::string override;
 
    private:
     // How a co-present Ethernet interface relates to the phone's subnet (R3/R21).

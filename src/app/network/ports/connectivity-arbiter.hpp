@@ -148,6 +148,16 @@ class IConnectivityArbiter {
     [[nodiscard]] virtual auto EthernetCredential() const -> std::string { return {}; }
     [[nodiscard]] virtual auto EthernetConfirmId() const -> MigrationId { return 0; }
 
+    // The STA-LAN preview endpoint + per-session credential the camera is CURRENTLY
+    // serving while committed to WiFi-STA (kStaOnly), so a PLAIN Get on reconnect can
+    // surface them for the app's identity probe (R8) WITHOUT replaying a migration —
+    // the migration Set only ever carried them before (U8). Empty when not on the STA
+    // LAN path / not migrated. The credential is per-migration (minted by
+    // OnSharedWifiJoined, cleared on revert), so a captured value dies with the path.
+    // Defaults so lightweight doubles need not implement them.
+    [[nodiscard]] virtual auto PreviewEndpoint() const -> std::string { return {}; }
+    [[nodiscard]] virtual auto PreviewCredential() const -> std::string { return {}; }
+
     // A human-readable reason the most recent RequestSharedWifi failed (empty
     // when the last request succeeded or none has run). Lets the command handler
     // put a real reason into CommandResponse.error_message instead of a bare

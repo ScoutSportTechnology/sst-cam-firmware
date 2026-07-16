@@ -61,16 +61,19 @@ class NetworkHandler final : public ICommandHandler {
     // Build the Set/Get response (current config + live per-interface status).
     // `migration`, when present, carries the P2P->STA migration id / STA preview
     // endpoint / per-session credential this Set began (U9 fields).
-    // `surface_ethernet_credential` (U6): expose the Ethernet-LAN handshake
-    // credential (the secret half) ONLY on the Set that just selected Ethernet —
-    // never a plain Get (U8 broadens credential-on-Get with per-path scoping). It is
-    // only ever set true from HandleSet, which already passed the INV6 link-security
-    // gate, so the Ethernet credential inherits the SAME encrypted/bonded exposure
-    // guard as the STA preview_credential (likewise only carried on a Set).
+    //
+    // U8 (credential-on-Get): the LAN credential (STA preview OR Ethernet) for the
+    // CURRENT committed LAN path is surfaced on BOTH Set and Get — so the app can
+    // identity-gate "connected" on reconnect (R8) without replaying a migration. The
+    // credential (the secret half) is ALWAYS gated behind the INV6 link-security
+    // check here, since HandleGet does not otherwise pass through the HandleSet gate;
+    // over an unencrypted/unbonded link only the non-secret endpoint/confirm-id ride.
+    // Each committed path carries its OWN freshly-minted credential (Ethernet via
+    // OnEthernetLanSelected, STA via OnSharedWifiJoined), so a captured value dies
+    // when the path changes — there is no long-lived static credential.
     auto BuildResponse(sst_cam::ResponseStatus status,
                        const std::optional<sst::network::SharedWifiMigration>& migration,
-                       const std::string& error_message = {},
-                       bool surface_ethernet_credential = false) -> sst_cam::CommandResponse;
+                       const std::string& error_message = {}) -> sst_cam::CommandResponse;
     auto HandleGet() -> sst_cam::CommandResponse;
 
     sst::network::UplinkManager& manager_;
@@ -86,6 +89,14 @@ class NetworkHandler final : public ICommandHandler {
     // Optional credential-link security gate (INV6/AE7). Null = no gate (non-BLE
     // wiring). Non-owning: the BLE transport that implements it outlives this.
     const ILinkSecurity* link_security_;
+    // U8 boot-before-Set gap: true once an operator SetNetworkConfig has driven the
+    // arbiter's SelectLanPath, after which arbiter_.CurrentLanPath() is the
+    // authoritative LAN path (it correctly EXCLUDES a different-subnet Ethernet
+    // uplink). Before that, boot-apply (uplink_manager.Apply on a detached thread)
+    // may bring a persisted Ethernet/STA up OUTSIDE the arbiter, which still reports
+    // its kP2p boot default — so a plain Get derives the LAN path from the live
+    // probes to report REALITY. Guarded by mtx_.
+    bool arbiter_engaged_{false};
     std::mutex mtx_;
 };
 
