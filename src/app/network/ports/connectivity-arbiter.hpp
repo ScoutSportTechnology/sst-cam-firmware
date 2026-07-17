@@ -158,6 +158,14 @@ class IConnectivityArbiter {
     [[nodiscard]] virtual auto PreviewEndpoint() const -> std::string { return {}; }
     [[nodiscard]] virtual auto PreviewCredential() const -> std::string { return {}; }
 
+    // The live global epoch id (0 = none in flight). When the arbiter is kMigrating
+    // this is the STA migration id the app must ConfirmPreviewReachable — surfaced on
+    // a plain Get so an STA migration MINTED OUTSIDE a Set reply (the R19 Ethernet->STA
+    // fallback: ConfirmLanPath(kEthernet,false) drops Ethernet and mints a fresh STA
+    // epoch whose handshake would otherwise be lost to the self-revert timer) still
+    // reaches the app. Default 0 so lightweight doubles need not implement it.
+    [[nodiscard]] virtual auto CurrentMigrationId() const -> MigrationId { return 0; }
+
     // A human-readable reason the most recent RequestSharedWifi failed (empty
     // when the last request succeeded or none has run). Lets the command handler
     // put a real reason into CommandResponse.error_message instead of a bare

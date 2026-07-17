@@ -22,6 +22,7 @@ using sst::adapters::control::BuildFirewallAllowEstablishedArgv;
 using sst::adapters::control::BuildFirewallDeleteTableArgv;
 using sst::adapters::control::BuildFirewallDropInboundArgv;
 using sst::adapters::control::BuildFirewallFlushTableArgv;
+using sst::adapters::control::BuildFirewallRulesetScript;
 using sst::adapters::control::BuildUplinkDefaultRouteArgv;
 using sst::adapters::control::BuildUplinkRouteFlushArgv;
 using sst::adapters::control::BuildUplinkRuleAddArgv;
@@ -136,6 +137,48 @@ TEST(PolicyRoutingCommandTest, FirewallDropsAllInboundOnUplinkExceptEstablished)
     EXPECT_TRUE(BuildFirewallDropInboundArgv("").empty());
 }
 
+// ---- F7: the whole egress firewall as ONE atomic nft transaction ----
+
+// F7: the firewall is emitted as a SINGLE `nft -f` script (add + flush + chain +
+// established-accept + drop, in that order) so nft swaps the ruleset in ONE atomic
+// transaction — a re-apply never opens a rule-less window where inbound is accepted
+// on the uplink. The old design flushed then re-added via SEPARATE nft invocations.
+TEST(PolicyRoutingCommandTest, FirewallRulesetScriptIsOneAtomicTransaction) {
+    const std::string script = BuildFirewallRulesetScript("eth0");
+    ASSERT_FALSE(script.empty());
+
+    const std::string table = std::string("inet ") + kUplinkNftTable;
+    const auto add_table = script.find("add table " + table);
+    const auto flush_table = script.find("flush table " + table);
+    const auto chain = script.find("add chain " + table + " input");
+    const auto established = script.find("ct state established,related accept");
+    const auto drop = script.find("iifname \"eth0\" drop");
+
+    // Every directive is present in the SINGLE script (one `nft -f` transaction).
+    EXPECT_NE(add_table, std::string::npos);
+    EXPECT_NE(flush_table, std::string::npos);
+    EXPECT_NE(chain, std::string::npos);
+    EXPECT_NE(established, std::string::npos);
+    EXPECT_NE(drop, std::string::npos);
+    // Ordered add-table -> flush -> chain -> allow-established -> drop: the flush and
+    // the re-add live in ONE script, so there is no accept window between them.
+    EXPECT_LT(add_table, flush_table);
+    EXPECT_LT(flush_table, chain);
+    EXPECT_LT(chain, established);
+    EXPECT_LT(established, drop);
+    // The iface rides only inside a quoted `iifname "<iface>"` literal.
+    EXPECT_NE(script.find("iifname \"eth0\""), std::string::npos);
+}
+
+// F7 fail-closed: an un-whitelisted iface never produces a script (so it can never be
+// written to the temp file or reach `nft -f`).
+TEST(PolicyRoutingCommandTest, FirewallRulesetScriptRefusesUnsafeIface) {
+    EXPECT_TRUE(BuildFirewallRulesetScript("").empty());
+    EXPECT_TRUE(BuildFirewallRulesetScript("eth0; nft flush ruleset").empty());
+    EXPECT_TRUE(BuildFirewallRulesetScript("eth0\naccept").empty());
+    EXPECT_TRUE(BuildFirewallRulesetScript("-eth0").empty());
+}
+
 // ---- adapter live surface (ON-DEVICE): bounded + never throws in the container ----
 
 TEST(PolicyRoutingTest, ApplyAndTeardownAreBoundedAndDoNotThrow) {
@@ -147,6 +190,14 @@ TEST(PolicyRoutingTest, ApplyAndTeardownAreBoundedAndDoNotThrow) {
             {.uplink_address_cidr = "192.168.9.30/24", .uplink_gateway = "192.168.9.1"});
         routing.TeardownUplinkRouting();
     });
+}
+
+// F2: the boot egress-only firewall (installed at process start, BEFORE boot-apply
+// addresses Ethernet, so no root listener is reachable on a wired uplink in the
+// pre-first-Set window) is bounded and never throws — in the container there is no
+// wired iface / `nft` so it is a logged no-op, on-device it installs the firewall.
+TEST(PolicyRoutingTest, ApplyEgressFirewallIsBoundedAndDoesNotThrow) {
+    EXPECT_NO_THROW({ sst::adapters::control::PolicyRouting::ApplyEgressFirewall(); });
 }
 
 }  // namespace

@@ -324,6 +324,18 @@ auto NetworkHandler::BuildResponse(
                 payload->set_preview_credential(migration->preview_credential);
             }
         } else {
+            // F5: an STA migration in flight whose handshake was NOT carried on a Set
+            // reply — the R19 Ethernet->STA fallback: ConfirmLanPath(kEthernet, false)
+            // drops Ethernet and mints a FRESH STA epoch + arms the self-revert timer,
+            // but that SharedWifiMigration is not returned by the confirm path — must
+            // still reach the app so it can ConfirmPreviewReachable{migration_id} before
+            // the self-revert timer collapses STA straight to P2P. Surface the live
+            // migration id on a plain Get whenever the arbiter is kMigrating; a settled
+            // kStaOnly LAN has no in-flight migration (id 0) and the app just re-probes
+            // the endpoint to identity-gate "connected" (R8).
+            if (arbiter_.CurrentMode() == sst::network::ConnectivityMode::kMigrating) {
+                payload->set_migration_id(arbiter_.CurrentMigrationId());
+            }
             payload->set_preview_endpoint(arbiter_.PreviewEndpoint());
             if (credential_link_secure) {
                 payload->set_preview_credential(arbiter_.PreviewCredential());

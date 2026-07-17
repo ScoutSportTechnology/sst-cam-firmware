@@ -153,6 +153,13 @@ class FakeEthernet final : public sst::network::IEthernetController {
                         : sst::network::EthernetApplyResult{.ok = false, .detail = "apply failed"};
     }
     auto ProbeEthernet() -> sst::network::EthernetProbe override {
+        // F3: a test hook fired on EVERY probe. ProbeEthernet is only ever called
+        // OFF the arbiter lock, so a hook that re-enters a BLE-facing getter
+        // (CurrentLanPath) proves the lock was dropped across the shell-out — a
+        // regressed F3 (probe under `mtx_`) would self-deadlock here.
+        if (on_probe) {
+            on_probe();
+        }
         return {
             .mode = probe_mode, .address = probe_address, .carrier = carrier, .gateway = gateway};
     }
@@ -173,6 +180,7 @@ class FakeEthernet final : public sst::network::IEthernetController {
     bool apply_ok{true};
     std::string apply_address{"10.10.1.30/24"};
     std::optional<std::string> dhcp_offer{std::nullopt};
+    std::function<void()> on_probe;  // F3: fired inside every (off-lock) ProbeEthernet
     int apply_calls{0};
     int teardown_calls{0};
     int offer_calls{0};
@@ -683,8 +691,10 @@ TEST(ConnectivityArbiterTest, StaOnlySelectedViaLanPathWhenNoEthernet) {
     EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
 }
 
-// Ethernet on a DIFFERENT subnet is NOT a LAN path: STA remains the LAN, ethernet
-// is neither applied nor does it suppress STA (uplink deferred to U7).
+// Ethernet on a DIFFERENT subnet is NOT a LAN path: STA remains the LAN and is NOT
+// suppressed. F1: the uplink address IS bound (a real ApplyEthernet) so the egress
+// policy routing/firewall can be installed against it — the bind is an UPLINK bind,
+// not a LAN selection (LanPath stays kWifiSta).
 TEST(ConnectivityArbiterTest, EthernetDifferentSubnetNotSelectedStaRemains) {
     Harness harness;
     harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
@@ -702,9 +712,10 @@ TEST(ConnectivityArbiterTest, EthernetDifferentSubnetNotSelectedStaRemains) {
     harness.ethernet.probe_address = "192.168.9.30/24";
     harness.monitor.Poll();
 
-    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN
-    EXPECT_EQ(harness.ethernet.apply_calls, 0);                      // ethernet not applied as LAN
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN (not eth)
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);                      // F1: uplink address bound
     EXPECT_EQ(harness.uplink.teardown_calls, teardowns_before);      // STA not suppressed
+    EXPECT_EQ(harness.policy_routing.apply_calls, 1);  // uplink policy routing + firewall applied
 }
 
 // U7 / R4 / AE3: a different-subnet Ethernet uplink APPLIES policy routing (the
@@ -1073,6 +1084,169 @@ TEST(ConnectivityArbiterTest, SupersededEthernetConfirmKeepsLiveCredential) {
     EXPECT_EQ(harness.arbiter.EthernetConfirmId(), live_id);
     EXPECT_EQ(harness.arbiter.EthernetCredential(), "cam:ethsecret");
     EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+}
+
+// ─────────────────────── F1-F7 code-review-fix regressions ────────────────────
+
+// F1: a different-subnet uplink established via the ARBITER (a monitor poll, not the
+// boot path) BINDS the address (a real ApplyEthernet) and installs the uplink policy
+// routing AGAINST the bound address — the routing config carries the bound CIDR,
+// proving the address was addressed BEFORE the routing was synced. LAN stays STA.
+TEST(ConnectivityArbiterTest, F1DifferentSubnetUplinkBindsAddressBeforeRouting) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.ethernet.carrier = false;  // STA wins the LAN first
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+
+    // Ethernet appears on a different subnet WITH a gateway.
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA still the LAN (R4)
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);        // F1: the uplink address was BOUND
+    EXPECT_EQ(harness.policy_routing.apply_calls, 1);  // routing installed once
+    // Proof the routing was installed AGAINST the bound (re-probed) address, i.e. the
+    // bind happened first — the config carries the bound CIDR, not an empty/unbound one.
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_address_cidr, "192.168.9.30/24");
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_gateway, "192.168.9.1");
+}
+
+// F1 guard: if the different-subnet uplink address FAILS to bind, no routing is
+// installed against an unbound address — the apply is skipped (and the stale table
+// torn down), never applied against nothing. LAN stays STA.
+TEST(ConnectivityArbiterTest, F1UnboundUplinkDoesNotInstallRouting) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.ethernet.carrier = false;
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+
+    harness.ethernet.apply_ok = false;  // the uplink address cannot be bound
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA unaffected
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);                      // a bind WAS attempted
+    EXPECT_EQ(harness.policy_routing.apply_calls, 0);  // but routing NOT installed unbound
+}
+
+// F3: an Ethernet-hotplug arbitration resolves the (potentially 20s dhclient) probe
+// WITHOUT holding `mtx_`. A hook fired inside the off-lock ProbeEthernet re-enters a
+// BLE-facing getter (CurrentLanPath); that it returns (no self-deadlock) proves the
+// arbiter lock was dropped across the shell-out — the whole point of F3.
+TEST(ConnectivityArbiterTest, F3ProbeDoesNotHoldLockAcrossShellOut) {
+    Harness harness;
+    harness.ethernet.carrier = false;
+    const auto sel = harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "");
+    ASSERT_EQ(sel.path, LanPath::kP2p);
+
+    int reentrant_getter_calls = 0;
+    harness.ethernet.on_probe = [&] {
+        // Would DEADLOCK on a non-recursive mutex if the arbiter held `mtx_` here.
+        (void)harness.arbiter.CurrentLanPath();
+        ++reentrant_getter_calls;
+    };
+
+    harness.ethernet.carrier = true;  // hotplug -> off-lock probe path
+    harness.monitor.Poll();
+
+    EXPECT_GT(reentrant_getter_calls, 0);  // getter stayed serviceable during the probe
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);  // and arbitration still ran
+}
+
+// F4: a DHCP-pending Ethernet (carrier up, no lease yet) that later gets a lease is
+// promoted WITHOUT any carrier edge — the monitor re-arbitrates on the pending flag,
+// not only on an up/down transition.
+TEST(ConnectivityArbiterTest, F4LateDhcpLeasePromotesWithoutCarrierEdge) {
+    Harness harness;
+    sst::config::UplinkData cfg;
+    cfg.ethernet.enabled = true;
+    cfg.ethernet.dhcp = true;
+    cfg.wifi.enabled = false;  // no STA — promotion falls out cleanly to Ethernet
+    // Carrier already up but no offer yet: DHCP-pending.
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDown;
+    harness.ethernet.probe_address = "";
+    harness.ethernet.dhcp_offer = std::nullopt;
+    const auto sel = harness.arbiter.SelectLanPath(cfg, "");
+    ASSERT_EQ(sel.path, LanPath::kP2p);          // pending -> not yet a candidate
+    ASSERT_EQ(harness.ethernet.apply_calls, 0);  // nothing bound yet
+
+    // The lease lands later. Carrier stays UP the whole time (NO edge).
+    harness.ethernet.dhcp_offer = "10.10.1.30/24";
+    harness.monitor.Poll();  // carrier unchanged == no edge; re-polls on the pending flag
+
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);  // promoted
+    EXPECT_EQ(harness.ethernet.apply_calls, 1);                       // Ethernet now bound
+    EXPECT_GE(harness.ethernet.offer_calls, 2);  // the offer was re-polled after the pending hold
+}
+
+// F5: the R19 Ethernet->STA fallback — ConfirmLanPath(kEthernet, false) with a
+// reachable STA — mints a FRESH STA epoch that stays retrievable (CurrentMigrationId)
+// so the app can ConfirmPreviewReachable it before the self-revert timer collapses to
+// P2P. Without F5 that migration id would be stranded (the confirm returns only a path).
+TEST(ConnectivityArbiterTest, F5EthernetToStaFallbackDeliversUsableMigrationId) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.0.0.9"};
+    harness.ethernet.carrier = true;
+    const auto sel = harness.arbiter.SelectLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sel.path, LanPath::kEthernet);
+
+    // Preview NOT reachable on the Ethernet IP -> de-select, fall to STA (R19).
+    const auto committed =
+        harness.arbiter.ConfirmLanPath(sel.confirm_id, LanPath::kEthernet, false);
+
+    ASSERT_EQ(committed, LanPath::kWifiSta);
+    EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kMigrating);
+    const auto fallback_id = harness.arbiter.CurrentMigrationId();
+    EXPECT_NE(fallback_id, 0U);              // F5: a usable migration id survived the fallback
+    EXPECT_GT(fallback_id, sel.confirm_id);  // a FRESH epoch, not the retired Ethernet one
+    // And it is genuinely usable: confirming it finalises kStaOnly (not lost to revert).
+    EXPECT_EQ(harness.arbiter.ConfirmSharedWifi(fallback_id, true), ConnectivityMode::kStaOnly);
+}
+
+// F6: a PARTIALLY-failed ApplyUplinkRouting still creates the nft drop table, so a
+// later transition-away MUST attempt teardown — gated on "touched", never on the
+// success flag. A regressed F6 (gate on active_) would skip teardown and leak the
+// drop table, firewalling a later LAN.
+TEST(ConnectivityArbiterTest, F6PartialUplinkApplyIsTornDownOnTransitionAway) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.ethernet.carrier = false;
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+
+    // Different-subnet uplink appears, but the apply PARTIALLY fails (returns false).
+    harness.policy_routing.apply_ok = false;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.policy_routing.apply_calls, 1);     // apply attempted (touched the table)
+    ASSERT_EQ(harness.policy_routing.teardown_calls, 0);  // nothing torn down yet
+
+    // Cable pulled -> transition away. Even though the apply reported FAILURE, the
+    // (possibly leaked) drop table must be torn down.
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.policy_routing.teardown_calls, 1);  // F6: torn down despite active_==false
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
 }
 
 }  // namespace

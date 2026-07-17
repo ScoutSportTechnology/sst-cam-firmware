@@ -164,44 +164,106 @@ ConnectivityArbiter::~ConnectivityArbiter() {
     eth_monitor_.Stop();
     // U7: leave the routing table clean on shutdown so stale uplink rules/firewall
     // don't linger past the process (a fresh boot re-applies idempotently anyway).
-    if (uplink_routing_active_) {
+    // F6: gate on TOUCHED (a partial apply may have left a drop table with active_=
+    // false), never on the success flag.
+    if (uplink_routing_touched_) {
         policy_routing_.TeardownUplinkRouting();
         uplink_routing_active_ = false;
+        uplink_routing_touched_ = false;
     }
 }
 
 auto ConnectivityArbiter::SelectLanPath(const sst::config::UplinkData& desired,
                                         const std::string& phone_subnet_cidr)
     -> LanSelectionResult {
+    std::string sta_ip;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        // Remember the operator's intent so the carrier monitor can re-arbitrate on an
+        // Ethernet event without the handler.
+        desired_uplink_ = desired;
+        phone_subnet_cidr_ = phone_subnet_cidr;
+        sta_ip = preview_endpoint_;
+        spdlog::info(
+            "ConnectivityArbiter: SelectLanPath eth_enabled={} wifi_enabled={} phone_subnet='{}'",
+            desired.ethernet.enabled.value_or(false), desired.wifi.enabled.value_or(false),
+            phone_subnet_cidr);
+    }
+    // F3: resolve the Ethernet decision (probe + DHCP offer + different-subnet uplink
+    // bind — all potentially 20s dhclient calls) WITHOUT holding `mtx_`, so a slow
+    // shell-out never serializes behind the BLE command mutex.
+    const PreparedEthernet prepared = PrepareEthernetTransition(desired, phone_subnet_cidr, sta_ip);
     std::lock_guard<std::mutex> lock(mtx_);
-    // Remember the operator's intent so the carrier monitor can re-arbitrate on an
-    // Ethernet event without the handler.
-    desired_uplink_ = desired;
-    phone_subnet_cidr_ = phone_subnet_cidr;
-    spdlog::info(
-        "ConnectivityArbiter: SelectLanPath eth_enabled={} wifi_enabled={} phone_subnet='{}'",
-        desired.ethernet.enabled.value_or(false), desired.wifi.enabled.value_or(false),
-        phone_subnet_cidr);
-    return ArbitrateLocked(/*unsolicited=*/false);
+    return ArbitrateLocked(/*unsolicited=*/false, prepared);
 }
 
-auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited) -> LanSelectionResult {
-    const EthernetProbe eth = ethernet_.ProbeEthernet();
-    ethernet_carrier_ = eth.carrier;
-
-    std::optional<EthernetClassification> classification;
-    if (desired_uplink_.ethernet.enabled.value_or(false) && eth.carrier) {
-        classification = ClassifyEthernetLocked(eth);
+auto ConnectivityArbiter::PrepareEthernetTransition(const sst::config::UplinkData& desired,
+                                                    const std::string& phone_subnet_cidr,
+                                                    const std::string& sta_ip) -> PreparedEthernet {
+    PreparedEthernet prepared;
+    prepared.eth = ethernet_.ProbeEthernet();  // off-lock (F3)
+    if (desired.ethernet.enabled.value_or(false) && prepared.eth.carrier) {
+        // ClassifyEthernet may ProbeDhcpOffer (a 20s dhclient) — off the lock (F3).
+        prepared.classification =
+            ClassifyEthernet(prepared.eth, desired, phone_subnet_cidr, sta_ip);
     }
+    // F1 + F3: a different-subnet uplink has NO STA ordering constraint, so ADDRESS it
+    // here off-lock (a REAL ApplyEthernet lease/static bind, not the no-bind offer) and
+    // re-probe for the routing config — the arbiter installs routing against the bound
+    // address without ever running a dhclient under `mtx_`.
+    if (prepared.classification &&
+        prepared.classification->role == EthernetRole::kUplinkDifferentSubnet) {
+        const auto applied = ethernet_.ApplyEthernet(desired.ethernet);
+        prepared.uplink_bound = true;
+        prepared.uplink_bind_ok = applied.ok;
+        if (applied.ok) {
+            prepared.uplink_probe = ethernet_.ProbeEthernet();
+            prepared.uplink_cidr = !prepared.uplink_probe.address.empty()
+                                       ? prepared.uplink_probe.address
+                                       : applied.detail;
+        }
+    }
+    return prepared;
+}
+
+auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
+                                          const PreparedEthernet& prepared) -> LanSelectionResult {
+    ethernet_carrier_ = prepared.eth.carrier;
+    const auto& classification = prepared.classification;
+
+    // F4: remember a DHCP-pending candidate so the carrier monitor re-polls the offer
+    // even without a carrier edge (a lease that lands later still promotes Ethernet).
+    dhcp_pending_ = classification && classification->role == EthernetRole::kDhcpPending;
 
     // U7 (R4): the ONE legit concurrent dual-interface case — Ethernet on a DIFFERENT
     // subnet as an internet uplink — gets source-based policy routing + an egress-only
-    // firewall; EVERY other outcome tears that down. Sync BEFORE branching so a
-    // transition (uplink -> same-subnet LAN, or uplink -> unplugged) always cleans up.
+    // firewall; EVERY other outcome tears that down.
     const bool want_uplink_routing =
         classification && classification->role == EthernetRole::kUplinkDifferentSubnet;
-    SyncUplinkRoutingLocked(want_uplink_routing, eth,
-                            classification ? classification->cidr : std::string{});
+    if (want_uplink_routing) {
+        // F1: the uplink address was already bound off-lock (PrepareEthernetTransition).
+        // A same-subnet-LAN -> different-subnet-uplink transition must drop the stale
+        // kEthernet LAN handshake WITHOUT flushing (the bound uplink address stays).
+        if (current_path_ == LanPath::kEthernet) {
+            ethernet_endpoint_.clear();
+            ethernet_credential_.clear();
+            current_id_ = 0;
+            current_path_ = LanPath::kNone;
+        }
+        if (prepared.uplink_bound && prepared.uplink_bind_ok) {
+            SyncUplinkRoutingLocked(/*want=*/true, prepared.uplink_probe, prepared.uplink_cidr);
+        } else {
+            // The uplink could not be addressed — do NOT install routing against an
+            // unbound address; tear down any stale uplink table (F6).
+            spdlog::warn(
+                "ConnectivityArbiter: different-subnet uplink not addressed — no uplink egress");
+            SyncUplinkRoutingLocked(/*want=*/false, prepared.eth, {});
+        }
+    } else {
+        // Any non-uplink outcome tears down a prior uplink routing exactly once (F6:
+        // gated on TOUCHED, not the success flag).
+        SyncUplinkRoutingLocked(/*want=*/false, prepared.eth, {});
+    }
 
     if (classification) {
         if (classification->role == EthernetRole::kLanSameSubnet) {
@@ -209,14 +271,14 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited) -> LanSelectionResul
         }
         if (classification->role == EthernetRole::kDhcpPending) {
             // R21: carrier up, no lease yet — not yet a candidate. Fall to STA/P2P;
-            // a later lease re-arbitrates via the carrier monitor.
+            // a later lease re-arbitrates via the carrier monitor (F4 pending flag).
             spdlog::info("ConnectivityArbiter: Ethernet DHCP-pending — not yet a LAN candidate");
         } else if (classification->role == EthernetRole::kUplinkDifferentSubnet) {
             // R4: a different-subnet Ethernet is an internet uplink, NOT a LAN path.
-            // Policy routing is now applied (above); LAN falls to STA/P2P.
+            // It is bound + policy-routed (above); LAN falls to STA/P2P.
             spdlog::info(
-                "ConnectivityArbiter: Ethernet on a different subnet — uplink policy routing "
-                "applied (U7), LAN falls to STA/P2P");
+                "ConnectivityArbiter: Ethernet on a different subnet — bound + uplink policy "
+                "routing applied (U7/F1), LAN falls to STA/P2P");
         }
     }
 
@@ -234,30 +296,41 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited) -> LanSelectionResul
 auto ConnectivityArbiter::SyncUplinkRoutingLocked(bool want, const EthernetProbe& eth,
                                                   const std::string& cidr) -> void {
     if (want) {
-        // Idempotent apply (the adapter flushes-then-adds). `cidr` is the uplink's
+        // F6: mark the table TOUCHED before the apply — a partial apply still creates
+        // the nft drop table, so a later transition-away must tear it down even if the
+        // apply reported failure.
+        uplink_routing_touched_ = true;
+        // Idempotent apply (the adapter swaps atomically, F7). `cidr` is the uplink's
         // bound address WITH prefix; the gateway comes from the real Ethernet probe
-        // (empty => no default route installed, only the source rule + connected
-        // route). A failed apply leaves STA as the LAN with no uplink egress.
+        // (empty => no default route, only the source rule + connected route). A failed
+        // apply leaves STA as the LAN with no uplink egress.
         const UplinkRoutingConfig cfg{.uplink_address_cidr = cidr, .uplink_gateway = eth.gateway};
-        if (policy_routing_.ApplyUplinkRouting(cfg)) {
-            uplink_routing_active_ = true;
-        } else {
+        uplink_routing_active_ = policy_routing_.ApplyUplinkRouting(cfg);
+        if (!uplink_routing_active_) {
             spdlog::warn(
                 "ConnectivityArbiter: uplink policy routing apply failed — STA remains the LAN, no "
-                "uplink egress");
-            uplink_routing_active_ = false;
+                "uplink egress (the drop table is torn down on the next transition, F6)");
         }
         return;
     }
-    if (uplink_routing_active_) {
+    // F6: tear down on ANY transition-away when the table was ever TOUCHED — NEVER
+    // gated on the success flag. The old gate (`if uplink_routing_active_`) skipped a
+    // partially-applied apply (active_=false) and leaked its drop table.
+    if (uplink_routing_touched_) {
         policy_routing_.TeardownUplinkRouting();
         uplink_routing_active_ = false;
+        uplink_routing_touched_ = false;
     }
 }
 
-auto ConnectivityArbiter::ClassifyEthernetLocked(const EthernetProbe& eth)
-    -> EthernetClassification {
-    const bool is_dhcp = desired_uplink_.ethernet.dhcp.value_or(true);
+// phone_subnet_cidr / sta_ip are distinct roles (network CIDR vs host IP), each
+// shape-validated; a swap fails the subnet checks. Suppressed inline on the flagged
+// parameter (a multi-line signature can't use NOLINTNEXTLINE).
+auto ConnectivityArbiter::ClassifyEthernet(
+    const EthernetProbe& eth, const sst::config::UplinkData& desired,
+    const std::string& phone_subnet_cidr,  // NOLINT(bugprone-easily-swappable-parameters)
+    const std::string& sta_ip) -> EthernetClassification {
+    const bool is_dhcp = desired.ethernet.dhcp.value_or(true);
     std::string cidr;
     if (is_dhcp) {
         if (eth.mode == EthernetMode::kDhcp && !eth.address.empty()) {
@@ -272,17 +345,17 @@ auto ConnectivityArbiter::ClassifyEthernetLocked(const EthernetProbe& eth)
             cidr = *offer;
         }
     } else {
-        cidr = desired_uplink_.ethernet.address.value_or("");
+        cidr = desired.ethernet.address.value_or("");
         if (cidr.empty()) {
             return {.role = EthernetRole::kNotACandidate, .cidr = {}};
         }
     }
-    if (phone_subnet_cidr_.empty()) {
+    if (phone_subnet_cidr.empty()) {
         // No phone Wi-Fi to collide with -> Ethernet is trivially the LAN path.
         return {.role = EthernetRole::kLanSameSubnet, .cidr = cidr};
     }
-    bool same = SameSubnet(cidr, phone_subnet_cidr_);
-    if (!same && StaCollidesWithEthernetLocked(cidr)) {
+    bool same = SameSubnet(cidr, phone_subnet_cidr);
+    if (!same && StaCollidesWith(sta_ip, cidr)) {
         // Ground-truth reconciliation (R2/A4): the phone CIDR claimed different, but
         // STA's REAL address is inside Ethernet's REAL subnet — refuse the R4
         // dual-config and treat this as same-subnet (single-path).
@@ -310,6 +383,7 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
             "ConnectivityArbiter: late same-subnet DHCP Ethernet lease — keeping healthy STA (no "
             "surprise migrate, R21)");
         return {.ok = true,
+                .error = {},
                 .path = LanPath::kWifiSta,
                 .confirm_id = 0,
                 .endpoint = preview_endpoint_,
@@ -341,6 +415,15 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
     }
     last_error_.clear();
 
+    // F2/F6: Ethernet is now the same-subnet LAN — the camera MUST be reachable on it,
+    // so remove ANY egress firewall / uplink routing before committing: the boot
+    // egress-only firewall (installed outside the arbiter, F2) OR a leaked partial
+    // uplink drop table (F6). Idempotent and UNCONDITIONAL — never gated on a success
+    // flag — so a stale drop table can never keep the LAN iface unreachable.
+    policy_routing_.TeardownUplinkRouting();
+    uplink_routing_active_ = false;
+    uplink_routing_touched_ = false;
+
     const MigrationId epoch = ++migration_counter_;  // SINGLE global epoch (KTD)
     current_id_ = epoch;
     current_path_ = LanPath::kEthernet;
@@ -357,6 +440,7 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
     spdlog::info("ConnectivityArbiter: Ethernet LAN selected id={} endpoint={} unsolicited={}",
                  epoch, ethernet_endpoint_, unsolicited);
     return {.ok = true,
+            .error = {},
             .path = LanPath::kEthernet,
             .confirm_id = epoch,
             .endpoint = ethernet_endpoint_,
@@ -372,6 +456,7 @@ auto ConnectivityArbiter::SelectStaLocked(bool unsolicited) -> LanSelectionResul
     if (unsolicited && mode_ == ConnectivityMode::kStaOnly) {
         current_path_ = LanPath::kWifiSta;
         return {.ok = true,
+                .error = {},
                 .path = LanPath::kWifiSta,
                 .confirm_id = 0,
                 .endpoint = preview_endpoint_,
@@ -386,10 +471,16 @@ auto ConnectivityArbiter::SelectStaLocked(bool unsolicited) -> LanSelectionResul
             (mode_ == ConnectivityMode::kStaOnly || mode_ == ConnectivityMode::kMigrating)
                 ? LanPath::kWifiSta
                 : LanPath::kP2p;
-        return {.ok = false, .error = last_error_, .path = current_path_};
+        return {.ok = false,
+                .error = last_error_,
+                .path = current_path_,
+                .confirm_id = 0,
+                .endpoint = {},
+                .credential = {}};
     }
     current_path_ = LanPath::kWifiSta;
     return {.ok = true,
+            .error = {},
             .path = LanPath::kWifiSta,
             .confirm_id = migration->id,
             .endpoint = migration->preview_endpoint,
@@ -401,7 +492,12 @@ auto ConnectivityArbiter::SelectP2pLocked() -> LanSelectionResult {
         DoRevertLocked();  // returns the radio to the GO
     }
     current_path_ = LanPath::kP2p;
-    return {.ok = true, .path = LanPath::kP2p, .confirm_id = 0};
+    return {.ok = true,
+            .error = {},
+            .path = LanPath::kP2p,
+            .confirm_id = 0,
+            .endpoint = {},
+            .credential = {}};
 }
 
 auto ConnectivityArbiter::TeardownEthernetLanLocked() -> void {
@@ -413,14 +509,14 @@ auto ConnectivityArbiter::TeardownEthernetLanLocked() -> void {
     }
 }
 
-auto ConnectivityArbiter::StaCollidesWithEthernetLocked(const std::string& ethernet_cidr) const
-    -> bool {
+auto ConnectivityArbiter::StaCollidesWith(const std::string& sta_ip,
+                                          const std::string& ethernet_cidr) -> bool {
     // STA's real LAN IP is the tracked preview endpoint (set on migrate). Empty ->
     // no STA up -> no collision.
-    if (preview_endpoint_.empty()) {
+    if (sta_ip.empty()) {
         return false;
     }
-    return NetworkContains(ethernet_cidr, preview_endpoint_);
+    return NetworkContains(ethernet_cidr, sta_ip);
 }
 
 auto ConnectivityArbiter::RequestSharedWifi(const sst::config::WifiStaUplink& uplink)
@@ -613,6 +709,10 @@ auto ConnectivityArbiter::DoRevertLocked() -> void {
     current_id_ = 0;
     current_ssid_.clear();
     carrier_loss_streak_ = 0;
+    // F4: a genuine revert to P2P retires any DHCP-pending candidate — a subsequent
+    // arbitration recomputes it. (The pending-fell-to-STA case does NOT DoRevert, so
+    // its flag correctly persists for the carrier monitor to re-poll.)
+    dhcp_pending_ = false;
     preview_endpoint_.clear();
     preview_credential_.clear();
     // Radio-only revert: the LAN path becomes P2P unless the caller is mid-way to
@@ -664,24 +764,45 @@ auto ConnectivityArbiter::OnCarrierCheck() -> void {
 
 auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
     // Probe the carrier WITHOUT the lock (off the BLE dispatcher; this runs on the
-    // monitor thread). Only an actual up/down TRANSITION re-arbitrates — the common
-    // no-change tick is a cheap early return that never holds the lock across a
-    // shell-out.
+    // monitor thread).
     const bool carrier = ethernet_.ProbeEthernet().carrier;
+    sst::config::UplinkData desired;
+    std::string phone_subnet;
+    std::string sta_ip;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        // Re-arbitrate on an actual up/down EDGE (R20), OR — F4 — while a DHCP-pending
+        // candidate is held (carrier still up), so a lease that lands with NO carrier
+        // transition still promotes Ethernet. The common no-change tick is a cheap
+        // early return that never holds the lock across a shell-out.
+        const bool edge = carrier != ethernet_carrier_;
+        const bool pending_repoll = carrier && dhcp_pending_;
+        if (!edge && !pending_repoll) {
+            return;
+        }
+        spdlog::info(
+            "ConnectivityArbiter: Ethernet {} (carrier={} was={} dhcp_pending={}) — re-arbitrating "
+            "(mode-independent monitor, R20/F4)",
+            edge ? "carrier edge" : "DHCP-pending re-poll", carrier, ethernet_carrier_,
+            dhcp_pending_);
+        ethernet_carrier_ = carrier;
+        desired = desired_uplink_;
+        phone_subnet = phone_subnet_cidr_;
+        sta_ip = preview_endpoint_;
+    }
+    // F3: the heavy Ethernet work (ProbeEthernet + ProbeDhcpOffer + a different-subnet
+    // uplink bind — each a potential 20s dhclient) runs OFF the lock, mirroring
+    // OnCarrierCheck's lock-drop, so an Ethernet hotplug never freezes the BLE command
+    // thread for ~40s. Re-take the lock, re-validate, then commit.
+    const PreparedEthernet prepared = PrepareEthernetTransition(desired, phone_subnet, sta_ip);
     std::lock_guard<std::mutex> lock(mtx_);
-    if (carrier == ethernet_carrier_) {
+    // Re-validate: a concurrent transition may have moved the carrier since the snapshot
+    // — if so this poll is stale and the newer event owns the re-arbitration.
+    if (prepared.eth.carrier != carrier) {
+        ethernet_carrier_ = prepared.eth.carrier;
         return;
     }
-    spdlog::info(
-        "ConnectivityArbiter: Ethernet carrier {} (was {}) — re-arbitrating (mode-independent "
-        "monitor, R20)",
-        carrier, ethernet_carrier_);
-    ethernet_carrier_ = carrier;
-    // Re-arbitrate as an UNSOLICITED event: R2>R19 immediate STA suppression on a
-    // same-subnet static hotplug, and the R21 no-surprise-migrate guard for a late
-    // DHCP lease. (This re-probes Ethernet under the lock — bounded, rare: only on
-    // a real carrier transition; metal-tunable.)
-    ArbitrateLocked(/*unsolicited=*/true);
+    ArbitrateLocked(/*unsolicited=*/true, prepared);
 }
 
 auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId migration_id) -> void {

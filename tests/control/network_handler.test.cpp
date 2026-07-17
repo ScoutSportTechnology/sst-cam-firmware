@@ -99,13 +99,19 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
             mode = sst::network::ConnectivityMode::kP2pOnly;
             ssid.clear();
             current_lan_path = sst::network::LanPath::kP2p;
-            return {.ok = false, .error = last_error, .path = sst::network::LanPath::kP2p};
+            return {.ok = false,
+                    .error = last_error,
+                    .path = sst::network::LanPath::kP2p,
+                    .confirm_id = 0,
+                    .endpoint = {},
+                    .credential = {}};
         }
         if (desired.ethernet.enabled.value_or(false)) {
             current_lan_path = sst::network::LanPath::kEthernet;
             eth_endpoint = "10.10.1.30";
             eth_confirm_id = kFakeMigrationId;
             return {.ok = true,
+                    .error = {},
                     .path = sst::network::LanPath::kEthernet,
                     .confirm_id = kFakeMigrationId,
                     .endpoint = eth_endpoint,
@@ -114,13 +120,19 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
         if (desired.wifi.enabled.value_or(false)) {
             current_lan_path = sst::network::LanPath::kWifiSta;
             return {.ok = true,
+                    .error = {},
                     .path = sst::network::LanPath::kWifiSta,
                     .confirm_id = kFakeMigrationId,
                     .endpoint = "10.0.0.9",
                     .credential = "cam:secret"};
         }
         current_lan_path = sst::network::LanPath::kP2p;
-        return {.ok = true, .path = sst::network::LanPath::kP2p};
+        return {.ok = true,
+                .error = {},
+                .path = sst::network::LanPath::kP2p,
+                .confirm_id = 0,
+                .endpoint = {},
+                .credential = {}};
     }
     auto ConfirmSharedWifi(sst::network::MigrationId migration_id,
                            bool reachable) -> sst::network::ConnectivityMode override {
@@ -158,6 +170,10 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     [[nodiscard]] auto PreviewCredential() const -> std::string override {
         return preview_credential;
     }
+    // F5: the live STA migration id surfaced on a plain Get for an in-flight migration.
+    [[nodiscard]] auto CurrentMigrationId() const -> sst::network::MigrationId override {
+        return current_migration_id;
+    }
 
     bool select_ok{true};
     int select_calls{0};
@@ -175,6 +191,8 @@ class FakeArbiter final : public sst::network::IConnectivityArbiter {
     // U8: the committed STA LAN handshake surfaced on a plain Get.
     std::string preview_endpoint;
     std::string preview_credential;
+    // F5: the live STA migration id (non-zero while an STA migration is in flight).
+    sst::network::MigrationId current_migration_id{0};
     // Settled state the handler reads back for the R3 connected-state / short-circuit.
     sst::network::ConnectivityMode mode{sst::network::ConnectivityMode::kP2pOnly};
     sst::network::LanPath current_lan_path{sst::network::LanPath::kP2p};
@@ -554,6 +572,38 @@ TEST(NetworkHandlerTest, GetWithStaCommittedSurfacesPreviewHandshakeOnSecureLink
     EXPECT_EQ(resp.network_config().preview_endpoint(), "10.10.1.142");
     EXPECT_EQ(resp.network_config().preview_credential(), "cam:stasecret");
     EXPECT_EQ(resp.network_config().migration_id(), 0U);  // no migration in flight
+}
+
+// F5: a plain Get while the arbiter is kMigrating (the R19 Ethernet->STA fallback
+// minted a fresh STA epoch OUTSIDE a Set reply) surfaces the live migration_id so the
+// app can ConfirmPreviewReachable it before the self-revert timer collapses to P2P.
+// Without F5 that id is stranded (the settled-kStaOnly path reports migration_id == 0).
+TEST(NetworkHandlerTest, GetWhileMigratingSurfacesFallbackMigrationId) {
+    FakeConfigurator configurator;
+    FakeEthernet ethernet;
+    ethernet.probe_mode = sst::network::EthernetMode::kDown;
+    ethernet.probe_address = "";
+    ethernet.carrier = false;
+    sst::network::UplinkManager manager(configurator, ethernet);
+    FakeStore store;
+    FakeArbiter arbiter;
+    arbiter.mode = sst::network::ConnectivityMode::kMigrating;  // fallback STA in flight
+    arbiter.current_lan_path = sst::network::LanPath::kWifiSta;
+    arbiter.current_migration_id = kFakeMigrationId;  // the fresh, retrievable epoch
+    arbiter.preview_endpoint = "10.10.1.142";
+    arbiter.preview_credential = "cam:stasecret";
+    FakeLinkSecurity secure(/*secure=*/true);
+    sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
+
+    sst_cam::Command cmd;
+    cmd.mutable_get_network_config();
+    const auto resp = handler.Handle(cmd);
+
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_WIFI_STA);
+    EXPECT_EQ(resp.network_config().migration_id(), kFakeMigrationId);  // F5: id delivered
+    EXPECT_EQ(resp.network_config().preview_endpoint(), "10.10.1.142");
+    EXPECT_EQ(resp.network_config().preview_credential(), "cam:stasecret");
 }
 
 // U8 SECURITY: the committed-STA credential is likewise gated off an insecure link.

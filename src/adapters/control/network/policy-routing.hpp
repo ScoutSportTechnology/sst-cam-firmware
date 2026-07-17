@@ -70,6 +70,16 @@ auto BuildFirewallDropInboundArgv(const std::string& iface) -> std::vector<std::
 // `nft delete table inet sst_uplink` — tears the whole firewall down atomically.
 auto BuildFirewallDeleteTableArgv() -> std::vector<std::string>;
 
+// F7: the ENTIRE egress-only firewall as a SINGLE `nft -f` script (add table; flush
+// table; add chain; allow established/related; drop all other inbound on <iface>).
+// nft applies the whole script as ONE atomic transaction, so a re-apply swaps the
+// ruleset with NO rule-less window — unlike the old flush-then-readd sequence of
+// separate invocations, which briefly let inbound through on the uplink. Empty on an
+// unsafe iface (never emit a script with an un-whitelisted token). The iface is the
+// only interpolated value and is IsSafeIfaceName-validated, so the quoted `iifname
+// "<iface>"` literal can carry no shell/nft metacharacters, newline, or directive.
+auto BuildFirewallRulesetScript(const std::string& iface) -> std::string;
+
 // The firmware-owned policy-routing adapter. Forks `ip`/`nft` (root) via the
 // bounded argv-vector subprocess helper (never a shell). Hardware-bound — verified
 // on-device; in the cross-compile container the `ip`/`nft` calls simply fail
@@ -87,6 +97,17 @@ class PolicyRouting final : public sst::network::IPolicyRouting {
 
     auto ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& cfg) -> bool override;
     auto TeardownUplinkRouting() -> void override;
+
+    // F2 (B1): install ONLY the egress-only firewall on the detected wired interface
+    // — NO routing table/rule — at process start, BEFORE boot-apply addresses
+    // Ethernet. Guarantees no camera service (download/RTSP/control) is reachable on a
+    // wired uplink from boot until the arbiter classifies Ethernet (a same-subnet LAN
+    // commit removes it via TeardownUplinkRouting; a different-subnet uplink re-applies
+    // the full routing + firewall via ApplyUplinkRouting). Uses the same atomic
+    // `nft -f` transaction (F7). Idempotent; resolves the wired iface itself; bounded /
+    // never throws (a no wired iface / absent nft is a logged no-op in the container).
+    // Stateless (forks `nft`), so static — callable via an instance or the class.
+    static auto ApplyEgressFirewall() -> void;
 };
 
 }  // namespace sst::adapters::control

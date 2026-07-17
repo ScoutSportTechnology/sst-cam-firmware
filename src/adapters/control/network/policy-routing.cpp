@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -89,6 +90,32 @@ auto RunStep(const std::vector<std::string>& argv, const char* what) -> bool {
                      what);
     }
     return succeeded;
+}
+
+// The single-transaction firewall script path (root, /run — tmpfs). Fixed, not
+// interpolated, so no untrusted token reaches the filesystem path.
+constexpr const char* kFirewallScriptPath = "/run/sst-uplink-firewall.nft";
+
+// F7: write the whole egress-only firewall ruleset to a temp file and apply it with a
+// SINGLE `nft -f`, so nft swaps the table contents in ONE atomic transaction — no
+// rule-less interval where inbound is accepted on the uplink. The script content is
+// validated (BuildFirewallRulesetScript returns empty on an unsafe iface), so an
+// un-whitelisted iface is never written or applied.
+auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
+    const std::string script = BuildFirewallRulesetScript(iface);
+    if (script.empty()) {
+        spdlog::warn("PolicyRouting: refusing firewall script for unsafe iface '{}'", iface);
+        return false;
+    }
+    {
+        std::ofstream file(kFirewallScriptPath, std::ios::trunc);
+        if (!file) {
+            spdlog::warn("PolicyRouting: could not write firewall script {}", kFirewallScriptPath);
+            return false;
+        }
+        file << script;
+    }
+    return RunStep({"nft", "-f", kFirewallScriptPath}, "firewall ruleset (atomic nft -f)");
 }
 
 }  // namespace
@@ -193,6 +220,28 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string> {
     return {"nft", "delete", "table", "inet", kUplinkNftTable};
 }
 
+auto BuildFirewallRulesetScript(const std::string& iface) -> std::string {
+    // Fail closed: never emit a script that would interpolate an un-whitelisted iface
+    // into an `iifname "<iface>"` literal.
+    if (!IsSafeIfaceName(iface)) {
+        return {};
+    }
+    const std::string table = std::string("inet ") + kUplinkNftTable;
+    // add + flush + chain + rules as ONE nft script => one atomic transaction (F7).
+    // `policy accept` + iface-scoped matches => non-uplink (LAN) traffic is untouched;
+    // established/related is accepted (the camera's OUTBOUND streaming return path) and
+    // everything else inbound on <iface> is dropped (no camera service on the uplink).
+    std::string script;
+    script += "add table " + table + "\n";
+    script += "flush table " + table + "\n";
+    script +=
+        "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
+    script += "add rule " + table + " input iifname \"" + iface +
+              "\" ct state established,related accept\n";
+    script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
+    return script;
+}
+
 auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& cfg) -> bool {
     const std::string iface = DetectWiredIface();
     if (!IsSafeIfaceName(iface)) {
@@ -219,16 +268,30 @@ auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& 
     RunStep(BuildUplinkRuleDelArgv(), "uplink rule (pre-clear)");
     applied = RunStep(BuildUplinkRuleAddArgv(host), "uplink source rule") && applied;
 
-    // Egress-only firewall: create+flush the table (idempotent reset), re-add the
-    // chain + rules. THIS is the security bound — no camera service is reachable on
-    // the uplink iface.
-    RunStep(BuildFirewallAddTableArgv(), "firewall table");
-    RunStep(BuildFirewallFlushTableArgv(), "firewall flush");
-    applied = RunStep(BuildFirewallAddChainArgv(), "firewall chain") && applied;
-    applied =
-        RunStep(BuildFirewallAllowEstablishedArgv(iface), "firewall allow established") && applied;
-    applied = RunStep(BuildFirewallDropInboundArgv(iface), "firewall drop inbound") && applied;
+    // Egress-only firewall as a SINGLE atomic nft transaction (F7): a re-apply
+    // (idempotent self-heal / carrier flap) swaps the whole ruleset at once, with NO
+    // rule-less window where inbound is accepted on the uplink. THIS is the security
+    // bound — no camera service is reachable on the uplink iface.
+    applied = WriteAndApplyFirewallScript(iface) && applied;
     return applied;
+}
+
+auto PolicyRouting::ApplyEgressFirewall() -> void {
+    const std::string iface = DetectWiredIface();
+    if (!IsSafeIfaceName(iface)) {
+        spdlog::info(
+            "PolicyRouting: no safe wired iface for the boot egress firewall ('{}') — skipping "
+            "(no wired uplink to protect yet)",
+            iface);
+        return;
+    }
+    // B1/F2: close the boot exposure window — a root listener (e.g. HttpDownloadServer
+    // on 0.0.0.0:8080) must not be reachable on a wired uplink before the arbiter has
+    // classified Ethernet. The same atomic transaction (F7) as the uplink firewall,
+    // firewall-only (no routing table/rule), so a same-subnet-LAN commit later removes
+    // it via TeardownUplinkRouting and a different-subnet uplink re-applies it.
+    spdlog::info("PolicyRouting: installing boot egress-only firewall on {} (B1/F2)", iface);
+    WriteAndApplyFirewallScript(iface);
 }
 
 auto PolicyRouting::TeardownUplinkRouting() -> void {
