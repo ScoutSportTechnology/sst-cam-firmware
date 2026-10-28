@@ -5,7 +5,7 @@
   ],
   "service": "app",
   "workspaceFolder": "/workspace",
-  "remoteUser": "vscode",
+  "remoteUser": "builder",
   "containerEnv": {
     "SHELL": "/bin/bash"
   },
@@ -16,8 +16,8 @@
   // ${localEnv}/${localWorkspaceFolder} tokens only work in devcontainer.json,
   // so the host Conan cache and the .bashrc bind live here, not in compose.
   "mounts": [
-    "source=${localEnv:HOME}/.conan2,target=/home/vscode/.conan2,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/vscode/.bashrc.d/00-aliases.bashrc,readonly,type=bind"
+    "source=${localEnv:HOME}/.conan2,target=/home/builder/.conan2,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/.devcontainer/.bashrc,target=/home/builder/.bashrc.d/00-aliases.bashrc,readonly,type=bind"
   ],
   "customizations": {
     "vscode": {
@@ -25,7 +25,6 @@
         "ms-vscode.cmake-tools",
         "ms-vscode.cpp-devtools",
         "llvm-vs-code-extensions.vscode-clangd",
-        "anthropic.claude-code",
         "llvm-vs-code-extensions.lldb-dap",
         "matepek.vscode-catch2-test-adapter",
         "aaron-bond.better-comments",
@@ -45,8 +44,5 @@
   "postCreateCommand": ".devcontainer/script/post-create.sh",
   "postStartCommand": ".devcontainer/script/post-start.sh",
   "postAttachCommand": ".devcontainer/script/post-attach.sh",
-  "waitFor": "postCreateCommand",
-  "remoteEnv": {
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
-  }
+  "waitFor": "postCreateCommand"
 }

@@ -1,0 +1,30 @@
+# Pull the published compiler image `${image}:${tag}` (see compiler-image/ and
+# .github/workflows/compiler-image.yml) so the caller can `docker run` it.
+# No local fallback build: if the tag is not published, run the compiler-image
+# workflow first. Records pull time and free disk before/after.
+name: Pull compiler image
+description: >-
+  Pull the published sst-cam-firmware-compiler image, with disk/time
+  measurement.
+inputs:
+  image:
+    description: GHCR image repository (no tag), e.g. ghcr.io/org/sst-cam-firmware-compiler
+    required: true
+  tag:
+    description: Image tag, from compiler-image/VERSION
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Pull compiler image (timed)
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        echo "::group::disk before pull"; df -h /; echo "::endgroup::"
+        start=$(date +%s)
+        docker pull "${IMAGE}:${TAG}"
+        echo "image pull took $(( $(date +%s) - start ))s"
+        echo "::group::disk after pull"; df -h /; echo "::endgroup::"

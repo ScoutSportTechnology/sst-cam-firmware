@@ -166,9 +166,10 @@ with a three-rung release maturity ladder:
 Three branch-scoped product workflows drive this — `release-alpha.yml` owns
 `development` (PR checks + the alpha build), `release-beta.yml` owns `release/**`
 (PR checks + the beta build), and `release.yml` owns `main` (promote only). The
-cross-build devcontainer is built **once per `.devcontainer/**` content** by an
-in-CI `image` job (content-hash tag in GHCR) and pulled by `tidy`/`test`/the
-release build — not rebuilt per run; docs/workflow-only PRs skip the heavy
+cross-build runs in the published compiler image
+(`ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler`, recipe in
+`compiler-image/`, built only when that folder changes) and is pulled by
+`tidy`/`test`/the release build — not rebuilt per run; docs/workflow-only PRs skip the heavy
 checks (see `CLAUDE.md`). Two invariants hold: **`main` runs no failable build**
 — it only promotes the already-built beta binary — and **no CI job commits back
 to `main`**. The aarch64 binary is published as a GitHub

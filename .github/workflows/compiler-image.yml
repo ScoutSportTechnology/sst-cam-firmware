@@ -1,0 +1,132 @@
+# =============================================================================
+# compiler-image — build and publish the firmware cross-compiler image
+#   ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:<VERSION> (+ :latest)
+# from compiler-image/ (Dockerfile + sysroot scripts).
+#
+# The release workflows and the devcontainer only PULL this image; nothing else
+# builds the sysroot. Runs when compiler-image/ changes (any branch) or by hand.
+#
+# Tags are immutable. The image (single manifest: no provenance/SBOM
+# attestations, so the label below is readable) carries a label with the hash of its recipe
+# (every file in compiler-image/ except VERSION):
+#   - VERSION tag not published yet          -> build + push VERSION and latest
+#   - published with the same recipe hash    -> nothing to do
+#   - published with a different recipe hash -> FAIL: bump compiler-image/VERSION
+#
+# Cost: ~35 min cold, ~7.6 GB of NVIDIA downloads, peak disk well under the
+# ~44 GB a hosted runner has after free-disk-space (all sysroot steps are one
+# layer, and buildx pushes straight to GHCR without loading into the local store).
+# =============================================================================
+name: compiler-image
+
+on:
+  push:
+    paths:
+      - 'compiler-image/**'
+      - '.github/workflows/compiler-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: compiler-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler
+
+jobs:
+  publish:
+    name: publish compiler image
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read VERSION + recipe hash
+        id: ver
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < compiler-image/VERSION)"
+          if ! [[ "$version" =~ ^jetpack_[0-9]+(\.[0-9]+)*-jetson_r[0-9]+(\.[0-9]+)*-v[0-9]+$ ]]; then
+            echo "::error::compiler-image/VERSION '${version}' must look like jetpack_7.2-jetson_r39.2-v1"
+            exit 1
+          fi
+          recipe="$(git ls-files -s compiler-image | grep -v ' compiler-image/VERSION$' | sha256sum | cut -d' ' -f1)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "recipe=${recipe}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${version} recipe=${recipe}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Already published?
+        id: published
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          RECIPE: ${{ steps.ver.outputs.recipe }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGE}:${VERSION}"
+          if ! docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "${ref} not published yet: building."
+            exit 0
+          fi
+          have="$(docker buildx imagetools inspect "$ref" \
+                    --format '{{ index .Image.Config.Labels "io.sst.compiler-image.recipe" }}')"
+          if [ "$have" = "$RECIPE" ]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "${ref} already published from this recipe: nothing to do."
+          else
+            echo "::error::${ref} is already published from a different recipe (${have}). Bump compiler-image/VERSION."
+            exit 1
+          fi
+
+      - name: Free up disk space (host)
+        if: ${{ steps.published.outputs.build == 'true' }}
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      # 001's apply_binaries.sh and 004's apt run inside the arm64 rootfs (chroot),
+      # which needs qemu-aarch64 in the host binfmt_misc.
+      - name: Set up QEMU (arm64 binfmt for the sysroot chroot)
+        if: ${{ steps.published.outputs.build == 'true' }}
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Buildx
+        if: ${{ steps.published.outputs.build == 'true' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push
+        if: ${{ steps.published.outputs.build == 'true' }}
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          RECIPE: ${{ steps.ver.outputs.recipe }}
+        run: |
+          set -euo pipefail
+          df -h /
+          start=$(date +%s)
+          docker buildx build compiler-image \
+            --platform linux/amd64 \
+            --provenance=false --sbom=false \
+            --label "io.sst.compiler-image.recipe=${RECIPE}" \
+            --label "io.sst.compiler-image.version=${VERSION}" \
+            --tag "${IMAGE}:${VERSION}" \
+            --tag "${IMAGE}:latest" \
+            --push
+          echo "build + push took $(( $(date +%s) - start ))s"
+          df -h /

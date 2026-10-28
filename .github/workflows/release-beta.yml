@@ -11,7 +11,7 @@
 #
 #   * PUSHES to a `release/X.Y.Z` branch run the beta RELEASE job: resolve the
 #     next `vX.Y.Z-beta.N` tag, cross-build the aarch64 binary inside the
-#     devcontainer, record its SHA-256 in the Release notes, and publish it as a
+#     compiler image, record its SHA-256 in the Release notes, and publish it as a
 #     PRERELEASE asset. This is the exact binary that release.yml later copies
 #     onto the stable Release — no rebuild on `main`.
 #
@@ -37,20 +37,18 @@
 # real Jetson and tested with the app before a maintainer opens the
 # `release/X.Y.Z -> main` PR.
 #
-# WHY the devcontainer: the Jetson aarch64 cross-build is only correct inside the
-# repo's devcontainer image (gcc-13 aarch64 cross toolchain, the order-sensitive L4T
-# sysroot prep scripts, host-protoc codegen, OpenCV SONAME pin, Conan cache). So
-# every cross-build gotcha stays solved in one place (see CLAUDE.md).
+# WHY the compiler image: the Jetson aarch64 cross-build is only correct inside
+# the repo's compiler image (gcc-13 aarch64 cross toolchain, the order-sensitive
+# L4T sysroot prep scripts, host-protoc codegen, OpenCV SONAME pin, Conan cache).
+# So every cross-build gotcha stays solved in one place (see CLAUDE.md).
 #
-# IMAGE REUSE (content-hash build-or-pull): the image is built ONCE per
-# `.devcontainer/**` content and reused. The `image` job tags it by
-# `hashFiles('.devcontainer/**')`; if GHCR already has `${IMAGE}:<hash>` it is a
-# pull, else it builds + pushes that hash once. tidy/test/cross-build `needs:` it
-# and `docker pull`+`docker run` the image (no per-run sysroot rebuild). format +
-# ci-scripts are host-only (no image). A `.devcontainer/**` change is the only
-# trigger for a rebuild. SECURITY: consumers pull by content-hash tag (never a
-# mutable `:latest`); the push needs `packages: write`, so fork PRs (read-only
-# token) skip it and build-only — they can neither poison nor benefit.
+# COMPILER IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler, built
+# and published only by compiler-image.yml from compiler-image/ (tag =
+# compiler-image/VERSION, immutable). The `image` job resolves the tag, checks
+# the devcontainer pins the same one and that it is published; tidy/test/
+# cross-build `needs:` it and `docker pull`+`docker run` the image (no sysroot
+# build here). format + ci-scripts are host-only (no image). SECURITY: consumers
+# pull a pinned version tag (never a mutable `:latest`).
 # =============================================================================
 name: release-beta
 
@@ -79,93 +77,58 @@ permissions:
   contents: write
 
 env:
-  # Content-hashed devcontainer image. Tag = hash of .devcontainer/** (the full
-  # image recipe — Dockerfile + sysroot scripts + noble-deb-urls.txt). Built once
-  # per recipe; format/tidy/test/release pull it instead of rebuilding (U1/U2).
-  IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-devcontainer
+  # Published cross-compiler image (recipe: compiler-image/, published by
+  # compiler-image.yml). Tag = compiler-image/VERSION, resolved by the `image`
+  # job; tidy/test/release pull it.
+  IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler
 
 jobs:
   # ===========================================================================
-  # image — ensure the content-hashed devcontainer image exists in GHCR, building
-  # + pushing ONLY on a cache miss. format/tidy/test (and the release cross-build)
-  # `needs:` this job and pull `${IMAGE}:<hash>` rather than each rebuilding the
-  # ~3 GB BSP sysroot. A `.devcontainer/**` change is the only thing that triggers
-  # a rebuild; everything else is a pull. Fork PRs get a read-only token, so the
-  # push is skipped (build-only) — they can neither poison nor benefit (U1, R5).
+  # image — resolve the compiler image tag (compiler-image/VERSION), check that
+  # the devcontainer pins the same tag, and fail fast if it is not published.
+  # The image is built only by compiler-image.yml (whenever compiler-image/
+  # changes); tidy/test/release `needs:` this job and pull `${IMAGE}:<tag>`.
   # ===========================================================================
   image:
     name: image
     runs-on: ubuntu-latest
     permissions:
-      packages: write
+      packages: read
       contents: read
     outputs:
-      tag: ${{ steps.hash.outputs.tag }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      # Checkout first (unconditional) so hashFiles('.devcontainer/**') sees the
-      # files — without it the hash is empty and the image ref is invalid.
-      - name: Checkout (with proto submodule)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Compute image tag from .devcontainer content
-        id: hash
-        run: echo "tag=${{ hashFiles('.devcontainer/**') }}" >> "$GITHUB_OUTPUT"
+      - name: Resolve compiler image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          tag="$(tr -d '[:space:]' < compiler-image/VERSION)"
+          dev="$(sed -n 's#^FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:\([^ ]*\).*#\1#p' .devcontainer/Dockerfile)"
+          if [ "$dev" != "$tag" ]; then
+            echo "::error::.devcontainer/Dockerfile uses compiler image tag '${dev}' but compiler-image/VERSION is '${tag}'"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        id: login
-        continue-on-error: true # fork PRs have a read-only token — fall through to build-only
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache check (does ${IMAGE}:<hash> already exist?)
-        id: cache
+      - name: Check the tag is published
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          ref="${IMAGE}:${{ steps.hash.outputs.tag }}"
-          if docker manifest inspect "$ref" >/dev/null 2>&1; then
-            echo "hit=true" >> "$GITHUB_OUTPUT"
-            echo "cache hit: ${ref} already published — no build."
-          else
-            echo "hit=false" >> "$GITHUB_OUTPUT"
-            echo "cache miss: ${ref} will be built."
+          if ! docker buildx imagetools inspect "${IMAGE}:${TAG}" >/dev/null; then
+            echo "::error::${IMAGE}:${TAG} is not published. The compiler-image workflow publishes it on any push that changes compiler-image/; re-run this job once it is green."
+            exit 1
           fi
-
-      # ---- build-on-miss (heavy; runs only when the recipe changed) ----
-      - name: Free up disk space (host)
-        if: ${{ steps.cache.outputs.hit == 'false' }}
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
-
-      - name: Set up QEMU (arm64 binfmt for apply_binaries chroot)
-        if: ${{ steps.cache.outputs.hit == 'false' }}
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-
-      - name: Build devcontainer image
-        if: ${{ steps.cache.outputs.hit == 'false' }}
-        uses: devcontainers/ci@v0.3
-        with:
-          push: never
-
-      - name: Tag + push to GHCR (skipped on fork / read-only token)
-        if: ${{ steps.cache.outputs.hit == 'false' && steps.login.outcome == 'success' }}
-        run: |
-          set -euo pipefail
-          ref="${IMAGE}:${{ steps.hash.outputs.tag }}"
-          docker tag sst-cam-firmware "$ref"
-          # Tolerate a concurrent first-build race on the same recipe: an identical
-          # image under the same content hash is benign last-writer-wins.
-          docker push "$ref" || docker manifest inspect "$ref" >/dev/null
 
   # ===========================================================================
   # changes — detect whether a PR touches build-relevant paths. The EXPENSIVE
@@ -191,6 +154,7 @@ jobs:
               - 'src/**'
               - 'tests/**'
               - '.devcontainer/**'
+              - 'compiler-image/**'
               - 'conanfile.py'
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
@@ -305,10 +269,8 @@ jobs:
         # CLOSED (tidy-run.sh rejects an index >= total).
         shard: [0, 1, 2, 3]
     steps:
-      # Assembling the JetPack 7.2 sysroot (~3GB BSP download + extracted r39.2
-      # rootfs + ~69 noble debs) is disk-heavy on a stock hosted runner. Reclaim ~30GB
-      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
-      # runner is required (see header note).
+      # The compiler image is ~5.2 GB compressed / ~10.7 GB unpacked; a stock
+      # hosted runner has ~14 GB free. Reclaim ~30GB of preinstalled toolchains first.
       - name: Free up disk space (host)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -330,9 +292,9 @@ jobs:
           restore-keys: |
             conan-${{ runner.os }}-
 
-      # apply_binaries.sh (in 001) chroots into the arm64 rootfs to run dpkg —
-      # needs qemu-aarch64 in the host binfmt_misc, else "Exec format error" (126).
-      - name: Set up QEMU (arm64 binfmt for apply_binaries chroot)
+      # Register qemu-aarch64 in the host binfmt_misc so aarch64 binaries started
+      # inside the container run (ctest also wraps the test binaries in qemu).
+      - name: Set up QEMU (arm64 binfmt)
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -344,15 +306,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Make the prebuilt devcontainer image available locally (built once by the
-      # `image` job; pulled here, or built locally on pull failure — R6), then run
+      # Pull the published compiler image (tag from the `image` job), then run
       # this shard inside it — no per-run sysroot rebuild on the fast path. Run as
       # root so the bind-mounted workspace (owned by the runner uid) is writable
       # for the build dir; the image's PATH already exposes conan + the gcc-13
       # cross toolchain. tidy-run.sh builds (cmake + sst_proto) then lints only
       # this shard's slice.
-      - name: Ensure devcontainer image
-        uses: ./.github/actions/pull-or-build-devcontainer
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
         with:
           image: ${{ env.IMAGE }}
           tag: ${{ needs.image.outputs.tag }}
@@ -368,7 +329,12 @@ jobs:
             -v "$PWD":/workspace -w /workspace \
             -v "$HOME/.conan2":/root/.conan2 -e CONAN_HOME=/root/.conan2 \
             -e SHARD="${SHARD}" -e TOTAL="${TOTAL}" \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; scripts/ci/tidy-run.sh shard "${SHARD}" "${TOTAL}"'
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail
+              # clang-tidy is an editor/lint tool, not part of the compiler image:
+              # install noble v18 (same version as the devcontainer) for this shard.
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends clang-tidy >/dev/null
+              scripts/ci/tidy-run.sh shard "${SHARD}" "${TOTAL}"'
 
   # ---------------------------------------------------------------------------
   # tidy — AGGREGATOR + floor-NOLINT guard. This is the wired REQUIRED STATUS
@@ -429,10 +395,8 @@ jobs:
       contents: read
       packages: read
     steps:
-      # Assembling the JetPack 7.2 sysroot (~3GB BSP download + extracted r39.2
-      # rootfs + ~69 noble debs) is disk-heavy on a stock hosted runner. Reclaim ~30GB
-      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
-      # runner is required (see header note).
+      # The compiler image is ~5.2 GB compressed / ~10.7 GB unpacked; a stock
+      # hosted runner has ~14 GB free. Reclaim ~30GB of preinstalled toolchains first.
       - name: Free up disk space (host)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -454,9 +418,9 @@ jobs:
           restore-keys: |
             conan-${{ runner.os }}-
 
-      # apply_binaries.sh (in 001) chroots into the arm64 rootfs to run dpkg —
-      # needs qemu-aarch64 in the host binfmt_misc, else "Exec format error" (126).
-      - name: Set up QEMU (arm64 binfmt for apply_binaries chroot)
+      # Register qemu-aarch64 in the host binfmt_misc so aarch64 binaries started
+      # inside the container run (ctest also wraps the test binaries in qemu).
+      - name: Set up QEMU (arm64 binfmt)
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -468,16 +432,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Make the prebuilt devcontainer image available locally (pull, or build
-      # locally on pull failure — R6), then run the cross-build + ctest inside it —
+      # Pull the published compiler image (tag from the `image` job), then run the cross-build + ctest inside it —
       # no per-run sysroot rebuild on the fast path. ctest runs the aarch64 GTest
       # binaries under qemu (host binfmt from setup-qemu-action); QEMU_LD_PREFIX
       # points the emulator at the L4T targetfs for shared libs. Hardware-bound
       # tests (real IMX477 / BlueZ / radio / live GStreamer) fail in the cross
       # container — see CLAUDE.md — so the known names are excluded by -E.
       # DURABLE FIX (firmware owner): tag them `LABELS hardware` + switch to -LE.
-      - name: Ensure devcontainer image
-        uses: ./.github/actions/pull-or-build-devcontainer
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
         with:
           image: ${{ env.IMAGE }}
           tag: ${{ needs.image.outputs.tag }}
@@ -535,7 +498,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # upload the release asset
-      packages: read # pull the prebuilt devcontainer image
+      packages: read # pull the compiler image
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
     steps:
@@ -560,12 +523,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Make the prebuilt devcontainer image available locally (pull, or build
-      # locally on pull failure — R6), then run the release cross-build inside it —
+      # Pull the published compiler image (tag from the `image` job), then run the release cross-build inside it —
       # no per-run sysroot rebuild on the fast path. The binary lands in the
       # bind-mounted build/ on the host for the staging step below.
-      - name: Ensure devcontainer image
-        uses: ./.github/actions/pull-or-build-devcontainer
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
         with:
           image: ${{ env.IMAGE }}
           tag: ${{ needs.image.outputs.tag }}

@@ -7,9 +7,9 @@ rules an agent most often trips on.
 
 ## Build & test (devcontainer only)
 
-The **only** supported build is cross-compilation from the repo Dev Container
-(custom Bootlin toolchain + the order-sensitive L4T sysroot prep under
-`.devcontainer/sysroot/`). Native on-device builds are unsupported. Reopen in
+The **only** supported build is cross-compilation from the repo Dev Container,
+which is the published compiler image (gcc-13 aarch64 cross toolchain + the
+order-sensitive L4T sysroot prep under `compiler-image/sysroot/`) plus editor tools. Native on-device builds are unsupported. Reopen in
 Container, then:
 
 ```bash
@@ -55,9 +55,9 @@ ladder**:
 
 Three **branch-scoped** product workflows. Each owns one branch tier; the PR gate
 checks are folded **inside** the alpha/beta workflows (`pull_request`-gated), so
-there is **no standalone `ci.yml`**. Each starts with an `image` job that builds
-the devcontainer **once per `.devcontainer/**` content** (content-hash tag in
-GHCR) and is pulled by `tidy-shard`/`test`/the cross-build — no per-run rebuild;
+there is **no standalone `ci.yml`**. Each starts with an `image` job that resolves
+the compiler image tag (`compiler-image/VERSION`, built only by
+`compiler-image.yml`), which `tidy-shard`/`test`/the cross-build pull — no per-run rebuild;
 a `changes` job skips `tidy-shard`/`test` on docs/workflow-only PRs. The `tidy`
 hard gate is **sharded**: a `tidy-shard` runner matrix lints round-robin slices
 of the TU list in parallel (full-tree coverage preserved), and a host-only
