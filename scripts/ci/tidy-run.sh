@@ -11,7 +11,7 @@
 # across a runner matrix: each shard builds once, then lints its slice. N shards
 # cut the lint wall-time by ~N while every TU is still linted on every PR.
 #
-# Usage (positional args, matching scripts/ci/resolve-version.sh):
+# Usage (positional args):
 #   tidy-run.sh full                 # lint every TU (today's exact list)
 #   tidy-run.sh shard <index> <n>    # lint the index-th of n round-robin slices
 #                                    #   index in [0, n), n >= 1

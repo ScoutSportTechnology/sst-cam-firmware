@@ -1,24 +1,17 @@
 # =============================================================================
-# release — on push to `main` (a `release/X.Y.Z -> main` merge), tag the stable
-# `vX.Y.Z` and publish the ALREADY-BUILT beta binary by COPYING it onto the
-# stable Release. There is deliberately NO cross-build step in this workflow:
-# `main` never builds (the R3/AE5 structural guarantee). Do not add a build step
-# here — the binary must come from the beta Release, verified by digest.
+# release — the workflow that OWNS `main`: promote, never build.
 #
-# FLOW:
-#   1. Derive X.Y.Z from the merged `release/X.Y.Z` branch name (merge subject,
-#      with a fallback to workflow_dispatch input). Fail fast if undeterminable.
-#   2. Select the source beta tag: highest `vX.Y.Z-beta.N`. Fail fast if none.
-#   3. resolve-version.sh stable X.Y.Z -> the bare `vX.Y.Z` stable tag.
-#   4. Download the beta asset; VERIFY its SHA-256 against the digest recorded by
-#      release-beta.yml in the beta Release notes. Mismatch => hard fail (a
-#      `--clobber` asset swap must not promote silently).
-#   5. Rename `sst_cam_firmware-<beta-tag>-aarch64` ->
-#      `sst_cam_firmware-vX.Y.Z-aarch64` (bytes preserved) and upload to the
-#      stable Release.
+# On push (the release/X.Y.Z -> main merge) the shared promote action finds the
+# highest vX.Y.Z-rc.N (the hardware-validated candidate), verifies the SHA-256
+# of its binary against the digest recorded in that Release, tags vX.Y.Z on the
+# same commit and attaches the same bytes renamed to sst_cam_firmware-vX.Y.Z-
+# aarch64. It refuses to promote a version that never reached rc.
 #
-# Default GITHUB_TOKEN only (contents:write); "Release Tags" ruleset permits the
-# compliant stable tag.
+# Two invariants: `main` runs no failable build, and no CI job pushes a commit
+# back to `main`. Never add a cmake/compiler-image step here.
+#
+# After promotion (manual follow-up): delete release/X.Y.Z and open a
+# `main -> development` PR.
 # =============================================================================
 name: release
 
@@ -28,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Base X.Y.Z to promote (overrides merge-subject parse)"
+        description: "X.Y.Z to promote (overrides detection from the merge commit)"
         required: false
         default: ""
 
@@ -42,139 +35,31 @@ permissions:
 
 jobs:
   promote:
-    name: tag stable + copy beta binary (no build)
+    name: tag stable + copy rc binary (no build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Derive base X.Y.Z
-        id: ver
-        env:
-          IN_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-
-          # Base X.Y.Z: workflow_dispatch input wins; else parse the merge-commit
-          # subject/body for `release/X.Y.Z` (GitHub's PR-merge subject names it),
-          # falling back to the highest beta tag merged into this SHA (covers the
-          # squash-merge case where the subject no longer carries the branch name).
-          base=""
-          if [ -n "${IN_VERSION:-}" ]; then
-            base="${IN_VERSION#v}"
-          else
-            base="$(git log -1 --format='%s%n%b' "$GITHUB_SHA" \
-              | grep -oE 'release/[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's#release/##' || true)"
-            if [ -z "$base" ]; then
-              cand="$(git tag --merged "$GITHUB_SHA" -l 'v*-beta.*' --sort=-v:refname \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' | head -1 || true)"
-              cand="${cand#v}"; base="${cand%-beta.*}"
-            fi
-          fi
-          echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || { echo "::error::cannot derive X.Y.Z under promotion (squash merge? pass workflow_dispatch version=vX.Y.Z)"; exit 1; }
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-
-      - name: Select source beta tag + stable tag
-        id: pick
-        env:
-          BASE: ${{ steps.ver.outputs.base }}
-        run: |
-          set -euo pipefail
-          base="$BASE"
-
-          # Select the highest beta tag for this base (the one that was hardware-tested).
-          beta="$(git tag -l "v${base}-beta.*" --sort=-v:refname | head -1 || true)"
-          if [ -z "$beta" ]; then
-            echo "::error::no vX.Y.Z-beta.* tag exists for base ${base} — nothing to promote (NEVER rebuild on main)." >&2
-            exit 1
-          fi
-
-          # Stable tag via the shared version math.
-          stable="$(./scripts/ci/resolve-version.sh stable "$base" | sed -n 's/^tag=//p')"
-
-          echo "base=${base}"     >> "$GITHUB_OUTPUT"
-          echo "beta=${beta}"     >> "$GITHUB_OUTPUT"
-          echo "stable=${stable}" >> "$GITHUB_OUTPUT"
-          echo "Promoting ${beta} -> ${stable}"
-
-      - name: Download the beta asset + verify recorded SHA-256
-        id: verify
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BETA: ${{ steps.pick.outputs.beta }}
-          STABLE: ${{ steps.pick.outputs.stable }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          src="sst_cam_firmware-${BETA}-aarch64"
-          gh release download "${BETA}" --pattern "${src}" --dir dist
-
-          # The expected digest is recorded in the beta Release notes as
-          # `sha256: <64-hex>` by release-beta.yml.
-          notes="$(gh release view "${BETA}" --json body --jq '.body')"
-          want="$(echo "$notes" | grep -oiE 'sha256:[[:space:]]*[0-9a-f]{64}([^0-9a-f]|$)' \
-            | head -1 | grep -oE '[0-9a-f]{64}' | head -1 || true)"
-          if [ -z "$want" ]; then
-            echo "::error::beta Release ${BETA} notes carry no recorded 'sha256: <hex>' digest — cannot verify the hand-off." >&2
-            exit 1
-          fi
-          got="$(sha256sum "dist/${src}" | cut -d' ' -f1)"
-          if [ "$want" != "$got" ]; then
-            echo "::error::SHA-256 mismatch promoting ${BETA}: recorded ${want}, downloaded ${got}. Asset may have been swapped — refusing to promote." >&2
-            exit 1
-          fi
-          echo "Verified ${src} sha256=${got}"
-
-          # Rename to the stable asset name, bytes preserved.
-          dst="sst_cam_firmware-${STABLE}-aarch64"
-          cp "dist/${src}" "${dst}"
-          echo "path=${dst}" >> "$GITHUB_OUTPUT"
-
-      - name: Tag stable + create the Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STABLE: ${{ steps.pick.outputs.stable }}
-        run: |
-          set -euo pipefail
-          TAG="${STABLE}"
-          # Idempotent: a re-run (e.g. after the upload step failed) must not error
-          # on an already-created stable Release.
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" \
-              --target "$GITHUB_SHA" \
-              --title "$TAG" \
-              --generate-notes
-
-          # Prepend the install command to the generated notes. The installer is
-          # pulled from the repo AT THIS TAG (single source of truth — not
-          # duplicated as a release asset). Idempotent: skip if already present.
-          cur="$(gh release view "$TAG" --json body -q '.body')"
-          case "$cur" in
-            *deploy/install.sh*) : ;;
-            *)
-              cmd="$(printf '## Install on a JetPack 7.2 Jetson\n\n```bash\ncurl -fsSL https://raw.githubusercontent.com/%s/%s/deploy/install.sh | sudo bash -s -- --version %s\n```\n' "$GITHUB_REPOSITORY" "$TAG" "$TAG")"
-              gh release edit "$TAG" --notes "$(printf '%s\n\n%s' "$cmd" "$cur")"
-              ;;
-          esac
-
-      - name: Upload the promoted binary to the stable Release
-        uses: softprops/action-gh-release@v2
+      - name: Promote the last rc to stable
+        id: promote
+        uses: ScoutSportTechnology/.github/actions/promote@v1.1.0
         with:
-          tag_name: ${{ steps.pick.outputs.stable }}
-          files: ${{ steps.verify.outputs.path }}
-          fail_on_unmatched_files: true
+          to: stable
+          version: ${{ inputs.version }}
+          notes: |
+            ## Install on a JetPack 7.2 Jetson
 
-      - name: Remind to delete the release branch + merge back to development
-        env:
-          BASE: ${{ steps.pick.outputs.base }}
-          STABLE: ${{ steps.pick.outputs.stable }}
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/ScoutSportTechnology/sst-cam-firmware/{tag}/deploy/install.sh | sudo bash -s -- --version {tag}
+            ```
+
+      - name: Post-promotion reminder (manual maintainer steps)
         run: |
           {
-            echo "### Promoted ${STABLE}"
+            echo "## Promoted ${{ steps.promote.outputs.tag }} (from ${{ steps.promote.outputs.source }})"
             echo ""
-            echo "Maintainer follow-up (not automated):"
-            echo "- Delete the \`release/${BASE}\` branch."
-            echo "- Merge \`main\` back into \`development\` so development never silently diverges below main."
+            echo "- Delete the merged \`release/${{ steps.promote.outputs.base }}\` branch."
+            echo "- Open a \`main -> development\` PR so the stable tag's history is in the integration branch."
           } >> "$GITHUB_STEP_SUMMARY"

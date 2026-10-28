@@ -172,8 +172,8 @@ jobs:
   # ===========================================================================
 
   # ---------------------------------------------------------------------------
-  # ci-scripts — gate the shared release version-math script: shellcheck +
-  # its own unit-test harness. Host-side only (no devcontainer). This is a
+  # ci-scripts — gate the CI/deploy scripts (shellcheck + self-tests) and the
+  # proto/ contract pin. Host-side only (no devcontainer). This is a
   # SEPARATE job; it must NOT be merged into format/tidy/test, whose names are
   # the wired required status checks.
   # ---------------------------------------------------------------------------
@@ -185,11 +185,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: shellcheck resolve-version + tidy-run + deploy scripts
-        run: shellcheck scripts/ci/resolve-version*.sh scripts/ci/tidy-run.sh scripts/ci/test-tidy-run.sh deploy/install.sh deploy/install-test.sh
+      - name: shellcheck tidy-run + proto-pin + deploy scripts
+        run: shellcheck scripts/ci/tidy-run.sh scripts/ci/test-tidy-run.sh scripts/ci/check-proto-pin.sh deploy/install.sh deploy/install-test.sh
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # Contract pin: proto/ must point at a commit merged into the sst-cam-proto
+      # branch with the same name as this PR's base (development or
+      # release/X.Y.Z). Version math lives in ScoutSportTechnology/.github.
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
 
       # Selection/sharding self-test for tidy-run.sh (R-SELECT): asserts the
       # shard split covers every TU exactly once and that an unwired TU fails.
@@ -489,12 +494,15 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # Shared resolver: Conventional-Commit bump from the last stable tag, the
+      # release floor while a release/X.Y.Z is open, pre-1.0 rule, mint gate.
       - name: Resolve next alpha tag (conventional-commit aware)
         id: ver
-        env:
-          IN_VERSION: ${{ inputs.version }}
-          IN_BUMP: ${{ inputs.bump }}
-        run: ./scripts/ci/resolve-version.sh alpha
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: alpha
+          version: ${{ inputs.version }}
+          bump: ${{ inputs.bump }}
 
   build-and-upload:
     name: cross-build alpha binary
@@ -575,16 +583,13 @@ jobs:
           cp build/release/bin/sst_cam_firmware "${asset}"
           echo "path=${asset}" >> "$GITHUB_OUTPUT"
 
-      # Atomic publish: create the prerelease AND attach the binary in ONE step.
-      # softprops creates the Release+tag if missing. Splitting create-then-upload
-      # let a cancel between the two leave a dangling asset-less immutable tag,
-      # bricking the alpha line for this base — so this is deliberately one step.
-      - name: Publish alpha prerelease (create + attach binary, atomic)
-        uses: softprops/action-gh-release@v2
+      # publish-release (ScoutSportTechnology/.github) creates the Release as a
+      # draft, uploads the binary, records `sha256: <hex>  <asset>` in the notes
+      # (the digest promote verifies) and only then publishes it, so a cancel
+      # can't leave an asset-less tag.
+      - name: Publish alpha prerelease (binary + SHA-256)
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
         with:
-          tag_name: ${{ env.TAG }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ env.TAG }}
-          prerelease: true
+          tag: ${{ env.TAG }}
           files: ${{ steps.asset.outputs.path }}
-          fail_on_unmatched_files: true
+          prerelease: "true"
