@@ -4,8 +4,15 @@
 # the base is plain ubuntu:24.04 (noble = the JetPack 7.2 userspace, glibc 2.39).
 # The aarch64 sysroot is the L4T r39.2 BSP sample rootfs (fetched by 001), and
 # the cross compiler is Ubuntu's gcc-13 aarch64 toolchain (matches noble glibc).
-# Digest-pin once the build is proven, to harden against a mutable-tag overwrite.
-FROM ubuntu:24.04
+#
+# Two stages: `l4t` assembles, extends and prunes the sysroot; the final stage
+# only COPYs the finished /l4t. Files that 002/003/004/005 modify or delete in
+# `l4t` therefore never reach the final image (no copy-on-write duplicates, no
+# deleted-but-still-layered BSP payload).
+# Digest-pinned so a mutable-tag overwrite upstream can't silently feed a
+# different base into the cross-build / CI image (supply-chain hardening, U7).
+# To bump: docker buildx imagetools inspect ubuntu:24.04, update both FROM lines.
+FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c AS l4t
 
 # ── Minimal tools for sysroot assembly ───────────────────────────────────────
 # Kept tiny and FIRST so the expensive 001 BSP fetch+assemble layer below is not
@@ -26,6 +33,14 @@ ENV L4T_LOCAL_CACHE=${L4T_LOCAL_CACHE}
 COPY .devcontainer/sysroot/001_fetch_bsp_rootfs.sh /tmp/001_fetch_bsp_rootfs.sh
 RUN bash /tmp/001_fetch_bsp_rootfs.sh /l4t && rm /tmp/001_fetch_bsp_rootfs.sh
 
+# ── 004: JetPack 7.2 AI stack (CUDA 13.2, cuDNN 9.20, TensorRT 10.16, VPI 4.1)
+#         apt inside the arm64 rootfs (qemu) from NVIDIA's r39.2 repo, pinned to
+#         the 7.2 GA set. Not used by the firmware yet; present so the inference
+#         pipelines can land without an image change. Runs on the pristine rootfs,
+#         before 003's dpkg-deb extractions and 002's symlink fixes.
+COPY .devcontainer/sysroot/004_install_ai_stack.sh /tmp/004_install_ai_stack.sh
+RUN bash /tmp/004_install_ai_stack.sh /l4t/targetfs && rm /tmp/004_install_ai_stack.sh
+
 # ── 003: Install Ubuntu noble arm64 -dev packages the sample rootfs lacks
 #         (sdbus-c++, gst-rtsp-server, protobuf-dev, opencv, cairo/pango).
 #         Runs BEFORE fix-sysroot so new .so files get the symlink-fix pass.
@@ -36,6 +51,14 @@ RUN bash /tmp/sysroot/003_install_extra_pkgs.sh /l4t/targetfs
 # ── 002: Fix sysroot pkg-config, symlinks, crt stubs ─────────────────────────
 COPY .devcontainer/sysroot/002_fix_sysroot.sh /tmp/sysroot/002_fix_sysroot.sh
 RUN bash /tmp/sysroot/002_fix_sysroot.sh /l4t/targetfs && rm -rf /tmp/sysroot
+
+# ── 005: Prune BSP flashing payload + rootfs data the build never reads ────────
+COPY .devcontainer/sysroot/005_prune_sysroot.sh /tmp/005_prune_sysroot.sh
+RUN bash /tmp/005_prune_sysroot.sh /l4t && rm /tmp/005_prune_sysroot.sh
+
+# ══ Final image ══════════════════════════════════════════════════════════════════
+FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+COPY --from=l4t /l4t /l4t
 
 # ── Build tools (host + cross toolchain) ─────────────────────────────────────
 # Placed AFTER sysroot assembly so churn here never re-triggers the 001 fetch.
@@ -57,6 +80,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         protobuf-compiler \
         gcc-13-aarch64-linux-gnu \
         g++-13-aarch64-linux-gnu \
+        ca-certificates \
+        curl \
+        wget \
+        qemu-user-static \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22.x via NodeSource — needed to run Claude Code. Pinned to setup_22.x.

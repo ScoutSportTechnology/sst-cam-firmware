@@ -12,7 +12,8 @@ The **only supported build method is cross-compilation from the Dev Container.**
 
 1. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
 2. Open this repo → **"Reopen in Container"** (or `Dev Containers: Reopen in Container`).
-   VSCode builds the image automatically (~3 GB L4T r39.2 BSP fetch + sysroot assembly, ~10-15 min first time).
+   VSCode builds the image automatically (~3 GB L4T r39.2 BSP fetch, ~7.6 GB JetPack 7.2 AI stack
+   download, sysroot assembly; ~35 min first time, peak ~40 GB free disk during the build).
    The image build assembles the sysroot via `apply_binaries`, which chroots into the
    arm64 rootfs — it needs **qemu-aarch64 binfmt** on the host. Docker Desktop registers
    this automatically; on a plain Linux Docker host, register it once with

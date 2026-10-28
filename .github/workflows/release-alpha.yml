@@ -39,8 +39,9 @@
 # -----------------------------------------------------------------------------
 # The devcontainer base is ubuntu:24.04 and the first build downloads NVIDIA's
 # L4T r39.2 BSP + sample rootfs (~3 GB) and assembles the JetPack 7.2 sysroot
-# via apply_binaries, then layers ~69 noble -dev .debs (~10-15 min cold, peak
-# disk ~15-20 GB). A standard GitHub-HOSTED runner (~14 GB free disk, 6h wall)
+# via apply_binaries, installs the JetPack 7.2 AI stack (CUDA/cuDNN/TensorRT/VPI,
+# ~7.6 GB download) and layers ~69 noble -dev .debs (~35 min cold on 6 cores;
+# peak disk measured at ~39 GB on a local Docker host, sysroot pruned to 8.7 GB). A standard GitHub-HOSTED runner (~14 GB free disk, 6h wall)
 # MAY NOT have the headroom; the `free-disk-space` step reclaims ~30 GB first.
 # If a job still fails on disk-full / timeout, the remedy is a SELF-HOSTED runner
 # that keeps the assembled sysroot + image warm between runs. Re-run with
