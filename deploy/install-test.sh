@@ -15,7 +15,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_SH="${SCRIPT_DIR}/install.sh"
-SYSROOT_URLS="${REPO_ROOT}/.devcontainer/sysroot/noble-deb-urls.txt"
+SYSROOT_URLS="${REPO_ROOT}/compiler-image/sysroot/noble-deb-urls.txt"
 
 pass=0
 fail=0

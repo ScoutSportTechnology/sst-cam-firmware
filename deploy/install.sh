@@ -88,7 +88,7 @@ IDENTITY_CHANGED="no"
 
 # Runtime shared-library packages the firmware dynamically links that the JetPack
 # 7.2 base flash does NOT already ship. SOURCE OF TRUTH for this list:
-# .devcontainer/sysroot/003_install_extra_pkgs.sh — the packages it ADDS to the
+# compiler-image/sysroot/003_install_extra_pkgs.sh — the packages it ADDS to the
 # build sysroot whose *runtime* is not in the L4T r39.2 sample rootfs. protobuf
 # and the opencv core/imgproc/imgcodecs runtime ARE in the rootfs (that script
 # says so) → not listed here; sdbus-c++ (BLE control plane), gst-rtsp-server (app
