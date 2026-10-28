@@ -391,12 +391,20 @@ jobs:
   test:
     name: test
     needs: [changes, image]
-    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
+    # always(): if `image` fails, a plain `needs:` would SKIP this required check,
+    # and a skipped check counts as success. Run anyway and fail on the first step.
+    if: ${{ always() && github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
     steps:
+      - name: Require the compiler image
+        if: ${{ needs.image.result != 'success' }}
+        run: |
+          echo "::error::the image job did not succeed (${{ needs.image.result }}): the compiler image tag is not usable."
+          exit 1
+
       # The compiler image is ~5.2 GB compressed / ~10.7 GB unpacked; a stock
       # hosted runner has ~14 GB free. Reclaim ~30GB of preinstalled toolchains first.
       - name: Free up disk space (host)
