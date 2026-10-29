@@ -130,7 +130,7 @@ auto BuildEthRouteReplaceArgv(const std::string& gateway,
     if (iface.empty() || !IsIpv4Literal(gateway)) {
         return {};
     }
-    return {"ip", "route", "replace", "default", "via", gateway, "dev", iface};
+    return {"ip", "route", "replace", "default", "via", gateway, "dev", iface, "metric", "100"};
 }
 
 auto ParseDhcpOfferCidr(const std::string& leases) -> std::optional<std::string> {

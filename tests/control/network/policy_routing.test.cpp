@@ -23,6 +23,7 @@ using sst::adapters::control::BuildFirewallDeleteTableArgv;
 using sst::adapters::control::BuildFirewallDropInboundArgv;
 using sst::adapters::control::BuildFirewallFlushTableArgv;
 using sst::adapters::control::BuildFirewallRulesetScript;
+using sst::adapters::control::BuildStaSubnetRouteArgv;
 using sst::adapters::control::BuildStatelessFirewallRulesetScript;
 using sst::adapters::control::BuildUplinkDefaultRouteArgv;
 using sst::adapters::control::BuildUplinkRouteFlushArgv;
@@ -170,6 +171,12 @@ TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDropsInboundSynWithoutCon
     // And it must NOT blanket-drop inbound: a bare `drop` would also kill the SYN+ACK
     // replies to the camera's own outbound connections (no conntrack to exempt them).
     EXPECT_EQ(script.find("iifname \"eth0\" drop"), std::string::npos) << script;
+}
+
+TEST(PolicyRoutingCommandTest, StaSubnetRouteMustLoseToEthernet) {
+    EXPECT_EQ(BuildStaSubnetRouteArgv("10.10.1.0/24", "wlP1p1s0"),
+              (Argv{"ip", "route", "replace", "10.10.1.0/24", "dev", "wlP1p1s0", "metric", "600"}));
+    EXPECT_TRUE(BuildStaSubnetRouteArgv("10.10.1.0/24\naccept", "wlP1p1s0").empty());
 }
 
 TEST(PolicyRoutingCommandTest, FirewallAlwaysAllowsLanEthernetSshWithoutConntrack) {

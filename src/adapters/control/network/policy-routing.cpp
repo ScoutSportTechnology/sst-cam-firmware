@@ -221,6 +221,14 @@ auto BuildUplinkRouteFlushArgv() -> std::vector<std::string> {
     return {"ip", "route", "flush", "table", kUplinkRouteTable};
 }
 
+auto BuildStaSubnetRouteArgv(const std::string& subnet_cidr,
+                             const std::string& iface) -> std::vector<std::string> {
+    if (!IsIpv4Cidr(subnet_cidr) || !IsSafeIfaceName(iface)) {
+        return {};
+    }
+    return {"ip", "route", "replace", subnet_cidr, "dev", iface, "metric", "600"};
+}
+
 auto BuildFirewallAddTableArgv() -> std::vector<std::string> {
     return {"nft", "add", "table", "inet", kUplinkNftTable};
 }

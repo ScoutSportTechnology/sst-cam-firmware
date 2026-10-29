@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "adapters/control/network/policy-routing.hpp"
 #include "adapters/control/network/subprocess.hpp"
 
 namespace sst::adapters::control {
@@ -260,6 +261,20 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
         WpaCli(iface, {"disconnect"});
         WpaCli(iface, {"remove_network", net_id});
         return {.ok = false, .detail = "joined wifi but got no DHCP address"};
+    }
+    const auto route = CaptureBounded(
+        {"ip", "-4", "-o", "route", "show", "dev", iface, "scope", "link"}, kQueryTimeout);
+    if (!route.ok) {
+        TeardownWifiSta();
+        return {.ok = false, .detail = "could not inspect wifi subnet route"};
+    }
+    std::istringstream routes(route.output);
+    std::string subnet;
+    routes >> subnet;
+    if (const auto argv = BuildStaSubnetRouteArgv(subnet, iface);
+        argv.empty() || !RunBounded(argv, kApplyTimeout)) {
+        TeardownWifiSta();
+        return {.ok = false, .detail = "could not prioritize wifi subnet route"};
     }
     spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", ssid, iface, address);
     return {.ok = true, .detail = address};

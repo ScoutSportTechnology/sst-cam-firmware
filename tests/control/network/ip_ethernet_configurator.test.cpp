@@ -110,12 +110,13 @@ TEST(IpEthernetCommandTest, AddrDelArgvRemovesExactlyOneAddressAndGuardsInput) {
 
 TEST(IpEthernetCommandTest, RouteReplaceArgvGuardsInput) {
     const auto argv = BuildEthRouteReplaceArgv("10.10.1.1", "eth0");
-    ASSERT_EQ(argv.size(), 8U);
+    ASSERT_EQ(argv.size(), 10U);
     EXPECT_EQ(argv[3], "default");
     EXPECT_EQ(argv[5], "10.10.1.1");
     EXPECT_EQ(argv[7], "eth0");
     EXPECT_TRUE(BuildEthRouteReplaceArgv("not-an-ip", "eth0").empty());
     EXPECT_TRUE(BuildEthRouteReplaceArgv("10.10.1.1", "").empty());
+    EXPECT_EQ(BuildEthRouteReplaceArgv("10.10.1.1", "eth0").back(), "100");
 }
 
 // ---- netmask → prefix + DHCP-offer parsing (ProbeDhcpOffer mechanic) ----

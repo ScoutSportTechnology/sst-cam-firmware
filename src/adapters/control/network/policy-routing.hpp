@@ -52,6 +52,8 @@ auto BuildUplinkDefaultRouteArgv(const std::string& gateway,
                                  const std::string& iface) -> std::vector<std::string>;
 // `ip route flush table 210` — drops all uplink routes (idempotent teardown).
 auto BuildUplinkRouteFlushArgv() -> std::vector<std::string>;
+auto BuildStaSubnetRouteArgv(const std::string& subnet_cidr,
+                             const std::string& iface) -> std::vector<std::string>;
 
 // Egress-only firewall (nft). The chain hooks `input` with a default ACCEPT
 // policy and matches ONLY the uplink iface, so non-uplink (LAN) traffic is never
