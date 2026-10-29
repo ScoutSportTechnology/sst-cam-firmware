@@ -97,6 +97,18 @@ Task 5 verification (2026-10-29): devcontainer aarch64 test and debug cross-buil
 - [x] Change production export output path, remove any post-download L2 deletion, run focused tests and commit `feat(export): retain L2 beside L1 as a downloadable recording`.
 - [ ] Run `devcontainer exec --workspace-folder . bash -lc 'cmake --preset test && cmake --build --preset test && ctest --preset test'` as feasible; run `/root/setup/act/run-light.sh` and `/root/setup/act/run-heavy.sh` from the firmware repo, inspect `/var/log/act-*.log`, and fix all `format`, `tidy`, `test`, `ci-scripts` failures except the known unmerged-proto pin check. Review `git diff`, push branch, open draft PR to `development` with the specified breaking title and contract questions. Do not merge.
 
+## Reviewer fixes (2026-10-29)
+
+- [x] Deployment unit grants `CAP_SYS_TIME` ambiently and in its bounding set; `deploy/install-test.sh` exercises both emitted install unit and checkout unit (40/40).
+- [x] No-frame watchdog stops after two consecutive restarts without a new frame, reports DOWN and notifies once; fresh frames reset the attempt counter.
+- [x] Proxy appsrc copies all frame planes in order, including NV12 UV, rather than only the Y plane.
+- [x] RTMP accepts an inline-key full URL with no separate stream key and keeps separate-key callers working.
+- [x] Re-requesting a READY export issues a fresh token without burning again; L2 `_overlay` input is rejected.
+- [x] A stream start that loses the session during proxy start rolls back the stream and proxy owner.
+- [x] Failed recording EOS keeps the active-session marker for reboot-orphan detection, including explicit stop.
+
+Review verification: aarch64 devcontainer debug and test builds succeeded; 83/83 focused tests and 454/454 CI-excluded ctest passed. Changed C++ files passed clang-format-18 dry-run and clang-tidy-18 (14 translation units, zero diagnostics); install-test 40/40 and shellcheck passed. No act, proto/app edits, push or PR were performed. Hardware/Argus behavior remains unverified on a Jetson; proto pin still awaits merged proto PR #18.
+
 ## Task 2 rulings and PR questions
 
 - Ruling: Same-match config re-push while recording updates only the disconnect timeout and retains capture paths, overlay and live match state; a different-match push remains rejected. The old ordering gate rejected every mid-recording push, conflicting with the v4 auto-stop reconfiguration contract.
