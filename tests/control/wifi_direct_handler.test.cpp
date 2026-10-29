@@ -90,7 +90,7 @@ class FakeNetworkConfigurator final : public sst::control::INetworkConfigurator 
 
 class FakeCleanup final : public sst::session::ISessionCleanup {
    public:
-    auto FinalizeRecording() -> void override {}
+    auto FinalizeRecording() -> bool override { return true; }
     auto StopStreaming() -> void override {}
     auto TeardownWifiDirect() -> void override {}
     auto ResetSelections() -> void override {}
@@ -182,6 +182,73 @@ TEST(WifiDirectHandlerTest, StartReportsGeneratedCredentials) {
 }
 
 // Group-owner formation failure -> ERROR, no DHCP.
+TEST(WifiDirectHandlerTest, UnhealthyCamerasAllowWifiButDelayPreviewUntilHealthy) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_RECOVERING;
+    WifiDirectHandler handler(
+        manager, wifi, netcfg, dhcp, streaming, sst::control::PreviewPort{kPreviewPort},
+        sst::control::DownloadPort{kDownloadPort}, [&](std::uint32_t) { return health; });
+    EXPECT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    EXPECT_EQ(streaming.app_starts, 0);
+    EXPECT_EQ(wifi.starts, 1);
+    health = sst_cam::CAMERA_HEALTH_OK;
+    EXPECT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    EXPECT_EQ(wifi.starts, 1);
+    EXPECT_EQ(streaming.app_starts, 1);
+    EXPECT_EQ(streaming.last_config.address, "192.168.49.1");
+    EXPECT_EQ(streaming.last_config.port, kPreviewPort);
+}
+
+TEST(WifiDirectHandlerTest, RejoinReusesGroupWithoutReforming) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    WifiDirectHandler handler(manager, wifi, netcfg, dhcp, streaming,
+                              sst::control::PreviewPort{kPreviewPort},
+                              sst::control::DownloadPort{kDownloadPort});
+    ASSERT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    manager.OnDisconnect();
+    ASSERT_TRUE(manager.OnConnect());
+    const auto response = handler.Handle(StartCmd());
+    EXPECT_EQ(response.status(), sst_cam::OK);
+    EXPECT_EQ(response.wifi_direct_group().ssid(), "DIRECT-xy");
+    EXPECT_EQ(wifi.starts, 1);
+    EXPECT_EQ(dhcp.starts, 1);
+    EXPECT_EQ(streaming.app_starts, 1);
+}
+
+TEST(WifiDirectHandlerTest, StopCannotDropActiveRecordingGroup) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    WifiDirectHandler handler(manager, wifi, netcfg, dhcp, streaming,
+                              sst::control::PreviewPort{kPreviewPort},
+                              sst::control::DownloadPort{kDownloadPort});
+    ASSERT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    sst::session::SessionConfig cfg;
+    cfg.match_uuid = "match";
+    ASSERT_TRUE(manager.ApplySessionConfig(cfg));
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    EXPECT_EQ(handler.Handle(StopCmd()).status(), sst_cam::ERROR);
+    EXPECT_EQ(wifi.stops, 0);
+    EXPECT_EQ(manager.Phase(), sst::session::SessionPhase::kRecording);
+}
+
 TEST(WifiDirectHandlerTest, GroupFailureErrors) {
     FakeCleanup cleanup;
     sst::session::SessionManager manager(cleanup);

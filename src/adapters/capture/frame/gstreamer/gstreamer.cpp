@@ -414,8 +414,7 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
         std::shared_ptr<GstSample>(last, [](GstSample* gstSample) { gst_sample_unref(gstSample); });
     auto fresh = CreateFrameFromSample(sample.get());
     if (!fresh) {
-        std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
-        return last_frame_;
+        return std::nullopt;
     }
 
     {

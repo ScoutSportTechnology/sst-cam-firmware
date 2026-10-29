@@ -31,10 +31,9 @@ class DownloadServer {
     auto MintToken(const std::string& recording_id,
                    std::uint64_t ttl_seconds) -> std::optional<DownloadToken>;
 
-    // Mint a token for an explicit file path (the burned overlay L2, #6 F6c),
-    // which lives outside the recordings catalog so it never appears in
-    // Enumerate(). `id` labels the token (echoed back as the download id).
-    // nullopt if the file does not exist.
+    // Mint a token for an explicit export file path (burned overlay L2).
+    // Internal proxy files are refused even if the path is known.
+    // `file_id` labels the token; nullopt if the file does not exist.
     auto MintTokenForFile(const std::filesystem::path& file, const std::string& file_id,
                           std::uint64_t ttl_seconds) -> std::optional<DownloadToken>;
 
@@ -43,8 +42,7 @@ class DownloadServer {
     auto ValidateToken(const std::string& token) -> std::optional<std::filesystem::path>;
 
     // True if any currently-live (unexpired) download token points at `file`.
-    // Consulted by proxy retention (U7) so a sweep never deletes a proxy file a
-    // client is mid-download on.
+    // Existing proxy retention still consults this for historical tokens.
     [[nodiscard]] auto IsTokened(const std::filesystem::path& file) const -> bool;
 
     // Resolve a recording id to its `<id>.jpg` thumbnail under the thumbnail
@@ -54,9 +52,9 @@ class DownloadServer {
     [[nodiscard]] auto ResolveThumbnailPath(const std::string& recording_id) const
         -> std::optional<std::filesystem::path>;
 
-    // Resolve a recording id to its `<id>.mp4` (or raw `.nv12`) under the video
-    // root. Public so the overlay-export job (#6 F6c) can locate the clean L1 to
-    // burn. nullopt if no such file exists.
+    // Resolve a recording id to its `<id>.mp4` under the video root, excluding
+    // internal proxies. Public so overlay export can locate the clean L1.
+    // nullopt if no public recording exists.
     [[nodiscard]] auto ResolveRecordingPath(const std::string& recording_id) const
         -> std::optional<std::filesystem::path>;
 

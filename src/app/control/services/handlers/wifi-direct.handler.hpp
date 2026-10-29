@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,6 +14,7 @@
 #include "app/streaming/ports/streaming-service.hpp"
 #include "bluetooth.pb.h"
 #include "domain/control/models/service-ports.hpp"
+#include "domain/network/models/wifi-direct-group.hpp"
 
 namespace sst::control {
 
@@ -19,14 +22,14 @@ namespace sst::control {
 // group owner, brings up DHCP on the group interface, advances the session to
 // WifiReady, starts the RTSP preview stream bound to the group-owner IP, and
 // reports the camera-generated credentials in a WifiDirectGroupResponse (KTD4).
-// Stop tears the group + DHCP down (preview teardown runs via SessionCleanup on
-// disconnect).
+// Stop tears the group + DHCP down.
 class WifiDirectHandler final : public ICommandHandler {
    public:
     WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
                       INetworkConfigurator& netcfg, IDhcpServer& dhcp,
                       sst::streaming::IStreamingService& streaming, PreviewPort preview_port,
-                      DownloadPort download_port);
+                      DownloadPort download_port,
+                      std::function<sst_cam::CameraHealth(std::uint32_t)> health = {});
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -42,9 +45,11 @@ class WifiDirectHandler final : public ICommandHandler {
     sst::streaming::IStreamingService& streaming_;
     std::uint32_t preview_port_;
     std::uint32_t download_port_;
+    std::function<sst_cam::CameraHealth(std::uint32_t)> health_;
     // Group interface of the active session, retained so HandleStop can flush its
     // address before the group is removed.
     std::string group_interface_;
+    std::optional<sst::network::WifiDirectGroup> active_group_;
 };
 
 }  // namespace sst::control

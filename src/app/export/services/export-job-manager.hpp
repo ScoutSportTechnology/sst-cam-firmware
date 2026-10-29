@@ -47,16 +47,15 @@ class ExportJobManager {
     // through unchanged, i.e. a clean L2).
     using TimelineLoader =
         std::function<sst::overlay::OverlayTimeline(const std::filesystem::path& l1_path)>;
-    // (L2 file, job id) -> a download token, or nullopt on failure.
+    // (L2 file, recording id) -> a download token, or nullopt on failure.
     using TokenMinter = std::function<std::optional<sst::network::DownloadToken>(
-        const std::filesystem::path& l2_path, const std::string& job_id)>;
+        const std::filesystem::path& l2_path, const std::string& recording_id)>;
     // True while a match is live. Re-checked just before the burn starts so a
     // recording that begins after the request still aborts the encode.
     using LiveGate = std::function<bool()>;
 
     ExportJobManager(sst::overlay::IOverlayBurner& burner, PathResolver resolve,
-                     TimelineLoader load_timeline, TokenMinter mint,
-                     std::filesystem::path export_dir);
+                     TimelineLoader load_timeline, TokenMinter mint);
     ~ExportJobManager();
 
     ExportJobManager(const ExportJobManager&) = delete;
@@ -65,8 +64,8 @@ class ExportJobManager {
     auto operator=(ExportJobManager&&) -> ExportJobManager& = delete;
 
     // Queue a burn for `recording_id`; returns a job id immediately (the burn
-    // runs on a worker thread). If an unfinished/ready burn for the same
-    // recording already exists it is reused instead of spawning a duplicate.
+    // runs on a worker thread). An unfinished burn is reused; a ready export
+    // gets a fresh job/token without re-burning the existing file.
     // `is_live`, when set, is re-checked on the worker just before encoding so a
     // match that goes live after the request aborts the burn.
     auto RequestExport(const std::string& recording_id, LiveGate is_live = nullptr) -> std::string;
@@ -89,8 +88,7 @@ class ExportJobManager {
 
     void Run(Job& job);
 
-    // Cap retained jobs: drop the oldest finished ones (and their L2 files) so a
-    // long-lived camera doesn't accumulate jobs/threads/exports without bound.
+    // Cap retained jobs: drop the oldest finished job state without deleting recordings.
     // Caller must hold jobs_mtx_.
     void EvictFinishedLocked();
 
@@ -100,7 +98,6 @@ class ExportJobManager {
     PathResolver resolve_;
     TimelineLoader load_timeline_;
     TokenMinter mint_;
-    std::filesystem::path export_dir_;
 
     mutable std::mutex jobs_mtx_;
     std::atomic<std::uint64_t> next_id_{0};

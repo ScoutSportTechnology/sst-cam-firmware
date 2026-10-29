@@ -1,11 +1,13 @@
 // RTMP streamer GStreamer launch-string builder (U8). Pure — asserts the
 // pipeline shape/params without instantiating any GStreamer element.
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <string>
 
 #include "adapters/streaming/gst_rtmp/rtmp-launch.hpp"
+#include "domain/streaming/models/formatter/platform-stream-config-fmt.hpp"
 #include "domain/streaming/models/platform-stream-config.hpp"
 
 namespace {
@@ -82,6 +84,24 @@ TEST(RtmpLaunchTest, VicOffloadUsesNvvidconv) {
     EXPECT_TRUE(Contains(vic, "x264enc"));
     EXPECT_TRUE(Contains(vic, "flvmux"));    // mux chain intact
     EXPECT_TRUE(Contains(vic, "voaacenc"));  // silent audio track intact
+}
+
+TEST(RtmpLaunchTest, ConfigFormatterNeverPrintsDestinationOrKey) {
+    auto cfg = MakeConfig();
+    cfg.url = "rtmp://ingest.example/live/inline-secret";
+    cfg.stream_key = "separate-secret";
+    const auto formatted = fmt::format("{}", cfg);
+    EXPECT_EQ(formatted.find("inline-secret"), std::string::npos);
+    EXPECT_EQ(formatted.find("separate-secret"), std::string::npos);
+    EXPECT_EQ(formatted.find("rtmp://"), std::string::npos);
+}
+
+TEST(RtmpLaunchTest, CompleteUrlWithoutSeparateKeyIsUnchanged) {
+    PlatformStreamConfig cfg;
+    cfg.url = "rtmp://ingest.example/live/inline-key";
+    EXPECT_EQ(BuildRtmpLocation(cfg), cfg.url);
+    EXPECT_TRUE(
+        Contains(BuildRtmpLaunch(cfg), "location=\"rtmp://ingest.example/live/inline-key\""));
 }
 
 TEST(RtmpLaunchTest, LocationAppendsKeyAsFinalSegment) {

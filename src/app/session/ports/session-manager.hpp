@@ -9,11 +9,6 @@
 
 namespace sst::session {
 
-// Drives the ordered session lifecycle (F1–F3) and owns the in-memory session
-// state. Transitions advance only in order and reject out-of-order requests;
-// the only backward edge is OnDisconnect → Idle, which also fans out cleanup
-// and clears all session memory. Implementations are thread-safe: the BLE
-// thread and event handlers call in concurrently.
 class ISessionManager {
    public:
     virtual ~ISessionManager() = default;
@@ -29,16 +24,18 @@ class ISessionManager {
     virtual auto ApplySessionConfig(const SessionConfig& config) -> bool = 0;
     virtual auto OnOverlayConfigured() -> bool = 0;
     virtual auto OnRecordingStart() -> bool = 0;
-    virtual auto OnRecordingStop() -> bool = 0;
+    virtual auto OnRecordingStop(bool file_valid) -> bool = 0;
 
-    // Session end: fan out cleanup (finalize recording, close RTMP, tear down
-    // WiFi Direct) and clear all session memory back to Idle.
     virtual auto OnDisconnect() -> void = 0;
+    virtual auto Tick() -> void = 0;
+    virtual auto EndSession(SessionEndReason reason) -> bool = 0;
+    virtual auto OnStreamingChanged(bool active) -> bool = 0;
 
     // Apply a display-only live-match mutation (score/clock/period) while a
     // session is active (phase >= Configured). Returns false (no-op) if there
     // is no active session.
     virtual auto ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool = 0;
+    virtual auto ReconcileMatch(const std::function<void(LiveMatch&)>& mutate) -> bool = 0;
 };
 
 }  // namespace sst::session

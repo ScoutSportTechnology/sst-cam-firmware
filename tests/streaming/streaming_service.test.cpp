@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -107,10 +109,12 @@ class FakePlatformStreamer final : public IPlatformStreamer {
 // which is critical because the service drops the streamer on Stop.
 struct PlatformStreamerSink {
     std::vector<std::unique_ptr<PlatformStreamerCounters>> counters;
+    bool accept_start{true};
 
     auto MakeFactory() -> StreamingService::PlatformStreamerFactory {
         return [this] {
             auto* slot = counters.emplace_back(std::make_unique<PlatformStreamerCounters>()).get();
+            slot->accept_start = accept_start;
             return std::unique_ptr<IPlatformStreamer>(std::make_unique<FakePlatformStreamer>(slot));
         };
     }
@@ -196,6 +200,27 @@ TEST_F(StreamingServiceTest, StartPlatformStreamMintsStreamerAndTracksId) {
     ASSERT_EQ(active.size(), 1);
     EXPECT_EQ(active[0].stream_id, 42);
     EXPECT_EQ(active[0].name, "youtube-main");
+}
+
+TEST_F(StreamingServiceTest, StartPlatformStreamLogsNoDestinationCredentials) {
+    std::ostringstream output;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+    auto logger = std::make_shared<spdlog::logger>("streaming-test", sink);
+    auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(logger);
+
+    auto cfg = MakePlatformConfig(1);
+    cfg.url = "rtmp://ingest.example/live/inline-secret";
+    cfg.stream_key = "separate-secret";
+    EXPECT_TRUE(service_->StartPlatformStream(cfg));
+    sink_.accept_start = false;
+    cfg.stream_id = 2;
+    EXPECT_FALSE(service_->StartPlatformStream(cfg));
+
+    spdlog::set_default_logger(previous);
+    EXPECT_EQ(output.str().find("inline-secret"), std::string::npos);
+    EXPECT_EQ(output.str().find("separate-secret"), std::string::npos);
+    EXPECT_EQ(output.str().find("rtmp://"), std::string::npos);
 }
 
 TEST_F(StreamingServiceTest, StartPlatformStreamRejectsInvalidId) {

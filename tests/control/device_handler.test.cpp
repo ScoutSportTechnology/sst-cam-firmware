@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "app/control/ports/system-stats.hpp"
 #include "app/control/ports/wifi-manager.hpp"
@@ -38,6 +39,7 @@ constexpr std::uint64_t kStorageTotalBytes = 4000;
 constexpr std::uint64_t kUptimeSeconds = 12345;
 constexpr float kCpuUsedPct = 25.0F;
 constexpr int kPeerRssiDbm = -57;
+constexpr std::uint64_t kEpoch2020Ms = 1577836800000ULL;
 
 class FakeStats final : public sst::control::ISystemStats {
    public:
@@ -98,9 +100,7 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
     const std::string stamped = SST_FIRMWARE_VERSION;
     const std::string expected_fw = (stamped.empty() || stamped == "unknown") ? "1.0.0" : stamped;
     EXPECT_EQ(resp.device_info().firmware_version(), expected_fw);
-    // The reboot command surface (U7) bumped kProtocolVersion to 3; the app gates
-    // Reboot on an exact version match, so guard against a downward regression.
-    EXPECT_GE(resp.device_info().protocol_version(), 3U);
+    EXPECT_EQ(resp.device_info().protocol_version(), 4U);
 }
 
 // U8/R16: GetDeviceInfo advertises the concrete record/stream modes the encode
@@ -124,19 +124,15 @@ TEST(DeviceHandlerTest, DeviceInfoAdvertisesSupportedModes) {
     }
 }
 
-// is_recording / is_streaming / is_raw_capturing reflect the injected providers,
-// each independently (is_raw_capturing is wire field 14, set independently of
-// is_recording — the app reads it to show raw-capture running state).
 // A flat sequence of EXPECT_* assertions; the cognitive-complexity score is
 // inflated by gtest macro expansion, and splitting the spec-style assertion list
 // into helpers would hurt readability — hence the suppression on the next line.
 TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
-     TelemetryReflectsRecordingStreamingAndRawCapturingFlags) {
+     TelemetryReflectsRecordingAndStreamingFlags) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats,
-                          {.is_recording = [] { return true; },
-                           .is_raw_capturing = [] { return true; },
-                           .internet_reachable = [] { return true; }});
+    DeviceHandler handler(
+        MakeDevice(), stats,
+        {.is_recording = [] { return true; }, .internet_reachable = [] { return true; }});
 
     auto resp = handler.Handle(TelemetryCommand());
 
@@ -146,9 +142,6 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
     EXPECT_EQ(resp.telemetry().uptime_seconds(), kUptimeSeconds);
     EXPECT_TRUE(resp.telemetry().is_recording());
     EXPECT_FALSE(resp.telemetry().is_streaming());
-    // Set independently of is_recording (which is true here): proves field 14 is
-    // wired, not mirroring is_recording.
-    EXPECT_TRUE(resp.telemetry().is_raw_capturing());
     // internet_reachable reflects the injected uplink probe (true here), not a
     // hardcoded false.
     EXPECT_TRUE(resp.telemetry().internet_reachable());
@@ -157,6 +150,23 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
 // The internet_reachable flag tracks the injected uplink probe in both
 // directions: a false-returning probe must report false (it replaced a
 // hardcoded false, so guard the live false path too, not just the true case).
+TEST(DeviceHandlerTest, TelemetryReportsOptionalLiveCameraHealth) {
+    FakeStats stats;
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    DeviceHandler handler(MakeDevice(), stats, {.camera_health = [&](std::uint32_t index) {
+                              return index == 0 ? std::optional(health) : std::nullopt;
+                          }});
+    auto telemetry = handler.Handle(TelemetryCommand()).telemetry();
+    EXPECT_TRUE(telemetry.has_camera0_health());
+    EXPECT_EQ(telemetry.camera0_health(), sst_cam::CAMERA_HEALTH_UNKNOWN);
+    EXPECT_FALSE(telemetry.has_camera1_health());
+    DeviceHandler no_provider(MakeDevice(), stats, {});
+    EXPECT_FALSE(no_provider.Handle(TelemetryCommand()).telemetry().has_camera0_health());
+    health = sst_cam::CAMERA_HEALTH_RECOVERING;
+    telemetry = handler.Handle(TelemetryCommand()).telemetry();
+    EXPECT_EQ(telemetry.camera0_health(), sst_cam::CAMERA_HEALTH_RECOVERING);
+}
+
 TEST(DeviceHandlerTest, TelemetryInternetReachableReflectsFalseProbe) {
     FakeStats stats;
     DeviceHandler handler(MakeDevice(), stats, {.internet_reachable = [] { return false; }});
@@ -181,6 +191,48 @@ TEST(DeviceHandlerTest, TelemetryWifiSignalDbmReflectsProbe) {
 
 // R7: the handler never reads stats / produces telemetry unless a command is
 // dispatched — no background polling, no unsolicited push.
+TEST(DeviceHandlerTest, SetDeviceTimeRejectsMissingAndPre2020WithoutCallingSetter) {
+    FakeStats stats;
+    std::vector<std::uint64_t> applied;
+    DeviceHandler handler(MakeDevice(), stats, {}, [&applied](std::uint64_t epoch_ms) {
+        applied.push_back(epoch_ms);
+        return true;
+    });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time();
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::ERROR);
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms - 1);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::ERROR);
+    EXPECT_TRUE(applied.empty());
+}
+
+TEST(DeviceHandlerTest, SetDeviceTimeReportsOsFailureAndAccepts2020Boundary) {
+    FakeStats stats;
+    std::vector<std::uint64_t> applied;
+    DeviceHandler handler(MakeDevice(), stats, {}, [&applied](std::uint64_t epoch_ms) {
+        applied.push_back(epoch_ms);
+        return false;
+    });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms);
+    const auto response = handler.Handle(cmd);
+    EXPECT_EQ(response.status(), sst_cam::ERROR);
+    EXPECT_FALSE(response.error_message().empty());
+    ASSERT_EQ(applied.size(), 1U);
+    EXPECT_EQ(applied.front(), kEpoch2020Ms);
+    EXPECT_EQ(response.payload_case(), sst_cam::CommandResponse::PAYLOAD_NOT_SET);
+}
+
+TEST(DeviceHandlerTest, SetDeviceTimeReturnsStatusOnlyOnSuccess) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats, {}, [](std::uint64_t) { return true; });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms + 1);
+    const auto response = handler.Handle(cmd);
+    EXPECT_EQ(response.status(), sst_cam::OK);
+    EXPECT_EQ(response.payload_case(), sst_cam::CommandResponse::PAYLOAD_NOT_SET);
+}
+
 TEST(DeviceHandlerTest, NoTelemetryWithoutACommand) {
     FakeStats stats;
     DeviceHandler handler(MakeDevice(), stats, {});

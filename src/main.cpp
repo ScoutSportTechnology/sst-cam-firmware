@@ -4,8 +4,10 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <ctime>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -52,7 +54,6 @@
 #include "app/control/services/handlers/network.handler.hpp"
 #include "app/control/services/handlers/overlay.handler.hpp"
 #include "app/control/services/handlers/preview-layout.handler.hpp"
-#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/control/services/handlers/reboot.handler.hpp"
 #include "app/control/services/handlers/recording.handler.hpp"
 #include "app/control/services/handlers/session.handler.hpp"
@@ -94,6 +95,8 @@ constexpr std::uint32_t kOverlayHeight = 1080;
 constexpr std::uint32_t kPreviewPort = 8554;   // RTSP preview (wifi.proto)
 constexpr std::uint32_t kDownloadPort = 8080;  // HTTP downloads
 constexpr std::uint64_t kDownloadTokenTtlSeconds = 3600;
+constexpr std::uint64_t kMillisecondsPerSecond = 1000;
+constexpr std::uint64_t kNanosecondsPerMillisecond = 1000000;
 constexpr const char* kGroupOwnerIp = "192.168.49.1";
 // Bound for the `systemctl reboot` exec — the call returns quickly, but the
 // deadline keeps a hung systemd/D-Bus from stalling the dispatcher thread.
@@ -206,28 +209,14 @@ auto RunFirmware() -> int {
         uplink_manager.Apply(boot_cfg);
     }).detach();
 
-    // Training-proxy sink — per-camera H.264 proxy, taps both materialized camera
-    // chains, coupled to the match record lifecycle (RecordingHandler drives
-    // Start/Stop; SessionCleanup force-stops it on disconnect). Constructed here,
-    // ahead of both SessionCleanup and the pipeline that pushes into it, so both
-    // can reference it and DeviceHandler can report its IsCapturing() state.
     sst::adapters::raw_capture::FilesystemRawCaptureSink raw_capture_sink(
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
+    sst::raw_capture::ProxyOwners proxy_owners(raw_capture_sink);
 
-    // Session-scoped UI selections. Declared here, ahead of SessionCleanup, so
-    // it can reset them on disconnect: a reconnect must start from the app's
-    // fresh-UI defaults (camera 0 / single view), else the app shows Left while
-    // the firmware still serves the previous session's camera (mismatch). The
-    // SetActiveCamera / SetPreviewLayout handlers write them; ManualDecision and
-    // the pipeline consumer read them each tick.
     static sst::decision::ManualCameraState manual_camera_state;
     sst::streaming::PreviewLayoutState preview_layout_state;
 
     // ── Session (lifecycle SM + disconnect cleanup) ────────────────────
-    sst::session::SessionCleanup cleanup(recording_service, streaming_service, raw_capture_sink,
-                                         wifi_manager, dhcp_server, manual_camera_state,
-                                         preview_layout_state);
-    sst::session::SessionManager session_manager(cleanup);
 
     // ── Overlay (scene -> Cairo/Pango RGBA -> caching sink) ────────────
     // The controller renders on change into the caching sink; the pipeline
@@ -238,6 +227,11 @@ auto RunFirmware() -> int {
     // Persists the overlay scene timeline beside each L1 recording (#6 F6b) so
     // the overlay can be burned onto the clean recording on demand (F6c).
     sst::adapters::overlay::FilesystemOverlayTimelineRecorder overlay_timeline;
+    sst::session::SessionCleanup cleanup(recording_service, streaming_service, proxy_owners,
+                                         wifi_manager, dhcp_server, manual_camera_state,
+                                         preview_layout_state, overlay_timeline);
+    sst::session::SessionManager session_manager(cleanup, std::chrono::steady_clock::now,
+                                                 video_root);
     sst::overlay::OverlayController overlay_controller(
         overlay_renderer, overlay_sink,
         sst::common::OutputSize{sst::runtime_defaults::kOverlayWidth,
@@ -250,7 +244,7 @@ auto RunFirmware() -> int {
     // Training-proxy retention (U7): a detached periodic sweep bounds total proxy
     // footage (the raw__*.mp4 pairs accumulate one per match). Delete-oldest,
     // protected against the actively-writing group (mtime grace inside Sweep) and
-    // any file with a live download token. Off-thread so it never blocks the BLE
+    // any historical live download token. Off-thread so it never blocks the BLE
     // surface; a no-op when proxy_max_total_bytes is unset.
     static sst::adapters::raw_capture::ProxyRetention proxy_retention(
         video_root, cfg.storage.proxy_max_total_bytes.value_or(0));
@@ -280,9 +274,8 @@ auto RunFirmware() -> int {
         });
 
     // ── Overlay export (on-demand burn, #6 F6c) ─────────────────────────
-    // Burns the recorded overlay timeline onto a clean L1 into an L2 living
-    // OUTSIDE the video root (so it never shows up in the recordings list),
-    // tokened for download exactly like a normal recording.
+    // Burns the recorded overlay timeline onto a clean L1 into a persistent L2
+    // in the same match folder, available through the normal recording catalog.
     sst::adapters::overlay::OpenCvOverlayBurner overlay_burner;
     sst::exportjob::ExportJobManager export_manager(
         overlay_burner,
@@ -295,17 +288,25 @@ auto RunFirmware() -> int {
             return sst::adapters::overlay::LoadOverlayTimeline(timeline_path)
                 .value_or(sst::overlay::OverlayTimeline{});
         },
-        [&download_server](const std::filesystem::path& l2_path, const std::string& job_id) {
-            return download_server.MintTokenForFile(
-                l2_path, job_id, sst::runtime_defaults::kDownloadTokenTtlSeconds);
-        },
-        video_root.parent_path() / "exports");
+        [&download_server](const std::filesystem::path&, const std::string& recording_id) {
+            return download_server.MintToken(recording_id,
+                                             sst::runtime_defaults::kDownloadTokenTtlSeconds);
+        });
 
     // ── System stats (telemetry source) ────────────────────────────────
     sst::adapters::control::ProcSystemStats system_stats(video_root);
 
     // ── Control plane: dispatcher + per-concern handlers ───────────────
     sst::control::CommandDispatcher dispatcher;
+
+    sst::pipeline::PipelineOrchestrator* live_pipeline = nullptr;
+    const auto camera_health =
+        [&live_pipeline](std::uint32_t index) -> std::optional<sst_cam::CameraHealth> {
+        return live_pipeline != nullptr ? live_pipeline->CameraHealth(index) : std::nullopt;
+    };
+    const auto required_health = [camera_health](std::uint32_t index) {
+        return camera_health(index).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN);
+    };
 
     // ★ Extensibility point — one Register() line per concern.
     dispatcher.Register(std::make_shared<sst::control::DeviceHandler>(
@@ -319,17 +320,32 @@ auto RunFirmware() -> int {
                 [&streaming_service] {
                     return !streaming_service.ListActivePlatformStreams().empty();
                 },
-            .is_raw_capturing = [&raw_capture_sink] { return raw_capture_sink.IsCapturing(); },
             .wifi_state = [&wifi_manager] { return wifi_manager.State(); },
             .internet_reachable =
                 [&telemetry_probe] { return telemetry_probe.InternetReachable(); },
-            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); }}));
-    dispatcher.Register(
-        std::make_shared<sst::control::SessionHandler>(session_manager, overlay_controller));
+            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); },
+            .camera_health = camera_health},
+        [](std::uint64_t epoch_ms) {
+            timespec time{
+                static_cast<time_t>(epoch_ms / sst::runtime_defaults::kMillisecondsPerSecond),
+                static_cast<time_t>((epoch_ms % sst::runtime_defaults::kMillisecondsPerSecond) *
+                                    sst::runtime_defaults::kNanosecondsPerMillisecond)};
+            return clock_settime(CLOCK_REALTIME, &time) == 0;
+        }));
+    dispatcher.Register(std::make_shared<sst::control::SessionHandler>(
+        session_manager, overlay_controller,
+        [] { return std::optional<std::uint32_t>(manual_camera_state.Get()); },
+        [&preview_layout_state] {
+            return std::optional<sst_cam::PreviewLayout>(
+                preview_layout_state.Get() == sst::streaming::PreviewLayout::kSideBySide
+                    ? sst_cam::PREVIEW_LAYOUT_SIDE_BY_SIDE
+                    : sst_cam::PREVIEW_LAYOUT_SINGLE);
+        },
+        camera_health));
     dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, network_configurator, dhcp_server, streaming_service,
         sst::control::PreviewPort{sst::runtime_defaults::kPreviewPort},
-        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}));
+        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health));
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
@@ -338,9 +354,10 @@ auto RunFirmware() -> int {
     dispatcher.Register(
         std::make_shared<sst::control::MatchStateHandler>(session_manager, NowEpochMs));
     dispatcher.Register(std::make_shared<sst::control::RecordingHandler>(
-        session_manager, recording_service, overlay_timeline, raw_capture_sink, NowMs));
-    dispatcher.Register(
-        std::make_shared<sst::control::StreamingHandler>(streaming_service, &uplink_probe));
+        session_manager, recording_service, overlay_timeline, proxy_owners, NowMs,
+        required_health));
+    dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(
+        streaming_service, &uplink_probe, &session_manager, required_health, &proxy_owners));
     dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
         download_server, sst::runtime_defaults::kGroupOwnerIp, sst::runtime_defaults::kDownloadPort,
         sst::runtime_defaults::kDownloadTokenTtlSeconds));
@@ -427,13 +444,10 @@ auto RunFirmware() -> int {
     static sst::processing::FrameColorStats frame_color_stats;
     auto postprocessor = std::make_unique<sst::adapters::processing::OpenCvPostprocessor>(
         postproc_cfg, &calibration_state, &frame_color_stats);
-    // Manual tracking: ManualDecision reads manual_camera_state (declared above,
-    // near SessionCleanup which resets it on disconnect) each tick. Becomes the
-    // override once AI decision lands.
     auto decision = std::make_unique<sst::decision::ManualDecision>(manual_camera_state);
 
-    // #6 F6d dual preview: the SetPreviewLayout handler flips preview_layout_state
-    // (declared above, reset on disconnect); the pipeline consumer reads it each
+    // #6 F6d dual preview: the SetPreviewLayout handler flips preview_layout_state;
+    // the pipeline consumer reads it each
     // tick and composites cam0 | cam1 (clean) into the preview stream via the
     // side-by-side compositor. The composite targets the same output canvas as the
     // single stream, so the RTSP encoder caps never change — connected viewers are
@@ -444,8 +458,10 @@ auto RunFirmware() -> int {
     sst::pipeline::PipelineOrchestrator pipeline(
         std::move(camera_chains), std::move(postprocessor), std::move(decision), recording_service,
         streaming_service, sst::pipeline::PipelineConfig{}, &raw_capture_sink, &overlay_sink,
-        &side_by_side_compositor, &preview_layout_state);
-    dispatcher.Register(std::make_shared<sst::control::RawCaptureHandler>(raw_capture_sink));
+        &side_by_side_compositor, &preview_layout_state, [&session_manager] {
+            session_manager.EndSession(sst::session::SessionEndReason::kCameraFailure);
+        });
+    live_pipeline = &pipeline;
     dispatcher.Register(std::make_shared<sst::control::PreviewLayoutHandler>(
         preview_layout_state, sst::runtime_defaults::kOverlayWidth,
         sst::runtime_defaults::kOverlayHeight));
@@ -491,17 +507,16 @@ auto RunFirmware() -> int {
     // Drive the display-only match clock at ~1 Hz (the app is still the timing
     // authority; this only advances the on-screen clock between app events).
     std::atomic<bool> clock_running{true};
-    std::thread clock_thread([&match_handler, &clock_running] {
+    std::thread clock_thread([&match_handler, &session_manager, &clock_running] {
         while (clock_running.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             match_handler->TickClock();
+            session_manager.Tick();
         }
     });
 
     spdlog::info("startup complete — advertising as {}", advertised_name);
 
-    // Run until terminated (SIGINT/SIGTERM). Destructors stop the pipeline +
-    // transport (which finalizes any active session via the disconnect hook).
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
@@ -512,6 +527,7 @@ auto RunFirmware() -> int {
         clock_thread.join();
         http_download_server.Stop();
         ble_transport.Stop();
+        session_manager.EndSession(sst::session::SessionEndReason::kReboot);
         pipeline.Stop();
         return 1;
     }
@@ -524,6 +540,7 @@ auto RunFirmware() -> int {
     telemetry_probe.Stop();
     http_download_server.Stop();
     ble_transport.Stop();
+    session_manager.EndSession(sst::session::SessionEndReason::kReboot);
     pipeline.Stop();
     return 0;
 }

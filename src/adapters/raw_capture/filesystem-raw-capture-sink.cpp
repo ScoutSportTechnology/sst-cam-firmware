@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <system_error>
 #include <utility>
 
@@ -48,6 +49,25 @@ auto GstFormatFor(sst::common::PixelFormat fmt) -> const char* {
 }
 }  // namespace
 
+auto PackProxyFrame(const sst::capture::Frame& frame) -> std::vector<std::uint8_t> {
+    std::size_t size = 0;
+    for (const auto& plane : frame.planes) {
+        if (plane.data == nullptr && plane.size != 0) {
+            return {};
+        }
+        size += plane.size;
+    }
+    std::vector<std::uint8_t> bytes(size);
+    std::size_t offset = 0;
+    for (const auto& plane : frame.planes) {
+        if (plane.size != 0) {
+            std::memcpy(bytes.data() + offset, plane.data, plane.size);
+            offset += plane.size;
+        }
+    }
+    return bytes;
+}
+
 FilesystemRawCaptureSink::FilesystemRawCaptureSink(std::filesystem::path video_dir,
                                                    std::uint32_t camera_count)
     : video_dir_(std::move(video_dir)),
@@ -78,9 +98,6 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id,
         return false;
     }
 
-    // Write the proxy pair INTO the per-match dir (SessionConfig.video_output_path)
-    // so it sits beside the final <match>.mp4 + timeline.json. Empty => fall back
-    // to the construction-time root.
     const std::filesystem::path dir = output_dir.empty() ? video_dir_ : output_dir;
 
     std::error_code err;
@@ -92,7 +109,7 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id,
 
     // Group-id collision guard: reject a reused capture_group_id rather than
     // truncate-overwrite a prior group's (possibly not-yet-downloaded) proxy
-    // files. The app mints UUIDs so a collision means a retry/reconnect resend —
+    // files. A collision means a retry/reconnect resend —
     // fail loudly instead of silently destroying training footage.
     for (std::uint32_t i = 0; i < camera_count_; ++i) {
         const auto name =
@@ -182,12 +199,15 @@ auto FilesystemRawCaptureSink::PushCamera(std::uint32_t camera_index,
         writer.caps_set = true;
     }
 
-    const auto& plane = frame.planes[0];
-    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, plane.size, nullptr);
+    const auto bytes = PackProxyFrame(frame);
+    if (bytes.empty()) {
+        return;
+    }
+    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, bytes.size(), nullptr);
     if (buffer == nullptr) {
         return;
     }
-    gst_buffer_fill(buffer, 0, plane.data, plane.size);
+    gst_buffer_fill(buffer, 0, bytes.data(), bytes.size());
     // appsrc is block=false with a leaky=downstream queue behind it, so this
     // returns immediately and drops oldest under overload — never blocks capture.
     (void)gst_app_src_push_buffer(GST_APP_SRC(writer.appsrc), buffer);

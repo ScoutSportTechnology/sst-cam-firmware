@@ -4,7 +4,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -14,6 +16,7 @@
 #include "app/control/ports/network-configurator.hpp"
 #include "app/control/ports/wifi-manager.hpp"
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
+#include "app/control/services/handlers/match-state.handler.hpp"
 #include "app/control/services/handlers/overlay.handler.hpp"
 #include "app/control/services/handlers/session.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
@@ -42,10 +45,18 @@ constexpr std::uint32_t kPreviewPort = 8554;
 constexpr std::uint32_t kDownloadPort = 8080;
 // Overlay layout canvas width pushed in the lifecycle test.
 constexpr std::uint32_t kLayoutCanvasWidth = 1920;
+constexpr auto kElapsedRecording = std::chrono::seconds(65);
+constexpr std::uint32_t kCustomStopMinutes = 5;
 
 class FakeCleanup final : public session::ISessionCleanup {
    public:
-    auto FinalizeRecording() -> void override {}
+    auto FinalizeRecording() -> bool override {
+        if (on_finalize) {
+            on_finalize();
+        }
+        return true;
+    }
+    std::function<void()> on_finalize;
     auto StopStreaming() -> void override {}
     auto TeardownWifiDirect() -> void override {}
     auto ResetSelections() -> void override {}
@@ -169,6 +180,236 @@ void StepUnwiredCommandIsUnsupported(control::CommandDispatcher& dispatcher) {
     auto resp = dispatcher.Dispatch(cmd);
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::UNSUPPORTED);
     EXPECT_EQ(resp.correlation_id(), "d");
+}
+
+TEST(ControlPlaneIntegrationTest, SnapshotReportsCameraFailureAfterSessionFinalizes) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_OK;
+    control::CommandDispatcher dispatcher;
+    dispatcher.Register(std::make_shared<control::SessionHandler>(
+        manager, controller, std::function<std::optional<std::uint32_t>()>{},
+        std::function<std::optional<sst_cam::PreviewLayout>()>{}, [&](std::uint32_t index) {
+            return std::optional(index == 0 ? sst_cam::CAMERA_HEALTH_OK : health);
+        }));
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("failed-match");
+    ASSERT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    health = sst_cam::CAMERA_HEALTH_DOWN;
+    ASSERT_TRUE(manager.EndSession(session::SessionEndReason::kCameraFailure));
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    const auto snapshot = dispatcher.Dispatch(query).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_IDLE);
+    EXPECT_EQ(snapshot.camera1_health(), sst_cam::CAMERA_HEALTH_DOWN);
+    ASSERT_TRUE(snapshot.has_last_session());
+    EXPECT_EQ(snapshot.last_session().end_reason(), sst_cam::SESSION_END_CAMERA_FAILURE);
+}
+
+TEST(ControlPlaneIntegrationTest, SnapshotReportsPhasesAndOptionalState) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::CommandDispatcher dispatcher;
+    dispatcher.Register(std::make_shared<control::SessionHandler>(manager, controller));
+    sst_cam::Command command;
+    command.mutable_get_session_snapshot();
+    auto snapshot = dispatcher.Dispatch(command).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_IDLE);
+    EXPECT_FALSE(snapshot.has_match_state());
+    EXPECT_FALSE(snapshot.has_last_session());
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    EXPECT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    snapshot = dispatcher.Dispatch(command).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_CONFIGURED);
+    ASSERT_TRUE(snapshot.has_match_state());
+    EXPECT_EQ(snapshot.match_state().match_uuid(), "match-42");
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    EXPECT_EQ(dispatcher.Dispatch(command).session_snapshot().session_phase(),
+              sst_cam::SESSION_READY);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    snapshot = dispatcher.Dispatch(command).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_RECORDING);
+    EXPECT_TRUE(snapshot.is_recording());
+    EXPECT_TRUE(snapshot.has_recording_elapsed_seconds());
+    manager.OnDisconnect();
+    EXPECT_EQ(dispatcher.Dispatch(command).session_snapshot().session_phase(),
+              sst_cam::SESSION_RECORDING);
+}
+
+TEST(ControlPlaneIntegrationTest, ConfigPresenceAndRejoinSnapshotRetainActivity) {
+    FakeCleanup cleanup;
+    std::chrono::steady_clock::time_point now{};
+    session::SessionManager manager(cleanup, [&] { return now; });
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::CommandDispatcher dispatcher;
+    dispatcher.Register(std::make_shared<control::SessionHandler>(
+        manager, controller, [] { return std::optional<std::uint32_t>(1); },
+        [] { return std::optional<sst_cam::PreviewLayout>(sst_cam::PREVIEW_LAYOUT_SIDE_BY_SIDE); },
+        [](std::uint32_t index) {
+            return std::optional<sst_cam::CameraHealth>(
+                index == 0 ? sst_cam::CAMERA_HEALTH_OK : sst_cam::CAMERA_HEALTH_RECOVERING);
+        }));
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    EXPECT_EQ(manager.Snapshot().config.value_or(session::SessionConfig{}).auto_stop_minutes,
+              session::kDefaultAutoStopMinutes);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    manager.OnStreamingChanged(true);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    now += kElapsedRecording;
+    manager.OnDisconnect();
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    const auto response = dispatcher.Dispatch(query);
+    ASSERT_EQ(response.status(), sst_cam::OK);
+    const auto& snapshot = response.session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_RECORDING);
+    EXPECT_EQ(snapshot.active_camera_index(), 1U);
+    EXPECT_EQ(snapshot.preview_layout(), sst_cam::PREVIEW_LAYOUT_SIDE_BY_SIDE);
+    EXPECT_EQ(snapshot.camera0_health(), sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_EQ(snapshot.camera1_health(), sst_cam::CAMERA_HEALTH_RECOVERING);
+    EXPECT_TRUE(snapshot.is_recording());
+    EXPECT_TRUE(snapshot.is_streaming());
+    EXPECT_TRUE(snapshot.wifi_group_up());
+    EXPECT_EQ(snapshot.recording_elapsed_seconds(), 65U);
+    EXPECT_FALSE(snapshot.has_last_session());
+    ASSERT_TRUE(manager.OnConnect());
+    EXPECT_EQ(dispatcher.Dispatch(query).session_snapshot().match_state().match_uuid(), "match-42");
+}
+
+TEST(ControlPlaneIntegrationTest, SameMatchConfigRejoinDoesNotClearOverlay) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::SessionHandler handler(manager, controller);
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    manager.OnDisconnect();
+    const auto before = controller.PushCount();
+    ASSERT_TRUE(manager.OnConnect());
+    EXPECT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    EXPECT_EQ(controller.PushCount(), before);
+    EXPECT_EQ(manager.Phase(), session::SessionPhase::kRecording);
+}
+
+TEST(ControlPlaneIntegrationTest, ExplicitTimeoutValueRearmsWhileRecording) {
+    FakeCleanup cleanup;
+    std::chrono::steady_clock::time_point now{};
+    session::SessionManager manager(cleanup, [&] { return now; });
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::CommandDispatcher dispatcher;
+    dispatcher.Register(std::make_shared<control::SessionHandler>(manager, controller));
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    manager.OnDisconnect();
+    now += std::chrono::minutes(2);
+    config.mutable_push_session_config()->set_auto_stop_minutes(kCustomStopMinutes);
+    ASSERT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    now += std::chrono::minutes(4);
+    manager.Tick();
+    EXPECT_EQ(manager.Phase(), session::SessionPhase::kRecording);
+    now += std::chrono::minutes(1);
+    manager.Tick();
+    EXPECT_EQ(manager.Phase(), session::SessionPhase::kIdle);
+}
+
+TEST(ControlPlaneIntegrationTest, IdleSummaryMapsAutoStopAndIsAbsentWhenConfigured) {
+    FakeCleanup cleanup;
+    std::chrono::steady_clock::time_point now{};
+    session::SessionManager manager(cleanup, [&] { return now; });
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::SessionHandler handler(manager, controller);
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_TRUE(
+        manager.ApplyMatchUpdate([](session::LiveMatch& match) { match.clock_seconds = 47; }));
+    manager.OnDisconnect();
+    now += std::chrono::minutes(session::kDefaultAutoStopMinutes);
+    manager.Tick();
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    auto snapshot = handler.Handle(query).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_IDLE);
+    ASSERT_TRUE(snapshot.has_last_session());
+    EXPECT_EQ(snapshot.last_session().match_uuid(), "match-42");
+    EXPECT_EQ(snapshot.last_session().end_reason(), sst_cam::SESSION_END_AUTO_STOP);
+    EXPECT_EQ(snapshot.last_session().end_clock_seconds(), 47U);
+    EXPECT_TRUE(snapshot.last_session().has_file_valid());
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    EXPECT_FALSE(handler.Handle(query).session_snapshot().has_last_session());
+}
+
+TEST(ControlPlaneIntegrationTest, SnapshotReportsFinalizingDuringCleanup) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::SessionHandler handler(manager, controller);
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    cleanup.on_finalize = [&] {
+        const auto snapshot = handler.Handle(query).session_snapshot();
+        EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_FINALIZING);
+        EXPECT_FALSE(snapshot.has_last_session());
+    };
+    EXPECT_TRUE(manager.EndSession(session::SessionEndReason::kAppStop));
+    EXPECT_EQ(handler.Handle(query).session_snapshot().session_phase(), sst_cam::SESSION_IDLE);
 }
 
 TEST(ControlPlaneIntegrationTest, RoutesFullLifecycleToReady) {

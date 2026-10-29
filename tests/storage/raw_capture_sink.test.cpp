@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -77,6 +78,18 @@ auto ProxyPath(const std::filesystem::path& dir,
 }
 
 // ---- Container-safe: pure state-machine guards (no pipeline built) ----------
+
+TEST(RawCaptureSinkTest, Nv12TwoPlanePayloadContainsLumaAndChroma) {
+    constexpr std::array<std::uint8_t, 4> kLuma = {1, 2, 3, 4};
+    constexpr std::array<std::uint8_t, 2> kChroma = {5, 6};
+    Frame frame;
+    frame.format = sst::common::PixelFormat::NV12;
+    frame.geometry = {.width = 2, .height = 2};
+    frame.planes = {{.stride = 2, .data = kLuma.data(), .size = kLuma.size()},
+                    {.stride = 2, .data = kChroma.data(), .size = kChroma.size()}};
+    EXPECT_EQ(sst::adapters::raw_capture::PackProxyFrame(frame),
+              (std::vector<std::uint8_t>{1, 2, 3, 4, 5, 6}));
+}
 
 TEST(RawCaptureSinkTest, EmptyGroupIdRejected) {
     TempDir dir("empty");

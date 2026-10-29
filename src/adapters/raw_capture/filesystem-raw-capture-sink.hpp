@@ -18,6 +18,8 @@ using GstElement = struct _GstElement;
 
 namespace sst::adapters::raw_capture {
 
+auto PackProxyFrame(const sst::capture::Frame& frame) -> std::vector<std::uint8_t>;
+
 // Per-camera training-proxy sink. One small H.264 MP4 per camera under
 // `video_dir`, named raw__<group>__cam<N>.mp4 (see raw-capture-naming.hpp), each
 // a GStreamer pipeline (appsrc -> scale to kProxyVideoMode -> x264enc -> mp4mux

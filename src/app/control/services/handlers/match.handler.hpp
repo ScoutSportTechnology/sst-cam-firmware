@@ -30,6 +30,7 @@ class MatchHandler final : public ICommandHandler {
     auto TickClock() -> void;
 
    private:
+    auto HandleSetMatchState(const sst_cam::SetMatchStateCommand& cmd) -> sst_cam::CommandResponse;
     auto HandleScoreUpdate(const sst_cam::ScoreUpdateCommand& cmd) -> sst_cam::CommandResponse;
     auto HandleMatchControl(const sst_cam::MatchControlCommand& cmd) -> sst_cam::CommandResponse;
     auto HandleBannerEvent(const sst_cam::BannerEventCommand& cmd) -> sst_cam::CommandResponse;

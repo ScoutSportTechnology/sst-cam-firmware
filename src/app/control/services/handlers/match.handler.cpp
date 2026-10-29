@@ -20,7 +20,7 @@ MatchHandler::MatchHandler(sst::session::ISessionManager& session,
 
 auto MatchHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kMatchControl, sst_cam::Command::kScoreUpdate,
-            sst_cam::Command::kBannerEvent};
+            sst_cam::Command::kBannerEvent, sst_cam::Command::kSetMatchState};
 }
 
 auto MatchHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse {
@@ -31,6 +31,8 @@ auto MatchHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRespon
             return HandleMatchControl(cmd.match_control());
         case sst_cam::Command::kBannerEvent:
             return HandleBannerEvent(cmd.banner_event());
+        case sst_cam::Command::kSetMatchState:
+            return HandleSetMatchState(cmd.set_match_state());
         default:
             break;
     }
@@ -43,6 +45,57 @@ auto MatchHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRespon
 auto MatchHandler::SyncOverlay() -> void {
     controller_.SetBindingData(sst::overlay::BuildBindingData(session_.Snapshot()));
     controller_.Refresh(now_ms_ ? now_ms_() : 0);
+}
+
+auto MatchHandler::HandleSetMatchState(const sst_cam::SetMatchStateCommand& cmd)
+    -> sst_cam::CommandResponse {
+    const bool applied = session_.ReconcileMatch([&cmd](LiveMatch& match) {
+        if (cmd.has_score_a()) {
+            match.score_a = cmd.score_a();
+        }
+        if (cmd.has_score_b()) {
+            match.score_b = cmd.score_b();
+        }
+        if (cmd.has_current_period()) {
+            match.period = cmd.current_period();
+        }
+        if (cmd.has_elapsed_seconds()) {
+            match.clock_seconds = cmd.elapsed_seconds();
+        }
+        if (cmd.has_clock_running()) {
+            match.clock_running = cmd.clock_running();
+        }
+        if (cmd.has_status()) {
+            match.status_override.reset();
+            switch (cmd.status()) {
+                case sst_cam::MATCH_HALF_TIME:
+                    match.segment = MatchSegment::kHalfTime;
+                    break;
+                case sst_cam::MATCH_FINISHED:
+                    match.segment = MatchSegment::kFullTime;
+                    break;
+                case sst_cam::MATCH_ACTIVE:
+                case sst_cam::MATCH_PAUSED:
+                case sst_cam::MATCH_NOT_STARTED:
+                case sst_cam::MATCH_STATUS_UNKNOWN:
+                    match.status_override = static_cast<std::uint8_t>(cmd.status());
+                    match.segment = MatchSegment::kInPlay;
+                    break;
+            }
+        }
+    });
+    sst_cam::CommandResponse resp;
+    resp.set_status(applied ? sst_cam::OK : sst_cam::ERROR);
+    if (applied) {
+        if (cmd.has_status() && cmd.status() == sst_cam::MATCH_FINISHED) {
+            controller_.Clear();
+        } else {
+            SyncOverlay();
+        }
+    } else {
+        resp.set_error_message("match state rejected: no active session");
+    }
+    return resp;
 }
 
 auto MatchHandler::HandleScoreUpdate(const sst_cam::ScoreUpdateCommand& cmd)
@@ -92,12 +145,14 @@ auto MatchHandler::HandleMatchControl(const sst_cam::MatchControlCommand& cmd)
     const bool applied = session_.ApplyMatchUpdate([&](LiveMatch& match) {
         switch (action) {
             case sst_cam::MATCH_KICKOFF:
+                match.status_override.reset();
                 match.period = period > 0 ? period : 1;
                 match.clock_seconds = 0;
                 match.clock_running = true;
                 match.segment = MatchSegment::kInPlay;
                 break;
             case sst_cam::MATCH_PERIOD_START:
+                match.status_override.reset();
                 match.period = period > 0 ? period : match.period;
                 // A new period starts from 00:00 — reset the clock (KICKOFF does
                 // this too; PERIOD_START previously carried the prior period's
@@ -107,17 +162,21 @@ auto MatchHandler::HandleMatchControl(const sst_cam::MatchControlCommand& cmd)
                 match.segment = MatchSegment::kInPlay;
                 break;
             case sst_cam::MATCH_PERIOD_END:
+                match.status_override.reset();
                 match.clock_running = false;
                 match.segment = MatchSegment::kHalfTime;
                 break;
             case sst_cam::MATCH_FINAL_WHISTLE:
+                match.status_override.reset();
                 match.clock_running = false;
                 match.segment = MatchSegment::kFullTime;
                 break;
             case sst_cam::MATCH_CLOCK_PAUSE:
+                match.status_override.reset();
                 match.clock_running = false;
                 break;
             case sst_cam::MATCH_CLOCK_RESUME:
+                match.status_override.reset();
                 match.clock_running = true;
                 break;
             default:
@@ -163,16 +222,7 @@ auto MatchHandler::HandleBannerEvent(const sst_cam::BannerEventCommand& cmd)
 
 auto MatchHandler::TickClock() -> void {
     bool ticked = false;
-    session_.ApplyMatchUpdate([&ticked](LiveMatch& match) {
-        if (match.clock_running) {
-            ++match.clock_seconds;
-            ticked = true;
-        }
-    });
-    // Refresh the overlay ONLY when the clock actually advanced. ApplyMatchUpdate
-    // returns true whenever a session is active (not whether the clock moved), so
-    // keying off it re-rendered every second even with the clock stopped — which
-    // resurrected the scoreboard one tick after a final-whistle Clear().
+    session_.ApplyMatchUpdate([&ticked](LiveMatch& match) { ticked = match.clock_running; });
     if (ticked) {
         SyncOverlay();
     }

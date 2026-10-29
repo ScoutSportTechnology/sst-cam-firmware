@@ -1,7 +1,5 @@
 #include "app/control/services/handlers/recording.handler.hpp"
 
-#include <spdlog/spdlog.h>
-
 #include <utility>
 
 #include "app/control/services/handlers/quality-mapping.hpp"
@@ -12,12 +10,14 @@ namespace sst::control {
 RecordingHandler::RecordingHandler(sst::session::ISessionManager& session,
                                    sst::storage::IRecordingService& recording,
                                    sst::overlay::IOverlayTimelineRecorder& timeline,
-                                   sst::raw_capture::IRawCaptureSink& proxy, Clock now_ms)
+                                   sst::raw_capture::ProxyOwners& proxy, Clock now_ms,
+                                   std::function<sst_cam::CameraHealth(std::uint32_t)> health)
     : session_(session),
       recording_(recording),
       timeline_(timeline),
       proxy_(proxy),
-      now_ms_(std::move(now_ms)) {}
+      now_ms_(std::move(now_ms)),
+      health_(std::move(health)) {}
 
 auto RecordingHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kRecordingControl};
@@ -46,8 +46,11 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
                 resp.set_error_message("recording start rejected: session not ready");
                 return resp;
             }
-            // Record quality is independent of the stream quality and of the
-            // fixed-resolution raw dual-recording; unset/unsupported → default.
+            if (health_ && (health_(0) != sst_cam::CAMERA_HEALTH_OK ||
+                            health_(1) != sst_cam::CAMERA_HEALTH_OK)) {
+                resp.set_status(sst_cam::DEVICE_INOPERABLE);
+                return resp;
+            }
             const auto quality = ResolveQuality(cmd.recording_control().has_quality(),
                                                 cmd.recording_control().quality());
             if (!recording_.StartRecording(state.config->video_output_path,
@@ -63,35 +66,25 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
                 resp.set_error_message("recording start rejected: session not ready");
                 return resp;
             }
+            (void)proxy_.Start(sst::raw_capture::ProxyOwners::Owner::kRecording,
+                               state.config->match_uuid, state.config->video_output_path);
             // Begin capturing the overlay timeline beside the L1 MP4 (#6 F6b),
             // anchored at the overlay clock so the burn (F6c) can realign it.
             timeline_.Start(state.config->video_output_path, now_ms_ ? now_ms_() : 0);
-            // Couple the training proxy to the match record lifecycle (U5): when
-            // the app minted a capture_group_id, spin up the per-camera proxy
-            // alongside the recording. Best-effort — a proxy failure must NOT fail
-            // the match record (training footage is optional), so log and proceed.
-            const auto& group_id = cmd.recording_control().capture_group_id();
-            if (cmd.recording_control().has_capture_group_id() && !group_id.empty()) {
-                // Write the proxy pair into the SAME per-match dir as the final
-                // MP4 + timeline (video_output_path), not the video root.
-                if (!proxy_.Start(group_id, state.config->video_output_path)) {
-                    spdlog::warn(
-                        "RecordingHandler: training proxy failed to start for group {} "
-                        "(record continues without it)",
-                        group_id);
-                }
-            }
             resp.set_status(sst_cam::ResponseStatus::OK);
             return resp;
         }
         case sst_cam::RECORDING_STOP: {
+            if (session_.Phase() != sst::session::SessionPhase::kRecording) {
+                resp.set_status(sst_cam::ERROR);
+                resp.set_error_message("no active recording to stop");
+                return resp;
+            }
             const auto result = recording_.Stop();
-            // Stop the coupled training proxy (U5) — idempotent, a no-op if it was
-            // never started (e.g. no capture_group_id on START).
-            proxy_.Stop();
+            proxy_.Stop(sst::raw_capture::ProxyOwners::Owner::kRecording);
             // Flush the overlay timeline next to the L1 MP4 (#6 F6b).
             timeline_.Stop();
-            session_.OnRecordingStop();
+            session_.OnRecordingStop(result.success);
             resp.set_status(result.success ? sst_cam::ResponseStatus::OK
                                            : sst_cam::ResponseStatus::ERROR);
             if (!result.success) {

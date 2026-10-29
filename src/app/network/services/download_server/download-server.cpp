@@ -19,6 +19,16 @@ namespace {
 constexpr const char* kMp4Extension = ".mp4";
 constexpr const char* kThumbnailExtension = ".jpg";
 
+auto IsProxyPath(const fs::path& path) -> bool {
+    std::error_code error;
+    const auto canonical = fs::weakly_canonical(path, error);
+    if (error) {
+        return true;
+    }
+    return path.filename().string().starts_with(sst::raw_capture::raw_capture_naming::kPrefix) ||
+           canonical.filename().string().starts_with(sst::raw_capture::raw_capture_naming::kPrefix);
+}
+
 auto LastWriteUnix(const fs::path& path) -> std::uint64_t {
     std::error_code err;
     const auto ftime = fs::last_write_time(path, err);
@@ -54,26 +64,13 @@ auto DownloadServer::Enumerate() const -> std::vector<RecordingSummary> {
         if (ext != kMp4Extension) {
             continue;
         }
-        RecordingSummary summary;
-        // Both the training proxy and the final recording are .mp4 now; the
-        // `raw__<group>__cam<N>` filename prefix (parsed here) is the sole
-        // discriminator — proxies live flat at the video root with that prefix,
-        // final recordings live in per-match subdirs without it.
-        const auto identity =
-            sst::raw_capture::raw_capture_naming::ParseFileName(path.filename().string());
-        if (identity) {
-            // Raw dual-camera training proxy: parse identity so the app can group
-            // the cam-0/cam-1 pair by capture_group_id.
-            summary.recording_id = path.stem().string();
-            summary.is_raw = true;
-            summary.camera_index = identity->camera_index;
-            summary.capture_group_id = identity->capture_group_id;
-        } else {
-            // Final-match recording: is_raw stays false, raw identity unset.
-            summary.recording_id = path.stem().string();
-            summary.thumbnail_id = summary.recording_id;
-            summary.duration_s = ProbeMp4DurationSeconds(path);
+        if (IsProxyPath(path)) {
+            continue;
         }
+        RecordingSummary summary;
+        summary.recording_id = path.stem().string();
+        summary.thumbnail_id = summary.recording_id;
+        summary.duration_s = ProbeMp4DurationSeconds(path);
         std::error_code size_ec;
         summary.size_bytes = static_cast<std::uint64_t>(fs::file_size(path, size_ec));
         summary.started_at_unix = LastWriteUnix(path);
@@ -92,7 +89,7 @@ auto DownloadServer::ResolveRecordingPath(const std::string& recording_id) const
          !err && entry != fs::recursive_directory_iterator(); entry.increment(err)) {
         const fs::path& path = entry->path();
         const auto ext = path.extension();
-        if (entry->is_regular_file(err) && ext == kMp4Extension &&
+        if (entry->is_regular_file(err) && ext == kMp4Extension && !IsProxyPath(path) &&
             path.stem().string() == recording_id) {
             return path;
         }
@@ -138,8 +135,8 @@ auto DownloadServer::MintToken(const std::string& recording_id,
 auto DownloadServer::MintTokenForFile(const fs::path& file, const std::string& file_id,
                                       std::uint64_t ttl_seconds) -> std::optional<DownloadToken> {
     std::error_code err;
-    if (!fs::exists(file, err) || !fs::is_regular_file(file, err)) {
-        spdlog::warn("DownloadServer::MintTokenForFile: {} missing", file.string());
+    if (IsProxyPath(file) || !fs::exists(file, err) || !fs::is_regular_file(file, err)) {
+        spdlog::warn("DownloadServer::MintTokenForFile: {} unavailable", file.string());
         return std::nullopt;
     }
     DownloadToken token;
@@ -159,7 +156,7 @@ auto DownloadServer::ValidateToken(const std::string& token) -> std::optional<fs
     if (entry == tokens_.end()) {
         return std::nullopt;
     }
-    if (clock_() >= entry->second.expires_at_unix) {
+    if (clock_() >= entry->second.expires_at_unix || IsProxyPath(entry->second.path)) {
         tokens_.erase(entry);
         return std::nullopt;
     }

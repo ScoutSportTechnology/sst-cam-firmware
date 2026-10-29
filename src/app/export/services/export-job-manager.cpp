@@ -9,19 +9,14 @@
 
 namespace sst::exportjob {
 
-namespace {
 namespace fs = std::filesystem;
-constexpr const char* kL2Ext = ".mp4";
-}  // namespace
 
 ExportJobManager::ExportJobManager(sst::overlay::IOverlayBurner& burner, PathResolver resolve,
-                                   TimelineLoader load_timeline, TokenMinter mint,
-                                   fs::path export_dir)
+                                   TimelineLoader load_timeline, TokenMinter mint)
     : burner_(burner),
       resolve_(std::move(resolve)),
       load_timeline_(std::move(load_timeline)),
-      mint_(std::move(mint)),
-      export_dir_(std::move(export_dir)) {}
+      mint_(std::move(mint)) {}
 
 ExportJobManager::~ExportJobManager() {
     std::vector<std::shared_ptr<Job>> jobs;
@@ -50,11 +45,12 @@ auto ExportJobManager::RequestExport(const std::string& recording_id,
     job->is_live = std::move(is_live);
     {
         const std::lock_guard lock(jobs_mtx_);
-        // Dedup: a non-failed burn for the same recording is already in flight or
-        // ready — reuse it rather than spawn a second identical transcode.
+        // Reuse in-flight burns; a ready recording is reused by the worker,
+        // but needs a new job to mint a fresh download token.
         for (const auto& existing : jobs_) {
             if (existing->recording_id == recording_id &&
-                existing->state.load() != ExportState::kFailed) {
+                existing->state.load() != ExportState::kFailed &&
+                existing->state.load() != ExportState::kReady) {
                 spdlog::info("ExportJob {}: reused for recording {}", existing->id, recording_id);
                 return existing->id;
             }
@@ -81,8 +77,6 @@ void ExportJobManager::EvictFinishedLocked() {
         if ((*victim)->worker.joinable()) {
             (*victim)->worker.join();  // finished job: join returns promptly
         }
-        std::error_code remove_ec;
-        fs::remove(export_dir_ / ((*victim)->id + kL2Ext), remove_ec);
         spdlog::info("ExportJob {}: evicted (job cap {} reached)", (*victim)->id, kMaxJobs);
         jobs_.erase(victim);
     }
@@ -131,23 +125,25 @@ void ExportJobManager::Run(Job& job) {
         fail("recording not found");
         return;
     }
-    const auto timeline = load_timeline_(*l1_path);
-    const fs::path l2_path = export_dir_ / (job.id + kL2Ext);
-    std::error_code dir_ec;
-    fs::create_directories(export_dir_, dir_ec);
-    if (dir_ec) {
-        fail("could not create export dir: " + dir_ec.message());
+    if (l1_path->stem().string().ends_with("_overlay")) {
+        fail("cannot export an overlay recording");
         return;
     }
-
-    if (!burner_.Burn(*l1_path, timeline, l2_path, job.cancel)) {
+    const auto timeline = load_timeline_(*l1_path);
+    const std::string l2_id = l1_path->stem().string() + "_overlay";
+    const fs::path l2_path = l1_path->parent_path() / (l2_id + ".mp4");
+    std::error_code path_error;
+    const bool is_symlink = fs::is_symlink(l2_path, path_error);
+    if (is_symlink || (path_error && path_error != std::errc::no_such_file_or_directory)) {
+        fail("export path is not a regular recording");
+        return;
+    }
+    if (!fs::exists(l2_path) && !burner_.Burn(*l1_path, timeline, l2_path, job.cancel)) {
         fail("overlay burn failed");
         return;
     }
-    auto token = mint_(l2_path, job.id);
+    auto token = mint_(l2_path, l2_id);
     if (!token) {
-        std::error_code remove_ec;
-        fs::remove(l2_path, remove_ec);
         fail("could not mint download token");
         return;
     }

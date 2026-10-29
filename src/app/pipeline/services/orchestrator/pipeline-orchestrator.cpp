@@ -23,7 +23,7 @@ PipelineOrchestrator::PipelineOrchestrator(
     PipelineConfig config, sst::raw_capture::IRawCaptureSink* raw_sink,
     sst::overlay::IOverlayFrameSource* overlay_source,
     sst::processing::IFrameCompositor* compositor,
-    sst::streaming::PreviewLayoutState* preview_layout)
+    sst::streaming::PreviewLayoutState* preview_layout, std::function<void()> on_camera_failure)
     : cameras_(std::move(cameras)),
       postprocessor_(std::move(postprocessor)),
       decision_(std::move(decision)),
@@ -33,7 +33,11 @@ PipelineOrchestrator::PipelineOrchestrator(
       raw_sink_(raw_sink),
       overlay_source_(overlay_source),
       compositor_(compositor),
-      preview_layout_(preview_layout) {
+      preview_layout_(preview_layout),
+      on_camera_failure_(std::move(on_camera_failure)) {
+    for (auto& health : health_) {
+        health = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    }
     slots_.reserve(cameras_.size());
     for (std::size_t i = 0; i < cameras_.size(); ++i) {
         slots_.push_back(
@@ -52,15 +56,20 @@ auto PipelineOrchestrator::Start() -> bool {
     if (running_) {
         return true;
     }
-    if (cameras_.empty()) {
-        spdlog::error("PipelineOrchestrator::Start: no cameras configured");
+    if (cameras_.empty() || cameras_.size() > health_.size()) {
+        spdlog::error("PipelineOrchestrator::Start: no cameras or unsupported camera count");
         return false;
+    }
+    failure_notified_ = false;
+    for (std::size_t i = 0; i < cameras_.size(); ++i) {
+        health_[i] = sst_cam::CAMERA_HEALTH_UNKNOWN;
     }
 
     for (std::size_t i = 0; i < cameras_.size(); ++i) {
         cameras_[i].capture->Start();
         if (!cameras_[i].capture->IsRunning()) {
             spdlog::error("PipelineOrchestrator::Start: camera {} failed to start", i);
+            health_[i] = sst_cam::CAMERA_HEALTH_DOWN;
             // Roll back any captures already started so we never leave half the
             // cameras running on a failed Start().
             for (std::size_t j = 0; j < i; ++j) {
@@ -112,21 +121,37 @@ auto PipelineOrchestrator::Stop() -> void {
 
 auto PipelineOrchestrator::IsRunning() const -> bool { return running_; }
 
+auto PipelineOrchestrator::CameraHealth(std::size_t camera_index) const
+    -> std::optional<sst_cam::CameraHealth> {
+    if (camera_index >= cameras_.size() || camera_index >= health_.size()) {
+        return std::nullopt;
+    }
+    return health_[camera_index].load();
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
     auto& capture = *cameras_[camera_index].capture;
     auto& preprocessor = *cameras_[camera_index].preprocessor;
     auto& slot = *slots_[camera_index];
+    auto last_frame = std::chrono::steady_clock::now();
+    std::optional<std::uint64_t> last_frame_id;
+    int restarts_without_frame = 0;
+    constexpr int kMaxRestartsWithoutFrame = 2;
 
     while (running_) {
-        // Watchdog: a capture pipeline can die mid-run and stay dead. Argus posts
-        // INVALID_SETTINGS when the WiFi-Direct radio reforms its P2P group on
-        // phone connect; HandleBusMessages()->Stop() tears the pipeline down, and
-        // nothing else ever restarts it — the producer would otherwise spin
-        // Capture() (nullopt) on a NULL pipeline forever, so preview goes blank
-        // and recording produces 0-byte files. Detect the stopped pipeline and
-        // re-init it, backing off between failed attempts (the radio may still be
-        // settling) instead of hot-looping gst_parse_launch.
+        if (capture.IsRunning() &&
+            std::chrono::steady_clock::now() - last_frame >= config_.capture_stall_timeout) {
+            health_[camera_index] = sst_cam::CAMERA_HEALTH_RECOVERING;
+            capture.Stop();
+        }
         if (!capture.IsRunning()) {
+            if (restarts_without_frame >= kMaxRestartsWithoutFrame) {
+                health_[camera_index] = sst_cam::CAMERA_HEALTH_DOWN;
+                break;
+            }
+            ++restarts_without_frame;
+            health_[camera_index] = sst_cam::CAMERA_HEALTH_RECOVERING;
             {
                 // Serialize re-init: a radio reform kills both cameras at once, and
                 // two concurrent nvarguscamerasrc re-acquisitions race the shared
@@ -138,23 +163,13 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
                 break;  // shutdown raced the restart — exit now, don't Capture/backoff
             }
             if (!capture.IsRunning()) {
-                spdlog::warn(
-                    "PipelineOrchestrator: camera {} capture down; restart failed, retrying in "
-                    "{}ms",
-                    camera_index, config_.capture_restart_backoff.count());
-                // Interruptible backoff: sleep in short slices so Stop() (running_
-                // -> false) aborts the wait promptly instead of holding the join
-                // for the full period.
-                constexpr auto kBackoffSlice = std::chrono::milliseconds(50);
-                for (std::chrono::milliseconds waited{0};
-                     waited < config_.capture_restart_backoff && running_;
-                     waited += kBackoffSlice) {
-                    std::this_thread::sleep_for(kBackoffSlice);
-                }
-                continue;
+                health_[camera_index] = sst_cam::CAMERA_HEALTH_DOWN;
+                spdlog::error("PipelineOrchestrator: camera {} restart failed", camera_index);
+                break;
             }
             spdlog::info("PipelineOrchestrator: camera {} capture restarted after failure",
                          camera_index);
+            last_frame = std::chrono::steady_clock::now();
         }
 
         auto raw = capture.Capture();
@@ -162,6 +177,13 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
             std::this_thread::sleep_for(config_.capture_idle_sleep);
             continue;
         }
+        if (last_frame_id && raw->frame_id == *last_frame_id) {
+            continue;
+        }
+        last_frame_id = raw->frame_id;
+        restarts_without_frame = 0;
+        last_frame = std::chrono::steady_clock::now();
+        health_[camera_index] = sst_cam::CAMERA_HEALTH_OK;
         auto bundle = preprocessor.Process(*raw);
         if (!bundle) {
             // Preprocess failure is logged inside Process(); drop and continue.
@@ -177,6 +199,10 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
             raw_sink_->PushCamera(static_cast<std::uint32_t>(camera_index), bundle->source_frame);
         }
         slot.Push(std::move(*bundle));
+    }
+    if (health_[camera_index] == sst_cam::CAMERA_HEALTH_DOWN && on_camera_failure_ &&
+        !failure_notified_.exchange(true)) {
+        on_camera_failure_();
     }
 }
 
