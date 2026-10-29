@@ -120,8 +120,8 @@ auto SameSubnet(const std::string& lhs_cidr, const std::string& rhs_cidr) -> boo
 
 // True iff `host_ip` falls inside `network_cidr`'s subnet (ground-truth
 // reconciliation: STA's real IP inside Ethernet's real subnet). Fail closed on a
-// malformed input. floor-ok: distinct roles (network CIDR vs host IP), single call site.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// malformed input.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) // floor-ok: CIDR vs host IP
 auto NetworkContains(const std::string& network_cidr, const std::string& host_ip) -> bool {
     const auto network = ParseCidr(network_cidr);
     const auto host = ParseIpv4(AddressOnly(host_ip));
@@ -324,11 +324,11 @@ auto ConnectivityArbiter::SyncUplinkRoutingLocked(bool want, const EthernetProbe
 }
 
 // phone_subnet_cidr / sta_ip are distinct roles (network CIDR vs host IP), each
-// shape-validated; a swap fails the subnet checks. Suppressed inline on the flagged
-// parameter (a multi-line signature can't use NOLINTNEXTLINE).
+// shape-validated; a swap fails the subnet checks.
 auto ConnectivityArbiter::ClassifyEthernet(
     const EthernetProbe& eth, const sst::config::UplinkData& desired,
-    const std::string& phone_subnet_cidr,  // NOLINT(bugprone-easily-swappable-parameters)
+    const std::string&
+        phone_subnet_cidr,  // NOLINT(bugprone-easily-swappable-parameters) // floor-ok: CIDR vs IP
     const std::string& sta_ip) -> EthernetClassification {
     const bool is_dhcp = desired.ethernet.dhcp.value_or(true);
     std::string cidr;

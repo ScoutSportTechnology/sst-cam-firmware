@@ -152,8 +152,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     // True iff `sta_ip` falls inside the Ethernet candidate's real subnet
     // (ground-truth reconciliation, R2/A4). Pure (reads only its arguments) so it is
     // static and runs in the off-lock classify phase.
-    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters): distinct roles (host IP vs
-    // network CIDR), each shape-validated; a swap fails the containment check.
+    // The host IP and network CIDR are shape-validated before comparison.
     static auto StaCollidesWith(const std::string& sta_ip,
                                 const std::string& ethernet_cidr) -> bool;
 
