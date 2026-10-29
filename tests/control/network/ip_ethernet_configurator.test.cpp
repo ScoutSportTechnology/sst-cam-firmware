@@ -18,6 +18,7 @@
 
 namespace {
 
+using sst::adapters::control::BuildEthAddrDelArgv;
 using sst::adapters::control::BuildEthAddrReplaceArgv;
 using sst::adapters::control::BuildEthRouteReplaceArgv;
 using sst::adapters::control::BuildResolvConf;
@@ -85,6 +86,26 @@ TEST(IpEthernetCommandTest, AddrReplaceArgvGuardsInput) {
     EXPECT_TRUE(BuildEthAddrReplaceArgv("10.10.1.30", "eth0").empty());
     EXPECT_TRUE(BuildEthAddrReplaceArgv("10.10.1.30/24", "").empty());
     EXPECT_TRUE(BuildEthAddrReplaceArgv("1.2.3.4\nx/24", "eth0").empty());
+}
+
+// Provenance teardown (metal finding): removal must be a targeted `ip addr del` of
+// ONE address, never a blanket `ip addr flush` that would also destroy an
+// out-of-band/operator address and strand the camera off the LAN.
+TEST(IpEthernetCommandTest, AddrDelArgvRemovesExactlyOneAddressAndGuardsInput) {
+    const auto argv = BuildEthAddrDelArgv("10.10.1.30/24", "eth0");
+    ASSERT_EQ(argv.size(), 6U);
+    EXPECT_EQ(argv[0], "ip");
+    EXPECT_EQ(argv[1], "addr");
+    EXPECT_EQ(argv[2], "del");  // NOT "flush" — scoped removal is the whole point
+    EXPECT_EQ(argv[3], "10.10.1.30/24");
+    EXPECT_EQ(argv[4], "dev");
+    EXPECT_EQ(argv[5], "eth0");
+    // The address is always named, so a caller cannot accidentally widen this into a
+    // flush by passing something empty/garbage.
+    EXPECT_TRUE(BuildEthAddrDelArgv("", "eth0").empty());
+    EXPECT_TRUE(BuildEthAddrDelArgv("10.10.1.30", "eth0").empty());
+    EXPECT_TRUE(BuildEthAddrDelArgv("10.10.1.30/24", "").empty());
+    EXPECT_TRUE(BuildEthAddrDelArgv("1.2.3.4\nx/24", "eth0").empty());
 }
 
 TEST(IpEthernetCommandTest, RouteReplaceArgvGuardsInput) {

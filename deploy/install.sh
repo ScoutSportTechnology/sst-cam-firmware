@@ -717,6 +717,29 @@ ensure_wifi_direct_provisioning() {
   fi
 }
 
+# One-shot removal of the RETIRED same-subnet STA source-routing (policy rule +
+# dedicated table 142). Older firmware installed `ip rule from <sta_ip> lookup 142`
+# to paper over the Ethernet/STA same-subnet dual-home; that whole approach is gone,
+# replaced by single-LAN-path selection in the connectivity arbiter. The firmware no
+# longer contains the code that created these, so nothing would ever clean them up:
+# upgrading old -> new leaves an orphaned rule pointing at a stale STA address
+# (observed on metal). A lingering rule is a silent misroute waiting to happen, so
+# remove it here at install time. Idempotent: a clean box is a no-op.
+STA_RETIRED_ROUTE_TABLE="142"
+cleanup_retired_sta_source_routing() {
+  command -v ip >/dev/null 2>&1 || return 0
+  ip rule show 2>/dev/null | grep -q "lookup ${STA_RETIRED_ROUTE_TABLE}\b" || return 0
+  # `ip rule del table N` removes ONE matching rule per call; loop (bounded) in case
+  # several accumulated across migrations.
+  local attempt=0
+  while [ "$attempt" -lt 8 ]; do
+    ip rule del table "$STA_RETIRED_ROUTE_TABLE" 2>/dev/null || break
+    attempt=$((attempt + 1))
+  done
+  ip route flush table "$STA_RETIRED_ROUTE_TABLE" 2>/dev/null || true
+  log "Network: removed ${attempt} retired STA source-routing rule(s) + flushed table ${STA_RETIRED_ROUTE_TABLE}."
+}
+
 # First wired Ethernet-type interface (ARPHRD_ETHER, non-wireless, non-virtual).
 # Empty if none present.
 detect_eth_iface() {
@@ -844,6 +867,7 @@ if [ "$DO_SETUP" = "yes" ]; then
   ensure_camera_overlay
   ensure_wifi_direct_provisioning
   ensure_ethernet_provisioning
+  cleanup_retired_sta_source_routing
 fi
 # Runtime deps are about the binary, not host setup — install them even with
 # --no-setup so an unloadable binary is never deployed.

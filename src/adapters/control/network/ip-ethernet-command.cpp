@@ -117,6 +117,14 @@ auto BuildEthAddrReplaceArgv(const std::string& cidr,
     return {"ip", "addr", "replace", cidr, "dev", iface};
 }
 
+auto BuildEthAddrDelArgv(const std::string& cidr,
+                         const std::string& iface) -> std::vector<std::string> {
+    if (iface.empty() || !IsIpv4Cidr(cidr)) {
+        return {};
+    }
+    return {"ip", "addr", "del", cidr, "dev", iface};
+}
+
 auto BuildEthRouteReplaceArgv(const std::string& gateway,
                               const std::string& iface) -> std::vector<std::string> {
     if (iface.empty() || !IsIpv4Literal(gateway)) {

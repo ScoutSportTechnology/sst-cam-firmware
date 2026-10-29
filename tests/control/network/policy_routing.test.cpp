@@ -23,6 +23,7 @@ using sst::adapters::control::BuildFirewallDeleteTableArgv;
 using sst::adapters::control::BuildFirewallDropInboundArgv;
 using sst::adapters::control::BuildFirewallFlushTableArgv;
 using sst::adapters::control::BuildFirewallRulesetScript;
+using sst::adapters::control::BuildStatelessFirewallRulesetScript;
 using sst::adapters::control::BuildUplinkDefaultRouteArgv;
 using sst::adapters::control::BuildUplinkRouteFlushArgv;
 using sst::adapters::control::BuildUplinkRuleAddArgv;
@@ -143,6 +144,40 @@ TEST(PolicyRoutingCommandTest, FirewallDropsAllInboundOnUplinkExceptEstablished)
 // established-accept + drop, in that order) so nft swaps the ruleset in ONE atomic
 // transaction — a re-apply never opens a rule-less window where inbound is accepted
 // on the uplink. The old design flushed then re-added via SEPARATE nft invocations.
+// Metal finding: the JetPack 7.2 kernel (6.8.12-*-tegra) has no nft_ct module, so the
+// stateful ruleset's `ct state` expression is rejected with ENOENT and the egress-only
+// bound silently did not exist. This conntrack-free ruleset is the fallback.
+TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDropsInboundSynWithoutConntrack) {
+    const std::string script = BuildStatelessFirewallRulesetScript("eth0");
+    ASSERT_FALSE(script.empty());
+
+    const std::string table = std::string("inet ") + kUplinkNftTable;
+    // Same atomic add -> flush -> chain shape as the stateful script (F7).
+    const auto add_table = script.find("add table " + table);
+    const auto flush_table = script.find("flush table " + table);
+    const auto chain = script.find("add chain " + table + " input");
+    const auto syn_drop = script.find("iifname \"eth0\" tcp flags syn / fin,syn,rst,ack drop");
+    EXPECT_NE(add_table, std::string::npos);
+    EXPECT_NE(flush_table, std::string::npos);
+    EXPECT_NE(chain, std::string::npos);
+    EXPECT_NE(syn_drop, std::string::npos) << script;
+    EXPECT_LT(add_table, flush_table);
+    EXPECT_LT(flush_table, chain);
+    EXPECT_LT(chain, syn_drop);
+
+    // It must NOT reference conntrack — that is the whole point of the fallback.
+    EXPECT_EQ(script.find("ct state"), std::string::npos) << script;
+    // And it must NOT blanket-drop inbound: a bare `drop` would also kill the SYN+ACK
+    // replies to the camera's own outbound connections (no conntrack to exempt them).
+    EXPECT_EQ(script.find("iifname \"eth0\" drop"), std::string::npos) << script;
+}
+
+TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetRefusesUnsafeIface) {
+    EXPECT_TRUE(BuildStatelessFirewallRulesetScript("eth0; rm -rf /").empty());
+    EXPECT_TRUE(BuildStatelessFirewallRulesetScript("").empty());
+    EXPECT_TRUE(BuildStatelessFirewallRulesetScript("-eth0").empty());
+}
+
 TEST(PolicyRoutingCommandTest, FirewallRulesetScriptIsOneAtomicTransaction) {
     const std::string script = BuildFirewallRulesetScript("eth0");
     ASSERT_FALSE(script.empty());

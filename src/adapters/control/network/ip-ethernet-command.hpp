@@ -43,6 +43,13 @@ auto BuildResolvConf(const std::string& dns) -> std::string;
 auto BuildEthAddrReplaceArgv(const std::string& cidr,
                              const std::string& iface) -> std::vector<std::string>;
 
+// `ip addr del <cidr> dev <iface>` — remove ONE specific address. Used instead of
+// `ip addr flush` so teardown can only ever remove the address the firmware itself
+// applied, leaving an operator's out-of-band address (e.g. a static management IP
+// set before the firmware took the NIC over) untouched. Empty on an invalid CIDR.
+auto BuildEthAddrDelArgv(const std::string& cidr,
+                         const std::string& iface) -> std::vector<std::string>;
+
 // `ip route replace default via <gateway> dev <iface>` — idempotent default
 // route. Empty on an invalid gateway literal or empty iface.
 auto BuildEthRouteReplaceArgv(const std::string& gateway,

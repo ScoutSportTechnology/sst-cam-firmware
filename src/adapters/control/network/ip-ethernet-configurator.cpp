@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "adapters/control/network/ip-ethernet-command.hpp"
+#include "adapters/control/network/net-iface.hpp"
 #include "adapters/control/network/subprocess.hpp"
 
 namespace sst::adapters::control {
@@ -46,42 +47,6 @@ auto ReadTrimmed(const std::string& path) -> std::string {
         content.pop_back();
     }
     return content;
-}
-
-// First ARPHRD_ETHER, non-wireless, non-virtual interface under /sys/class/net —
-// mirrors deploy/install.sh detect_eth_iface (type=="1", no wireless/ subdir,
-// skip lo/docker/veth/br-/virbr/wl/p2p/rndis/usb). Empty if none.
-auto DetectWiredIface() -> std::string {
-    namespace fs = std::filesystem;
-    std::error_code dir_ec;
-    std::vector<std::string> names;
-    for (const auto& entry : fs::directory_iterator("/sys/class/net", dir_ec)) {
-        names.push_back(entry.path().filename().string());
-    }
-    // Deterministic order so the pick is stable across boots.
-    std::sort(names.begin(), names.end());
-    for (const auto& name : names) {
-        static constexpr std::array<const char*, 9> kSkipPrefixes = {
-            "lo", "docker", "veth", "br-", "virbr", "wl", "p2p", "rndis", "usb"};
-        bool skip = (name == "lo");
-        for (const auto* prefix : kSkipPrefixes) {
-            if (name.starts_with(prefix)) {
-                skip = true;
-                break;
-            }
-        }
-        if (skip) {
-            continue;
-        }
-        if (fs::exists("/sys/class/net/" + name + "/wireless", dir_ec)) {
-            continue;
-        }
-        if (ReadTrimmed("/sys/class/net/" + name + "/type") != "1") {
-            continue;
-        }
-        return name;
-    }
-    return {};
 }
 
 // Physical carrier state — /sys/class/net/<iface>/carrier is "1" only when the
@@ -188,6 +153,8 @@ auto IpEthernetConfigurator::ApplyStatic(const std::string& iface,
     WriteResolvConf(BuildResolvConf(dns));
 
     last_mode_ = sst::network::EthernetMode::kStatic;
+    // Provenance: this address is ours, so teardown may remove it later.
+    applied_address_ = cidr;
     const std::string address = IfaceIpv4Cidr(iface);
     spdlog::info("IpEthernetConfigurator: static ethernet up on {} ({})", iface,
                  address.empty() ? cidr : address);
@@ -196,9 +163,23 @@ auto IpEthernetConfigurator::ApplyStatic(const std::string& iface,
 
 auto IpEthernetConfigurator::ApplyDhcp(const std::string& iface)
     -> sst::network::EthernetApplyResult {
-    // Self-heal from a dirty prior state (e.g. a leftover static address) before
-    // leasing — otherwise the iface can hold both and readback is ambiguous.
-    RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
+    // Self-heal from a dirty prior state (e.g. a leftover static address WE set)
+    // before leasing — otherwise the iface can hold both and readback is ambiguous.
+    // Provenance-scoped: only our own previous address is removed. An out-of-band
+    // address is left alone (removing it could strand the camera) — dhclient simply
+    // adds the lease alongside it, which is untidy but never destructive.
+    if (!applied_address_.empty()) {
+        const auto del_argv = BuildEthAddrDelArgv(applied_address_, iface);
+        if (!del_argv.empty()) {
+            RunBounded(del_argv, kApplyTimeout);
+        }
+        applied_address_.clear();
+    } else if (!IfaceIpv4Cidr(iface).empty()) {
+        spdlog::warn(
+            "IpEthernetConfigurator: {} already carries an address this firmware did not set — "
+            "leasing alongside it rather than flushing it",
+            iface);
+    }
     // Root: dhclient uses its default lease/pid paths and its dhclient-script
     // writes /etc/resolv.conf directly (the non-root /tmp workaround is gone, U2).
     RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
@@ -211,6 +192,8 @@ auto IpEthernetConfigurator::ApplyDhcp(const std::string& iface)
         return {.ok = false, .detail = "no DHCP lease"};
     }
     last_mode_ = sst::network::EthernetMode::kDhcp;
+    // Provenance: the lease is ours, so teardown may release exactly it.
+    applied_address_ = address;
     spdlog::info("IpEthernetConfigurator: DHCP ethernet up on {} ({})", iface, address);
     return {.ok = true, .detail = address};
 }
@@ -251,12 +234,30 @@ auto IpEthernetConfigurator::TeardownEthernet() -> void {
     if (iface.empty()) {
         return;
     }
-    // `ip addr flush` removes the bound address AND its connected route; any
-    // default route via this iface drops with the address. Best-effort/idempotent —
-    // flushing an already-clean iface is a harmless no-op.
-    RunBounded({"ip", "addr", "flush", "dev", iface}, kApplyTimeout);
+    // Provenance gate (see applied_address_): if this firmware never applied an
+    // address, whatever is on the NIC belongs to someone else — very likely the
+    // operator's static management IP. Removing it would strand the camera with no
+    // way back, so leave it and only forget our mode.
+    if (applied_address_.empty()) {
+        last_mode_ = sst::network::EthernetMode::kDown;
+        spdlog::info(
+            "IpEthernetConfigurator: ethernet teardown on {} left the existing address in place "
+            "(not applied by this firmware — refusing to strand the camera)",
+            iface);
+        return;
+    }
+    // Remove exactly OUR address (and with it, its connected route + any default
+    // route through it). Surgical rather than `ip addr flush`, so a co-present
+    // out-of-band address survives. Idempotent: deleting an already-absent address
+    // is a harmless non-zero.
+    const auto del_argv = BuildEthAddrDelArgv(applied_address_, iface);
+    if (!del_argv.empty()) {
+        RunBounded(del_argv, kApplyTimeout);
+    }
+    spdlog::info("IpEthernetConfigurator: ethernet torn down on {} (removed {})", iface,
+                 applied_address_);
+    applied_address_.clear();
     last_mode_ = sst::network::EthernetMode::kDown;
-    spdlog::info("IpEthernetConfigurator: ethernet torn down on {} (address flushed)", iface);
 }
 
 auto IpEthernetConfigurator::ProbeDhcpOffer() -> std::optional<std::string> {

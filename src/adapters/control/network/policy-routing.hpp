@@ -80,6 +80,13 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string>;
 // "<iface>"` literal can carry no shell/nft metacharacters, newline, or directive.
 auto BuildFirewallRulesetScript(const std::string& iface) -> std::string;
 
+// The conntrack-free variant of the same egress-only ruleset, applied when the
+// stateful one is rejected because the kernel has no nft_ct module (JetPack 7.2 ships
+// nft_chain_nat/compat/masq/nat only). Drops inbound SYN-only TCP — no externally
+// initiated connection can reach a camera service, while SYN+ACK replies to the
+// camera's own outbound connections still pass. Empty on an unsafe iface.
+auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::string;
+
 // The firmware-owned policy-routing adapter. Forks `ip`/`nft` (root) via the
 // bounded argv-vector subprocess helper (never a shell). Hardware-bound — verified
 // on-device; in the cross-compile container the `ip`/`nft` calls simply fail

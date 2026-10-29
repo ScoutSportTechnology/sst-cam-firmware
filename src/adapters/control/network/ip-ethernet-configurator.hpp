@@ -43,6 +43,16 @@ class IpEthernetConfigurator final : public sst::network::IEthernetController {
     // The last mode the firmware itself applied — the source of truth for
     // readback (cross-checked against live lease/address state in ProbeEthernet).
     sst::network::EthernetMode last_mode_{sst::network::EthernetMode::kDown};
+
+    // PROVENANCE (metal finding): the exact CIDR THIS firmware put on the wired NIC,
+    // empty when it has applied none. Teardown removes only this address — never a
+    // blanket `ip addr flush`. Rationale: the firmware owns the NIC (R1) but the
+    // address on it may predate that ownership (NetworkManager, or an operator's
+    // static management IP). Flushing such an address on any carrier blip or
+    // de-selection strands the camera off the LAN with no route back — observed on
+    // metal, where a cable replug wiped a 10.10.1.30 the firmware never set and only
+    // a BLE re-provision recovered it. "Only destroy what you created."
+    std::string applied_address_;
 };
 
 }  // namespace sst::adapters::control
