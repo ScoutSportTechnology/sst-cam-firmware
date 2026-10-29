@@ -95,7 +95,9 @@ Task 5 verification (2026-10-29): devcontainer aarch64 test and debug cross-buil
 
 - [x] Add failing export/catalog/token tests for same-folder L1+L2 and persistent L2 after token consumption/expiration.
 - [x] Change production export output path, remove any post-download L2 deletion, run focused tests and commit `feat(export): retain L2 beside L1 as a downloadable recording`.
-- [ ] Run `devcontainer exec --workspace-folder . bash -lc 'cmake --preset test && cmake --build --preset test && ctest --preset test'` as feasible; run `/root/setup/act/run-light.sh` and `/root/setup/act/run-heavy.sh` from the firmware repo, inspect `/var/log/act-*.log`, and fix all `format`, `tidy`, `test`, `ci-scripts` failures except the known unmerged-proto pin check. Review `git diff`, push branch, open draft PR to `development` with the specified breaking title and contract questions. Do not merge.
+- [x] Run devcontainer cross-build and CI-excluded ctest; run `/root/setup/act/run-light.sh` and `/root/setup/act/run-heavy.sh`, inspect `/var/log/act-*.log`, and verify `format`, `tidy`, `test`, and actual workflow `ci-scripts` commands except the known unmerged-proto pin check. Review `git diff`, push branch, open draft PR to `development` with the specified breaking title and contract questions. Do not merge.
+
+Verification (2026-10-29): after review fixes, `act` test succeeded 454/454; light `format`, `changes`, `image` succeeded; heavy tidy shard 0/4 succeeded. The VM helper `run-light.sh` points at a stale fixture (`resolve-version*.sh` no longer exists); actual workflow shellcheck, tidy-run self-test (19/19), and deploy/install-test (40/40) passed manually. Actual workflow `ci-scripts` reached its proto pin gate and failed as expected because proto #18 is unmerged; the VM event fixture incorrectly labels the base `release/0.1.0`, while this PR targets `development`. `check-proto-pin.sh development` confirms only the expected unmerged-commit failure. No metal validation.
 
 ## Reviewer fixes (2026-10-29)
 
