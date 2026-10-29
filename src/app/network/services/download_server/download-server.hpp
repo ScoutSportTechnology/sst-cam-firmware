@@ -21,24 +21,48 @@ class DownloadServer {
    public:
     using Clock = std::function<std::uint64_t()>;  // unix seconds
 
-    DownloadServer(std::filesystem::path video_root, Clock clock);
+    DownloadServer(std::filesystem::path video_root, std::filesystem::path thumbnail_root,
+                   Clock clock);
 
     [[nodiscard]] auto Enumerate() const -> std::vector<RecordingSummary>;
 
     // Mint a token for `recording_id` valid for `ttl_seconds`. nullopt if the
     // recording does not exist on disk.
-    auto MintToken(const std::string& recording_id, std::uint64_t ttl_seconds)
-        -> std::optional<DownloadToken>;
+    auto MintToken(const std::string& recording_id,
+                   std::uint64_t ttl_seconds) -> std::optional<DownloadToken>;
+
+    // Mint a token for an explicit file path (the burned overlay L2, #6 F6c),
+    // which lives outside the recordings catalog so it never appears in
+    // Enumerate(). `id` labels the token (echoed back as the download id).
+    // nullopt if the file does not exist.
+    auto MintTokenForFile(const std::filesystem::path& file, const std::string& file_id,
+                          std::uint64_t ttl_seconds) -> std::optional<DownloadToken>;
 
     // Resolve a (non-expired) token to the file it authorizes. nullopt if the
     // token is unknown or expired.
     auto ValidateToken(const std::string& token) -> std::optional<std::filesystem::path>;
 
-   private:
+    // True if any currently-live (unexpired) download token points at `file`.
+    // Consulted by proxy retention (U7) so a sweep never deletes a proxy file a
+    // client is mid-download on.
+    [[nodiscard]] auto IsTokened(const std::filesystem::path& file) const -> bool;
+
+    // Resolve a recording id to its `<id>.jpg` thumbnail under the thumbnail
+    // root. nullopt if no such file exists. Unlike video downloads, thumbnails
+    // are served untokened (small, non-sensitive preview frames over the P2P
+    // link), so the HTTP server resolves by id directly.
+    [[nodiscard]] auto ResolveThumbnailPath(const std::string& recording_id) const
+        -> std::optional<std::filesystem::path>;
+
+    // Resolve a recording id to its `<id>.mp4` (or raw `.nv12`) under the video
+    // root. Public so the overlay-export job (#6 F6c) can locate the clean L1 to
+    // burn. nullopt if no such file exists.
     [[nodiscard]] auto ResolveRecordingPath(const std::string& recording_id) const
         -> std::optional<std::filesystem::path>;
 
+   private:
     std::filesystem::path video_root_;
+    std::filesystem::path thumbnail_root_;
     Clock clock_;
 
     mutable std::mutex mtx_;

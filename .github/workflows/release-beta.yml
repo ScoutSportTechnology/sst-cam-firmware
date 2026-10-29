@@ -11,7 +11,7 @@
 #
 #   * PUSHES to a `release/X.Y.Z` branch run the beta RELEASE job: resolve the
 #     next `vX.Y.Z-beta.N` tag, cross-build the aarch64 binary inside the
-#     devcontainer, record its SHA-256 in the Release notes, and publish it as a
+#     compiler image, record its SHA-256 in the Release notes, and publish it as a
 #     PRERELEASE asset. This is the exact binary that release.yml later copies
 #     onto the stable Release — no rebuild on `main`.
 #
@@ -23,7 +23,7 @@
 #
 # The base version X.Y.Z is the release branch's own name (release/X.Y.Z), NOT a
 # commit scan: a release branch IS the declaration of its target version. A
-# branch name that is not `release/X.Y.Z` fails fast (resolve-version.sh rejects
+# branch name that is not `release/X.Y.Z` fails fast (the shared resolver rejects
 # a malformed beta base).
 #
 # INTEGRITY HAND-OFF: this workflow records the published binary's SHA-256 in the
@@ -37,16 +37,18 @@
 # real Jetson and tested with the app before a maintainer opens the
 # `release/X.Y.Z -> main` PR.
 #
-# WHY the devcontainer: the Jetson aarch64 cross-build is only correct inside the
-# repo's devcontainer image (custom Bootlin toolchain, the order-sensitive L4T
-# sysroot prep scripts, host-protoc codegen, OpenCV SONAME pin, Conan cache). We
-# reuse that image via devcontainers/ci rather than re-deriving the toolchain
-# here, so every cross-build gotcha stays solved in one place (see CLAUDE.md).
+# WHY the compiler image: the Jetson aarch64 cross-build is only correct inside
+# the repo's compiler image (gcc-13 aarch64 cross toolchain, the order-sensitive
+# L4T sysroot prep scripts, host-protoc codegen, OpenCV SONAME pin, Conan cache).
+# So every cross-build gotcha stays solved in one place (see CLAUDE.md).
 #
-# KNOWN RISK: heavy/flaky JetPack devcontainer build on hosted runners — first
-# build unpacks a ~37 GB L4T targetfs sysroot (~20 min cold) and may exceed a
-# stock hosted runner's disk/time. Re-run with `gh run rerun <id> --failed`; a
-# self-hosted runner that keeps the sysroot + image warm is the durable fix.
+# COMPILER IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler, built
+# and published only by compiler-image.yml from compiler-image/ (tag =
+# compiler-image/VERSION, immutable). The `image` job resolves the tag, checks
+# the devcontainer pins the same one and that it is published; tidy/test/
+# cross-build `needs:` it and `docker pull`+`docker run` the image (no sysroot
+# build here). format + ci-scripts are host-only (no image). SECURITY: consumers
+# pull a pinned version tag (never a mutable `:latest`).
 # =============================================================================
 name: release-beta
 
@@ -55,6 +57,15 @@ on:
     branches: ["release/**"]
   push:
     branches: ["release/**"]
+    # Docs-only pushes don't change the binary — skip the beta cross-build + tag so
+    # a docs/markdown merge doesn't cut a throwaway vX.Y.Z-beta.N. Beta derives its
+    # version from the branch name (every push bumps), so unlike alpha it cannot
+    # skip via conventional-commit type — this paths filter is the guard. A mixed
+    # push (code AND docs) still builds (paths-ignore skips only when EVERY changed
+    # path matches).
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 # Serialize betas on the same release branch; cancel a superseded push/PR run.
@@ -65,7 +76,93 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  # Published cross-compiler image (recipe: compiler-image/, published by
+  # compiler-image.yml). Tag = compiler-image/VERSION, resolved by the `image`
+  # job; tidy/test/release pull it.
+  IMAGE: ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler
+
 jobs:
+  # ===========================================================================
+  # image — resolve the compiler image tag (compiler-image/VERSION), check that
+  # the devcontainer pins the same tag, and fail fast if it is not published.
+  # The image is built only by compiler-image.yml (whenever compiler-image/
+  # changes); tidy/test/release `needs:` this job and pull `${IMAGE}:<tag>`.
+  # ===========================================================================
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve compiler image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          tag="$(tr -d '[:space:]' < compiler-image/VERSION)"
+          dev="$(sed -n 's#^FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:\([^ ]*\).*#\1#p' .devcontainer/Dockerfile)"
+          if [ "$dev" != "$tag" ]; then
+            echo "::error::.devcontainer/Dockerfile uses compiler image tag '${dev}' but compiler-image/VERSION is '${tag}'"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check the tag is published
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! docker buildx imagetools inspect "${IMAGE}:${TAG}" >/dev/null; then
+            echo "::error::${IMAGE}:${TAG} is not published. The compiler-image workflow publishes it on any push that changes compiler-image/; re-run this job once it is green."
+            exit 1
+          fi
+
+  # ===========================================================================
+  # changes — detect whether a PR touches build-relevant paths. The EXPENSIVE
+  # checks (tidy ~21 min, test ~16 min) gate on `code`; a docs/workflow-only PR
+  # skips them. A job SKIPPED by `if:` counts as SUCCESS for required status
+  # checks (only a never-reported/pending check blocks the merge), so the wired
+  # `tidy`/`test` names stay green on a docs-only PR without running. The cheap
+  # checks (ci-scripts 6 s, format 17 s, image 8 s cache-hit) stay always-on.
+  # ===========================================================================
+  changes:
+    name: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Filter build-relevant paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - '.devcontainer/**'
+              - 'compiler-image/**'
+              - 'conanfile.py'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
+              - 'proto/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+
   # ===========================================================================
   # CI CHECK JOBS — PR-only. The job names below (`ci-scripts`, `format`,
   # `tidy`, `test`) are the REQUIRED STATUS CHECKS wired into the branch
@@ -73,8 +170,8 @@ jobs:
   # ===========================================================================
 
   # ---------------------------------------------------------------------------
-  # ci-scripts — gate the shared release version-math script: shellcheck +
-  # its own unit-test harness. Host-side only (no devcontainer). This is a
+  # ci-scripts — gate the CI/deploy scripts (shellcheck + self-tests) and the
+  # proto/ contract pin. Host-side only (no devcontainer). This is a
   # SEPARATE job; it must NOT be merged into format/tidy/test, whose names are
   # the wired required status checks.
   # ---------------------------------------------------------------------------
@@ -86,11 +183,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: shellcheck resolve-version scripts
-        run: shellcheck scripts/ci/resolve-version*.sh
+      - name: shellcheck tidy-run + proto-pin + deploy scripts
+        run: shellcheck scripts/ci/tidy-run.sh scripts/ci/test-tidy-run.sh scripts/ci/check-proto-pin.sh deploy/install.sh deploy/install-test.sh
 
-      - name: resolve-version unit tests
-        run: ./scripts/ci/resolve-version-test.sh
+      # Contract pin: proto/ must point at a commit merged into the sst-cam-proto
+      # branch with the same name as this PR's base (development or
+      # release/X.Y.Z). Version math lives in ScoutSportTechnology/.github.
+      - name: proto pin check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: ./scripts/ci/check-proto-pin.sh "$BASE_REF"
+
+      # Selection/sharding self-test for tidy-run.sh (R-SELECT): asserts the
+      # shard split covers every TU exactly once and that an unwired TU fails.
+      # Host-side (pure bash + the synthetic trees it builds) — no devcontainer.
+      - name: tidy-run selection self-test
+        run: ./scripts/ci/test-tidy-run.sh
+
+      - name: install.sh runtime-dep contract tests
+        run: ./deploy/install-test.sh
 
   # ---------------------------------------------------------------------------
   # format — clang-format dry-run (Google style, .clang-format) over src/+tests/
@@ -100,10 +211,71 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
-      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
-      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
-      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
-      # runner is required (see header note).
+      # clang-format is a HOST tool — no cross sysroot needed. ubuntu-24.04 ships
+      # clang-format-18 (matches the devcontainer's noble clang-format), so run it
+      # on the runner directly instead of building/pulling the ~15 GB image.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format-18
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang-format-18
+
+      - name: clang-format --dry-run --Werror
+        run: |
+          set -euo pipefail
+          files=$(find src tests \
+            \( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \) \
+            -not -path '*/_old/*')
+          if [ -z "$files" ]; then
+            echo "No C++ sources found to format-check"; exit 1
+          fi
+          echo "$files" | xargs clang-format-18 --dry-run --Werror
+
+  # ---------------------------------------------------------------------------
+  # tidy — clang-tidy over the test preset's compile_commands.json, SHARDED.
+  #
+  # clang-tidy cost scales with TU COUNT: ~95 TUs each re-parse the heavy
+  # GStreamer/OpenCV headers, so a single-job full scan is ~21 min flat. We keep
+  # FULL-TREE coverage (no diff-scope, no coverage hole — "green = clean tree"
+  # stays true) and instead SPLIT the TU list across a runner matrix:
+  # `tidy-shard` lints round-robin slices in parallel (scripts/ci/tidy-run.sh),
+  # cutting lint wall-time ~Nx, and the `tidy` AGGREGATOR fails iff any shard
+  # failed.
+  #
+  # `tidy` (NOT `tidy-shard`) is the wired REQUIRED STATUS CHECK — a matrix job
+  # reports as `tidy-shard (0)`, `tidy-shard (1)`, … which would NOT satisfy the
+  # branch ruleset. Keep the aggregator's `name: tidy` byte-identical (see
+  # docs/ci/rulesets.md). Retune the shard count by editing the matrix `shard:`
+  # list ALONE — `${{ strategy.job-total }}` derives the total from that list and
+  # passes it to tidy-run.sh, so the index and total cannot drift.
+  # ---------------------------------------------------------------------------
+  tidy-shard:
+    name: tidy-shard
+    needs: [changes, image]
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    # Hard gate: the cross-toolchain flags (scripts/tidy-args.sh) resolve all
+    # std/system headers, the tree is clean, and .clang-tidy promotes every
+    # diagnostic to an error via WarningsAsErrors. A new lint violation in ANY
+    # shard fails the run. clang-tidy is noble clang-tidy v18 (see .clang-tidy).
+    strategy:
+      # One shard's violation must not cancel the others — collect every shard's
+      # findings in a single run instead of stopping at the first failure.
+      fail-fast: false
+      matrix:
+        # The shard TOTAL is derived from this list via ${{ strategy.job-total }}
+        # and passed to tidy-run.sh, so the index and the total can never drift
+        # (a hardcoded total is a silent-coverage-hole hazard). Retune by editing
+        # this list alone. Entries MUST be the contiguous range 0..N-1 — the
+        # round-robin covers bins 0..total-1, and any gap/out-of-range fails
+        # CLOSED (tidy-run.sh rejects an index >= total).
+        shard: [0, 1, 2, 3]
+    steps:
+      # The compiler image is ~5.2 GB compressed / ~10.7 GB unpacked; a stock
+      # hosted runner has ~14 GB free. Reclaim ~30GB of preinstalled toolchains first.
       - name: Free up disk space (host)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -117,47 +289,72 @@ jobs:
         with:
           submodules: recursive
 
-      - name: clang-format --dry-run --Werror
-        uses: devcontainers/ci@v0.3
+      - name: Restore Conan cache
+        uses: actions/cache@v4
         with:
-          # Build the devcontainer locally per run — no ghcr imageName/cacheFrom.
-          # ghcr image caching needs registry login + push perms and was failing
-          # at `docker tag ... ghcr.io/...`; deferred as an optimization. Each run
-          # rebuilds the image (sysroot unpack ~13 min, observed to fit the runner).
-          runCmd: |
-            set -euo pipefail
-            files=$(find src tests \
-              \( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \) \
-              -not -path '*/_old/*')
-            if [ -z "$files" ]; then
-              echo "No C++ sources found to format-check"; exit 1
-            fi
-            echo "$files" | xargs clang-format --dry-run --Werror
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
+
+      # Register qemu-aarch64 in the host binfmt_misc so aarch64 binaries started
+      # inside the container run (ctest also wraps the test binaries in qemu).
+      - name: Set up QEMU (arm64 binfmt)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pull the published compiler image (tag from the `image` job), then run
+      # this shard inside it — no per-run sysroot rebuild on the fast path. Run as
+      # root so the bind-mounted workspace (owned by the runner uid) is writable
+      # for the build dir; the image's PATH already exposes conan + the gcc-13
+      # cross toolchain. tidy-run.sh builds (cmake + sst_proto) then lints only
+      # this shard's slice.
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
+        with:
+          image: ${{ env.IMAGE }}
+          tag: ${{ needs.image.outputs.tag }}
+
+      - name: clang-tidy shard ${{ matrix.shard }} of ${{ strategy.job-total }} (-p build/test)
+        env:
+          TAG: ${{ needs.image.outputs.tag }}
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
+        run: |
+          set -euo pipefail
+          docker run --rm --user root \
+            -v "$PWD":/workspace -w /workspace \
+            -v "$HOME/.conan2":/root/.conan2 -e CONAN_HOME=/root/.conan2 \
+            -e SHARD="${SHARD}" -e TOTAL="${TOTAL}" \
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail
+              # clang-tidy is an editor/lint tool, not part of the compiler image:
+              # install noble v18 (same version as the devcontainer) for this shard.
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends clang-tidy >/dev/null
+              scripts/ci/tidy-run.sh shard "${SHARD}" "${TOTAL}"'
 
   # ---------------------------------------------------------------------------
-  # tidy — clang-tidy over a configured preset's compile_commands.json
+  # tidy — AGGREGATOR + floor-NOLINT guard. This is the wired REQUIRED STATUS
+  # CHECK (name byte-identical; see docs/ci/rulesets.md). Host-side only — no
+  # devcontainer. `if: always()` is load-bearing: a FAILED shard must not
+  # skip-propagate through `needs:` and turn this job into a green "skipped"
+  # (a job skipped by an unmet `needs:` counts as SUCCESS for required checks).
+  # So we run regardless and assert the shard aggregate result ourselves.
   # ---------------------------------------------------------------------------
   tidy:
     name: tidy
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: [changes, tidy-shard]
+    if: ${{ always() && github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
-    # Hard gate: the cross-toolchain flags (scripts/tidy-args.sh) resolve all
-    # std/system headers, the tree is clean, and .clang-tidy promotes every
-    # diagnostic to an error via WarningsAsErrors. A new lint violation fails the
-    # PR. clang-tidy is version-locked to clang-tidy-14 (see .clang-tidy).
     steps:
-      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
-      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
-      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
-      # runner is required (see header note).
-      - name: Free up disk space (host)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
-
       - name: Checkout (with proto submodule)
         uses: actions/checkout@v4
         with:
@@ -168,7 +365,7 @@ jobs:
       # Self-test the guard before trusting it: asserts every bypass class
       # (bare/wildcard/non-leading-list NOLINT, faked marker) is still caught.
       # A regex regression here would silently let unsanctioned floor NOLINTs
-      # through the gate below.
+      # through the gate.
       - name: Floor-NOLINT guard self-test
         run: scripts/test-check-floor-nolints.sh
 
@@ -179,59 +376,40 @@ jobs:
       - name: Floor-NOLINT guard (diff-scoped)
         run: scripts/check-floor-nolints.sh "${{ github.event.pull_request.base.sha }}"
 
-      - name: Restore Conan cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
-          restore-keys: |
-            conan-${{ runner.os }}-
-
-      - name: clang-tidy (-p build/test)
-        uses: devcontainers/ci@v0.3
-        with:
-          # Build the devcontainer locally per run — no ghcr imageName/cacheFrom.
-          # ghcr image caching needs registry login + push perms and was failing
-          # at `docker tag ... ghcr.io/...`; deferred as an optimization. Each run
-          # rebuilds the image (sysroot unpack ~13 min, observed to fit the runner).
-          runCmd: |
-            set -euo pipefail
-            # Configure the test preset to generate compile_commands.json.
-            cmake --preset test
-            # Generate the protobuf headers (bluetooth.pb.h / wifi.pb.h) before
-            # tidy. clang-tidy does not build — without this the generated
-            # headers are absent, every TU that includes them hits
-            # clang-diagnostic-error 'bluetooth.pb.h not found', and the broken
-            # AST yields a cascade of phantom findings (members "can be made
-            # static", spurious easily-swappable, etc.). Building just sst_proto
-            # runs protoc only — seconds, not the full cross-build.
-            cmake --build --preset test --target sst_proto
-            files=$(find src tests \
-              \( -name '*.cpp' -o -name '*.cc' \) \
-              -not -path '*/_old/*')
-            if [ -z "$files" ]; then
-              echo "No C++ translation units found to tidy"; exit 1
-            fi
-            # Cross-toolchain flags live in scripts/tidy-args.sh — the single
-            # source of truth shared with scripts/fix.sh so the two can't drift.
-            # shellcheck source=scripts/tidy-args.sh
-            source scripts/tidy-args.sh
-            # No blanket --warnings-as-errors='*' here: the repo's .clang-tidy
-            # decides severity via WarningsAsErrors.
-            echo "$files" | xargs clang-tidy-14 -p build/test "${TIDY_EXTRA_ARGS[@]}"
+      # The merge gate: fail unless EVERY shard succeeded. `needs.tidy-shard.result`
+      # is the matrix aggregate — "success" only when all legs passed.
+      - name: Assert all tidy shards passed
+        run: |
+          set -euo pipefail
+          result="${{ needs.tidy-shard.result }}"
+          echo "tidy-shard aggregate result: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "::error::one or more tidy shards did not pass (${result})"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # test — cross-build the test preset and run GTest under qemu (ctest)
   # ---------------------------------------------------------------------------
   test:
     name: test
-    if: ${{ github.event_name == 'pull_request' }}
+    needs: [changes, image]
+    # always(): if `image` fails, a plain `needs:` would SKIP this required check,
+    # and a skipped check counts as success. Run anyway and fail on the first step.
+    if: ${{ always() && github.event_name == 'pull_request' && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
-      # The JetPack base image + ~37GB L4T sysroot exhaust a stock hosted
-      # runner's disk (observed: ENOSPC pulling the base image). Reclaim ~30GB
-      # of preinstalled toolchains first. If this still ENOSPCs, a self-hosted
-      # runner is required (see header note).
+      - name: Require the compiler image
+        if: ${{ needs.image.result != 'success' }}
+        run: |
+          echo "::error::the image job did not succeed (${{ needs.image.result }}): the compiler image tag is not usable."
+          exit 1
+
+      # The compiler image is ~5.2 GB compressed / ~10.7 GB unpacked; a stock
+      # hosted runner has ~14 GB free. Reclaim ~30GB of preinstalled toolchains first.
       - name: Free up disk space (host)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -253,26 +431,48 @@ jobs:
           restore-keys: |
             conan-${{ runner.os }}-
 
-      - name: cmake test preset + build + ctest (qemu)
-        uses: devcontainers/ci@v0.3
+      # Register qemu-aarch64 in the host binfmt_misc so aarch64 binaries started
+      # inside the container run (ctest also wraps the test binaries in qemu).
+      - name: Set up QEMU (arm64 binfmt)
+        uses: docker/setup-qemu-action@v3
         with:
-          # Build the devcontainer locally per run — no ghcr imageName/cacheFrom.
-          # ghcr image caching needs registry login + push perms and was failing
-          # at `docker tag ... ghcr.io/...`; deferred as an optimization. Each run
-          # rebuilds the image (sysroot unpack ~13 min, observed to fit the runner).
-          # Hardware-bound tests (real IMX477 / BlueZ / radio / live GStreamer)
-          # are expected to fail in the cross-compile container — see CLAUDE.md.
-          # They are NOT yet tagged with a CTest LABEL, so we exclude the known
-          # hardware-bound test names by regex (-E) here.
-          # DURABLE FIX (firmware owner): add `set_tests_properties(... PROPERTIES
-          # LABELS hardware)` (or a gtest naming convention) and switch this to
-          # `ctest -LE hardware`, so new hardware tests are excluded automatically.
-          runCmd: |
-            set -euo pipefail
-            cmake --preset test
-            cmake --build --preset test
-            QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test --output-on-failure \
-              -E 'CaptureSingleFrameAndLog|AdvertisesOnRealBluez|FormsAutonomousGroupOwner|HttpServesByteRangeWithBearerToken'
+          platforms: arm64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pull the published compiler image (tag from the `image` job), then run the cross-build + ctest inside it —
+      # no per-run sysroot rebuild on the fast path. ctest runs the aarch64 GTest
+      # binaries under qemu (host binfmt from setup-qemu-action); QEMU_LD_PREFIX
+      # points the emulator at the L4T targetfs for shared libs. Hardware-bound
+      # tests (real IMX477 / BlueZ / radio / live GStreamer) fail in the cross
+      # container — see CLAUDE.md — so the known names are excluded by -E.
+      # DURABLE FIX (firmware owner): tag them `LABELS hardware` + switch to -LE.
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
+        with:
+          image: ${{ env.IMAGE }}
+          tag: ${{ needs.image.outputs.tag }}
+
+      - name: cmake test preset + build + ctest (qemu)
+        env:
+          TAG: ${{ needs.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker run --rm --user root \
+            -v "$PWD":/workspace -w /workspace \
+            -v "$HOME/.conan2":/root/.conan2 -e CONAN_HOME=/root/.conan2 \
+            -e QEMU_LD_PREFIX=/l4t/targetfs \
+            "${IMAGE}:${TAG}" bash -lc '
+              set -euo pipefail
+              cmake --preset test
+              cmake --build --preset test
+              ctest --preset test --output-on-failure \
+                -E "RawCaptureSinkE2E|CaptureSingleFrameAndLog|AdvertisesOnRealBluez|FormsAutonomousGroupOwner|HttpServesByteRangeWithBearerToken"'
 
   # ===========================================================================
   # BETA RELEASE JOBS — push/dispatch-only. NOT gated behind the check jobs:
@@ -280,7 +480,7 @@ jobs:
   # The PR's own green checks (run above on the PR) are the gate.
   # ===========================================================================
   resolve:
-    name: resolve beta version
+    name: resolve beta/rc version
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     outputs:
@@ -291,29 +491,27 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Derive base X.Y.Z from the release branch + resolve next beta
+      # mode: release takes X.Y.Z from the release/X.Y.Z branch name (fails fast
+      # on any other shape) and mints beta.N, or rc.N once promote-rc.yml
+      # re-tagged the hardware-validated beta as rc.1.
+      - name: Resolve next beta or rc tag
         id: ver
-        run: |
-          set -euo pipefail
-          # GITHUB_REF_NAME is the branch short name, e.g. "release/0.1.0".
-          base="${GITHUB_REF_NAME#release/}"
-          if [ "$base" = "$GITHUB_REF_NAME" ]; then
-            echo "::error::not a release/* branch: '${GITHUB_REF_NAME}'" >&2
-            exit 1
-          fi
-          # resolve-version.sh fails fast if $base is not a clean X.Y.Z.
-          ./scripts/ci/resolve-version.sh beta "$base"
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: release
 
   build-and-upload:
     name: cross-build beta binary
-    needs: resolve
+    needs: [resolve, image]
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload the release asset
+      packages: read # pull the compiler image
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
     steps:
-      # Reclaim ~30GB so the JetPack base image + L4T sysroot fit on a hosted
-      # runner (else ENOSPC). Self-hosted runner needed if this still fails.
+      # Reclaim disk before pulling the prebuilt image (no sysroot rebuild here).
       - name: Free up disk space (host)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # main
         with:
@@ -327,64 +525,59 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Restore Conan cache
-        uses: actions/cache@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.py') }}
-          restore-keys: |
-            conan-${{ runner.os }}-
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pull the published compiler image (tag from the `image` job), then run the release cross-build inside it —
+      # no per-run sysroot rebuild on the fast path. The binary lands in the
+      # bind-mounted build/ on the host for the staging step below.
+      - name: Pull compiler image
+        uses: ./.github/actions/pull-compiler-image
+        with:
+          image: ${{ env.IMAGE }}
+          tag: ${{ needs.image.outputs.tag }}
 
       - name: cmake release preset + build
-        uses: devcontainers/ci@v0.3
-        with:
-          # Build the devcontainer locally — no ghcr imageName/cacheFrom (needs
-          # registry login + push perms; was failing at `docker tag ghcr.io/...`).
-          # Deferred caching optimization.
-          runCmd: |
-            set -euo pipefail
-            cmake --preset release
-            cmake --build --preset release
-            test -x build/release/bin/sst_cam_firmware
+        env:
+          IMG_TAG: ${{ needs.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker run --rm --user root \
+            -v "$PWD":/workspace -w /workspace \
+            -v "$HOME/.conan2":/root/.conan2 -e CONAN_HOME=/root/.conan2 \
+            "${IMAGE}:${IMG_TAG}" bash -lc '
+              set -euo pipefail
+              cmake --preset release
+              cmake --build --preset release
+              test -x build/release/bin/sst_cam_firmware'
 
-      - name: Stage versioned asset + compute SHA-256
+      - name: Stage versioned asset
         id: asset
         run: |
           set -euo pipefail
           asset="sst_cam_firmware-${TAG}-aarch64"
           cp build/release/bin/sst_cam_firmware "${asset}"
-          sha="$(sha256sum "${asset}" | cut -d' ' -f1)"
           echo "path=${asset}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${sha}" >> "$GITHUB_OUTPUT"
 
-      - name: Compose release notes (records the binary SHA-256)
-        id: notes
-        env:
-          SHA256: ${{ steps.asset.outputs.sha256 }}
-          ASSET: ${{ steps.asset.outputs.path }}
-        run: |
-          set -euo pipefail
-          # The `sha256: <hex>` line is the verified hand-off contract that
-          # release.yml parses and checks the downloaded asset against. Keep the
-          # exact `sha256: <64-hex>` shape — release.yml greps for it.
-          {
-            echo 'body<<EOF'
-            printf 'Beta prerelease for hardware sign-off.\n\nAsset: `%s`\nsha256: %s\n' "$ASSET" "$SHA256"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      # Atomic publish: create the prerelease (recording the SHA-256 in the body)
-      # AND attach the binary in ONE step. softprops creates the Release+tag if
-      # missing. Splitting create-then-upload let a cancel between the two leave a
-      # dangling asset-less immutable tag, bricking release.yml's verified hand-off
-      # for this base — so this is deliberately one atomic step.
-      - name: Publish beta prerelease (create + attach binary, atomic)
-        uses: softprops/action-gh-release@v2
+      # publish-release (ScoutSportTechnology/.github) creates the Release as a
+      # draft, uploads the binary, records `sha256: <hex>  <asset>` in the notes
+      # (the digest promote verifies) and only then publishes it, so a cancel
+      # can't leave an asset-less tag.
+      - name: Publish beta/rc prerelease (binary + SHA-256)
+        uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
         with:
-          tag_name: ${{ env.TAG }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ env.TAG }}
-          prerelease: true
-          body: ${{ steps.notes.outputs.body }}
+          tag: ${{ env.TAG }}
           files: ${{ steps.asset.outputs.path }}
-          fail_on_unmatched_files: true
+          prerelease: "true"
+          notes: |
+            Prerelease for hardware sign-off.
+
+            ## Install on a JetPack 7.2 Jetson
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/ScoutSportTechnology/sst-cam-firmware/{tag}/deploy/install.sh | sudo bash -s -- --version {tag}
+            ```

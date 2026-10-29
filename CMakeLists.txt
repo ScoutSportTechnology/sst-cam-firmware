@@ -60,22 +60,29 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
 
 pkg_search_module(OPENCV REQUIRED opencv4)
 
-# OpenCV in the JetPack sysroot is mixed: the plain `libopencv_core.so` symlink
-# in /usr/lib/aarch64-linux-gnu points at 4.5d, but the imgproc/etc modules
-# only exist as 4.8 (SONAME-versioned, no plain `.so`). Linking the plain
-# symlinks would pull in two ABI-incompatible cores at runtime. Pin both core
-# and imgproc to the matching 4.8 SONAME files explicitly.
+# JetPack 7.2 / L4T r39.2 ships Ubuntu 24.04 (noble) stock OpenCV 4.6.0 —
+# uniform across all modules (SONAME .so.406, with matching plain `.so` from
+# libopencv-dev). Pin core/imgproc/imgcodecs to the 4.6 SONAME explicitly so a
+# future sysroot rebuild that drifts the OpenCV minor can't silently relink.
+# (Was 4.8/.so.408 on the 6.2 NVIDIA targetfs; noble has no 4.8 — this is the
+# CPU-built stock OpenCV, which is fine: the processing path is software-only.)
 find_library(SST_OPENCV_CORE
-    NAMES libopencv_core.so.408
+    NAMES libopencv_core.so.406
     REQUIRED
 )
 find_library(SST_OPENCV_IMGPROC
-    NAMES libopencv_imgproc.so.408
+    NAMES libopencv_imgproc.so.406
     REQUIRED
 )
-# imgcodecs (cv::imwrite) for the JPEG thumbnail writer — same 4.8 SONAME pin.
+# imgcodecs (cv::imwrite) for the JPEG thumbnail writer — same 4.6 SONAME pin.
 find_library(SST_OPENCV_IMGCODECS
-    NAMES libopencv_imgcodecs.so.408
+    NAMES libopencv_imgcodecs.so.406
+    REQUIRED
+)
+# videoio (cv::VideoCapture / cv::VideoWriter, ffmpeg backend) — decodes the L1
+# MP4 and encodes the overlaid L2 for the on-demand overlay burn (#6 F6c).
+find_library(SST_OPENCV_VIDEOIO
+    NAMES libopencv_videoio.so.406
     REQUIRED
 )
 
@@ -87,6 +94,7 @@ target_link_libraries(sst_cam_firmware_external_libs INTERFACE
     ${SST_OPENCV_CORE}
     ${SST_OPENCV_IMGPROC}
     ${SST_OPENCV_IMGCODECS}
+    ${SST_OPENCV_VIDEOIO}
 )
 
 # Control plane + live preview: BlueZ over D-Bus (sdbus-c++) and the GStreamer
@@ -221,8 +229,24 @@ target_include_directories(sst_cam_firmware_internal_libs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
+# Firmware build version, stamped from `git describe` at configure time (the
+# parallel of the app's APP_VERSION --dart-define). This is the version reported
+# over the wire in DeviceInfoResponse — the config's `version` field is only a
+# fallback. Falls back to "unknown" outside a git checkout (e.g. a tarball build).
+execute_process(
+    COMMAND git describe --tags --always --dirty
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE SST_FIRMWARE_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT SST_FIRMWARE_VERSION)
+    set(SST_FIRMWARE_VERSION "unknown")
+endif()
+
 target_compile_definitions(sst_cam_firmware_internal_libs PUBLIC
     SST_REPO_ROOT_DIR="${SST_REPO_ROOT_DIR}"
+    SST_FIRMWARE_VERSION="${SST_FIRMWARE_VERSION}"
 )
 
 # ============================================================

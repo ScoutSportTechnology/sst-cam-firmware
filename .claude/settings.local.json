@@ -56,7 +56,7 @@
       "Bash(sudo apt-get update -qq)",
       "Bash(apt-cache policy *)",
       "Bash(curl -sI http://ports.ubuntu.com/ubuntu-ports/__TRACKED_VAR__)",
-      "Bash(sudo bash .devcontainer/sysroot/002_fix_sysroot.sh /l4t/targetfs)",
+      "Bash(sudo bash compiler-image/sysroot/002_fix_sysroot.sh /l4t/targetfs)",
       "Bash(python3 -c ' *)",
       "Bash(timeout 200 ./build/test/bin/sst_cam_firmware_tests --gtest_filter=\"ProtoRoundtrip.*\")",
       "Bash(timeout 300 ctest --preset test -R \"ProtoRoundtrip\" --output-on-failure)",

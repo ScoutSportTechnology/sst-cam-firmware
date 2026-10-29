@@ -37,12 +37,12 @@ shell:
 
 # --- build (auto native-or-delegated) -------------------------------------
 
-# Configure + build the debug binary (default).
-build:
+# Configure + build the debug binary (default dev-loop build).
+build-debug-firmware:
     @just _run "cmake --preset debug && cmake --build --preset debug"
 
-# Configure + build the release binary.
-build-release:
+# Configure + build the release binary (the deployable artifact).
+build-release-firmware:
     @just _run "cmake --preset release && cmake --build --preset release"
 
 # Configure + build the test binary (GTest via Conan).
@@ -77,6 +77,25 @@ ci-check:
         printf '%s\\n' \"\$tus\" | xargs clang-tidy -p build/test --warnings-as-errors='*' && \
         cmake --build --preset test && \
         QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
+
+# --- local deploy loop ----------------------------------------------------
+
+# Local validation loop — cross-build the release binary and install it straight
+# to a Jetson over ssh, WITHOUT cutting a release or minting a tag. The build
+# runs in the container; scp/ssh run on the HOST (which holds your ssh keys /
+# ~/.ssh/config), so you need `ssh`/`scp` on the host PATH and key-based access
+# to the device. Validate here; only push (and let CI mint a tag) once it works.
+#
+# Usage: just deploy-firmware user@jetson.local
+#        just deploy-firmware jetson.local --no-camera   # extra install.sh flags pass through
+deploy-firmware HOST *flags: build-release-firmware
+    @BIN="build/release/bin/sst_cam_firmware"; \
+     [ -f "$BIN" ] || { echo "binary not found: $BIN (build-release failed?)" >&2; exit 1; }; \
+     command -v scp >/dev/null || { echo "scp not found on host PATH" >&2; exit 1; }; \
+     echo "Copying ${BIN} + install.sh to {{HOST}} ..."; \
+     scp "$BIN" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
+     echo "Running install.sh --binary on {{HOST}} (sudo) ..."; \
+     ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware {{flags}}"
 
 # --- housekeeping ---------------------------------------------------------
 

@@ -81,7 +81,17 @@ auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
     if (!PrepareOutputDirs(config)) {
         return false;
     }
+    // A config for a DIFFERENT match resets the display-only match state
+    // (scores / period / clock back to zero) so a new match never inherits the
+    // previous match's scoreboard. A same-match re-push (same match_uuid) keeps
+    // the live values the app already pushed. Mirrors the reset in
+    // OnWifiStopped()/OnDisconnect(); fixes stale-overlay score carry-over (#6).
+    const bool is_new_match =
+        !state_.config.has_value() || state_.config->match_uuid != config.match_uuid;
     state_.config = config;
+    if (is_new_match) {
+        state_.match = LiveMatch{};
+    }
     // First config advances WifiReady -> Configured; a re-push while further
     // along keeps the current phase.
     if (state_.phase == SessionPhase::kWifiReady) {
@@ -154,6 +164,7 @@ auto SessionManager::OnDisconnect() -> void {
     safe("FinalizeRecording", [this] { cleanup_.FinalizeRecording(); });
     safe("StopStreaming", [this] { cleanup_.StopStreaming(); });
     safe("TeardownWifiDirect", [this] { cleanup_.TeardownWifiDirect(); });
+    safe("ResetSelections", [this] { cleanup_.ResetSelections(); });
 
     std::lock_guard lock(mtx_);
     state_ = SessionState{};  // back to Idle, all session memory cleared (R11)

@@ -8,13 +8,9 @@ namespace sst::adapters::control {
 
 namespace {
 
-constexpr const char* kIfaceObjectManager = "org.freedesktop.DBus.ObjectManager";
 constexpr const char* kIfaceProperties = "org.freedesktop.DBus.Properties";
 constexpr const char* kIfaceGattService = "org.bluez.GattService1";
 constexpr const char* kIfaceGattChar = "org.bluez.GattCharacteristic1";
-
-using ManagedObjects =
-    std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
 
 }  // namespace
 
@@ -41,31 +37,17 @@ GattApplication::~GattApplication() = default;
 auto GattApplication::BuildRoot() -> void {
     root_obj_ = sdbus::createObject(connection_, root_path_);
 
-    root_obj_->registerMethod("GetManagedObjects")
-        .onInterface(kIfaceObjectManager)
-        .implementedAs([this]() -> ManagedObjects {
-            ManagedObjects out;
-
-            std::map<std::string, sdbus::Variant> svc_props;
-            svc_props.emplace("UUID", sdbus::Variant{service_uuid_});
-            svc_props.emplace("Primary", sdbus::Variant{true});
-            out[sdbus::ObjectPath{service_path_}][kIfaceGattService] = std::move(svc_props);
-
-            std::map<std::string, sdbus::Variant> cmd_props;
-            cmd_props.emplace("UUID", sdbus::Variant{command_char_uuid_});
-            cmd_props.emplace("Service", sdbus::Variant{sdbus::ObjectPath{service_path_}});
-            cmd_props.emplace("Flags",
-                              sdbus::Variant{std::vector<std::string>{"write-without-response"}});
-            out[sdbus::ObjectPath{command_char_path_}][kIfaceGattChar] = std::move(cmd_props);
-
-            std::map<std::string, sdbus::Variant> resp_props;
-            resp_props.emplace("UUID", sdbus::Variant{response_char_uuid_});
-            resp_props.emplace("Service", sdbus::Variant{sdbus::ObjectPath{service_path_}});
-            resp_props.emplace("Flags", sdbus::Variant{std::vector<std::string>{"notify"}});
-            out[sdbus::ObjectPath{response_char_path_}][kIfaceGattChar] = std::move(resp_props);
-
-            return out;
-        });
+    // BlueZ's GATT manager calls org.freedesktop.DBus.ObjectManager.GetManagedObjects
+    // on the application root to discover the service + characteristics. That
+    // interface is RESERVED by sd-bus: sd_bus_add_object_vtable() rejects the four
+    // standard org.freedesktop.DBus.* interfaces (Properties, Introspectable, Peer,
+    // ObjectManager) with -EINVAL, which surfaces as
+    // "Failed to register object vtable (Invalid argument)" and aborts BLE start.
+    // Use sdbus-c++'s built-in ObjectManager instead: it auto-answers
+    // GetManagedObjects by enumerating the child service/characteristic objects
+    // under this path and the properties each already registers (UUID, Primary,
+    // Service, Flags, …), and emits InterfacesAdded/Removed. No hand-rolled vtable.
+    root_obj_->addObjectManager();
 
     root_obj_->finishRegistration();
 }
@@ -152,12 +134,27 @@ auto GattApplication::BuildResponseChar() -> void {
     });
 
     response_obj_->registerMethod("StopNotify").onInterface(kIfaceGattChar).implementedAs([this] {
-        std::lock_guard lock(mtx_);
-        notifying_ = false;
+        std::function<void()> on_unsubscribe;
+        {
+            std::lock_guard lock(mtx_);
+            notifying_ = false;
+            on_unsubscribe = on_unsubscribe_;
+        }
         spdlog::info("GattApplication: StopNotify on response char");
+        // Central unsubscribed — BlueZ fires this on disconnect. Surface it so
+        // the transport resumes advertising. Called outside the lock; the handler
+        // must be non-blocking (it hands off to a worker thread).
+        if (on_unsubscribe) {
+            on_unsubscribe();
+        }
     });
 
     response_obj_->finishRegistration();
+}
+
+auto GattApplication::SetOnUnsubscribe(std::function<void()> handler) -> void {
+    std::lock_guard lock(mtx_);
+    on_unsubscribe_ = std::move(handler);
 }
 
 auto GattApplication::SendNotification(const std::vector<std::uint8_t>& bytes) -> void {

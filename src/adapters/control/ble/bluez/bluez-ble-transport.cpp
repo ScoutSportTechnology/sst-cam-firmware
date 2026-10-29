@@ -2,8 +2,11 @@
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -14,6 +17,8 @@
 namespace sst::adapters::control {
 
 namespace {
+
+constexpr auto kCallTimeout = std::chrono::seconds{20};
 
 constexpr const char* kBluezBus = "org.bluez";
 constexpr const char* kIfaceGattManager = "org.bluez.GattManager1";
@@ -156,6 +161,29 @@ auto BluezBleTransport::BuildAdvertisement() -> void {
     adv_obj_->finishRegistration();
 }
 
+auto BluezBleTransport::CallManagerAsync(sdbus::IProxy& proxy, const char* iface,
+                                         const char* method,
+                                         const sdbus::ObjectPath& object_path) -> void {
+    // callMethodAsync registers the call on the connection and returns
+    // immediately; the reply is delivered by the event-loop thread, which is
+    // also free to dispatch BlueZ's reentrant callbacks into our objects. This
+    // thread only blocks on a std::future (a plain condition variable — it does
+    // not touch the bus), so there is no two-thread contention on the connection.
+    auto future = proxy.callMethodAsync(method)
+                      .onInterface(iface)
+                      .withArguments(object_path, std::map<std::string, sdbus::Variant>{})
+                      .getResultAsFuture<>();
+
+    // Bound the wait so a wedged daemon can't hang Start() forever. 20s sits
+    // under BlueZ's own 25s D-Bus timeout while leaving ample headroom for GATT
+    // enumeration, which now completes in milliseconds.
+    if (future.wait_for(kCallTimeout) != std::future_status::ready) {
+        throw sdbus::Error("org.sst.cam.BleTimeout",
+                           std::string{method} + " did not complete within 20s");
+    }
+    future.get();  // rethrows the sdbus::Error on a D-Bus-level failure
+}
+
 auto BluezBleTransport::Start() -> void {
     if (running_) {
         return;
@@ -176,6 +204,10 @@ auto BluezBleTransport::Start() -> void {
             std::string{sst::control::BootstrapDefaults::kGattResponseCharUuid},
             [this](std::vector<std::uint8_t> bytes) { OnRawCommand(std::move(bytes)); });
 
+        // A central unsubscribing (StopNotify) is BlueZ's disconnect signal —
+        // resume advertising so the camera is findable again for the next session.
+        gatt_app_->SetOnUnsubscribe([this] { HandleCentralGone(); });
+
         BuildAdvertisement();
 
         // Set the adapter Alias so the classic device name also reads
@@ -189,21 +221,37 @@ auto BluezBleTransport::Start() -> void {
             spdlog::warn("BluezBleTransport: could not set adapter Alias: {}", e.what());
         }
 
-        auto adv_proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
-        adv_proxy->callMethod("RegisterAdvertisement")
-            .onInterface(kIfaceLeAdvManager)
-            .withArguments(sdbus::ObjectPath{adv_path_}, std::map<std::string, sdbus::Variant>{});
-        advertisement_registered_ = true;
-
-        auto gatt_proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
-        gatt_proxy->callMethod("RegisterApplication")
-            .onInterface(kIfaceGattManager)
-            .withArguments(sdbus::ObjectPath{app_root_path_},
-                           std::map<std::string, sdbus::Variant>{});
-        application_registered_ = true;
-
+        // Start dispatching the connection BEFORE the Register* calls so the
+        // event-loop thread can service the callbacks BlueZ makes back into us.
         connection_->enterEventLoopAsync();
         running_ = true;
+
+        auto bluez = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+
+        // RegisterAdvertisement and RegisterApplication MUST be asynchronous.
+        // BlueZ services each by re-entering our own objects on the same bus
+        // before it replies: Properties.GetAll on /com/sst/cam/adv for the
+        // advertisement, and ObjectManager.GetManagedObjects (plus each
+        // characteristic's property reads) on /com/sst/cam/gatt for the
+        // application. An sd_bus connection cannot be driven by two threads at
+        // once, so a *blocking* callMethod() on this thread monopolizes the
+        // connection and locks out enterEventLoopAsync()'s thread — the very
+        // thread that has to answer those reentrant callbacks. BlueZ then waits
+        // for a reply we cannot produce until the blocking call gives up at the
+        // 25s D-Bus timeout ("org.freedesktop.DBus.Error.Timeout: Connection
+        // timed out"), which is exactly what aborted BLE on-device (the
+        // bluetoothd -d log shows it reading our advertisement props only at the
+        // 25s mark, right as the call times out). Going async hands the
+        // connection to the event loop: it answers BlueZ while this thread merely
+        // waits on a std::future. Starting the loop first is NOT enough on its
+        // own — the blocking call still monopolizes the connection.
+        CallManagerAsync(*bluez, kIfaceLeAdvManager, "RegisterAdvertisement",
+                         sdbus::ObjectPath{adv_path_});
+        advertisement_registered_ = true;
+
+        CallManagerAsync(*bluez, kIfaceGattManager, "RegisterApplication",
+                         sdbus::ObjectPath{app_root_path_});
+        application_registered_ = true;
 
         spdlog::info("BluezBleTransport: advertising as \"{}\" with service {} on adapter {}",
                      advertised_name_, sst::control::BootstrapDefaults::kGattServiceUuid,
@@ -275,6 +323,63 @@ auto BluezBleTransport::Stop() -> void {
     running_ = false;
 }
 
+auto BluezBleTransport::HandleCentralGone() -> void {
+    ConnectionHandler on_disc;
+    {
+        std::lock_guard lock(mtx_);
+        if (!central_present_) {
+            return;  // never connected this session, or already handled
+        }
+        central_present_ = false;
+        on_disc = on_disconnect_;
+    }
+    // This runs on the D-Bus event-loop thread (a GATT StopNotify callback).
+    // Both the session cleanup and the re-advertise wait on work the event loop
+    // itself must service, so they cannot run inline — hand off to a worker. The
+    // transport lives for the process lifetime, so capturing `this` is safe.
+    std::thread([this, on_disc] {
+        if (on_disc) {
+            on_disc();
+        }
+        ReAdvertise();
+    }).detach();
+}
+
+auto BluezBleTransport::ReAdvertise() -> void {
+    if (!running_ || !connection_) {
+        return;
+    }
+    try {
+        auto bluez = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+        // BlueZ pauses a connectable advertisement while a central is connected
+        // and does not resume it on disconnect; re-register to start advertising
+        // again. Drop the existing registration first (RegisterAdvertisement
+        // rejects a still-registered object path). Async, like Start(), so the
+        // event loop can answer BlueZ's reentrant property reads (see
+        // CallManagerAsync) instead of deadlocking.
+        try {
+            auto future = bluez->callMethodAsync("UnregisterAdvertisement")
+                              .onInterface(kIfaceLeAdvManager)
+                              .withArguments(sdbus::ObjectPath{adv_path_})
+                              .getResultAsFuture<>();
+            if (future.wait_for(kCallTimeout) == std::future_status::ready) {
+                future.get();
+            }
+        } catch (const sdbus::Error& e) {
+            // Not currently registered (teardown race) — fine, just register.
+            spdlog::debug("BluezBleTransport: UnregisterAdvertisement before re-advertise: {}",
+                          e.what());
+        }
+        CallManagerAsync(*bluez, kIfaceLeAdvManager, "RegisterAdvertisement",
+                         sdbus::ObjectPath{adv_path_});
+        advertisement_registered_ = true;
+        spdlog::info("BluezBleTransport: re-advertising as \"{}\" after central disconnect",
+                     advertised_name_);
+    } catch (const sdbus::Error& e) {
+        spdlog::warn("BluezBleTransport: re-advertise failed: {}", e.what());
+    }
+}
+
 auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -> void {
     if (!gatt_app_) {
         spdlog::warn("BluezBleTransport::SendResponse: GATT app not active");
@@ -297,8 +402,8 @@ auto BluezBleTransport::SendResponse(const sst_cam::CommandResponse& response) -
                   response.correlation_id(), static_cast<int>(response.status()), total);
 }
 
-auto BluezBleTransport::SendInboundAck(const std::string& correlation_id, std::uint32_t chunk_index)
-    -> void {
+auto BluezBleTransport::SendInboundAck(const std::string& correlation_id,
+                                       std::uint32_t chunk_index) -> void {
     if (!gatt_app_) {
         spdlog::warn("BluezBleTransport::SendInboundAck: GATT app not active");
         return;

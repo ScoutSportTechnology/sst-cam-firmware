@@ -13,8 +13,8 @@
 #include "app/control/services/handlers/download.handler.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "bluetooth.pb.h"
-#include "domain/storage/models/raw-capture-identity.hpp"
-#include "domain/storage/services/raw-capture-naming.hpp"
+#include "domain/raw_capture/models/raw-capture-identity.hpp"
+#include "domain/raw_capture/services/raw-capture-naming.hpp"
 
 namespace fs = std::filesystem;
 
@@ -61,13 +61,13 @@ void ExpectNoRawIdentity(const sst_cam::RecordingMetadata& meta) {
 TEST(DownloadHandlerTest, ListReportsRawIdentityUnderJointInvariant) {
     const fs::path root = MakeRoot();
     WriteFile(root / "match-x.mp4", "final");
-    namespace naming = sst::storage::raw_capture_naming;
+    namespace naming = sst::raw_capture::raw_capture_naming;
     WriteFile(root / naming::FileName({.capture_group_id = "grp-3", .camera_index = 0}), "c0");
     WriteFile(root / naming::FileName({.capture_group_id = "grp-3", .camera_index = 1}), "c1");
 
     constexpr std::uint32_t kDownloadPort = 8080;
     constexpr std::uint64_t kTokenTtlSeconds = 3600;
-    DownloadServer server(root, [] { return std::uint64_t{0}; });
+    DownloadServer server(root, root, [] { return std::uint64_t{0}; });
     DownloadHandler handler(server, "192.168.49.1", kDownloadPort,
                             /*token_ttl_seconds=*/kTokenTtlSeconds);
 

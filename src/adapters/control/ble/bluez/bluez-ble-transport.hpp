@@ -48,6 +48,16 @@ class BluezBleTransport final : public sst::control::IBleTransport {
 
    private:
     auto BuildAdvertisement() -> void;
+    // The central unsubscribed (StopNotify) — BlueZ fires this on disconnect.
+    // Fire on_disconnect_ (session cleanup) and resume advertising so the camera
+    // is discoverable again. Invoked on the D-Bus event-loop thread, so it hands
+    // the (blocking) work to a detached worker — running it inline would deadlock
+    // the event loop the re-advertise futures depend on.
+    auto HandleCentralGone() -> void;
+    // Re-register the LE advertisement so BlueZ resumes advertising (it pauses
+    // our connectable advert on connect and does not auto-resume on disconnect).
+    // MUST run off the event-loop thread.
+    auto ReAdvertise() -> void;
     // Demux a Command-Write characteristic write: either an inbound command
     // ChunkedPayload (total_chunks >= 1) or a ChunkAck (total_chunks == 0,
     // wire-compatible on fields 1/2) acking an outbound response chunk.
@@ -62,6 +72,13 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     // carries no total_chunks (==0), which the app demuxes as an ack rather than
     // a response chunk (mirroring our own inbound-ack disambiguation).
     auto SendInboundAck(const std::string& correlation_id, std::uint32_t chunk_index) -> void;
+    // Invoke a BlueZ manager method (RegisterAdvertisement / RegisterApplication)
+    // ASYNCHRONOUSLY and wait on a std::future. These calls make BlueZ re-enter
+    // our own D-Bus objects before they reply; a blocking call would monopolize
+    // the connection and deadlock the event loop until the 25s D-Bus timeout.
+    // See the comment in Start() for the full rationale.
+    static auto CallManagerAsync(sdbus::IProxy& proxy, const char* iface, const char* method,
+                                 const sdbus::ObjectPath& object_path) -> void;
 
     std::string advertised_name_;
     std::string adapter_path_;

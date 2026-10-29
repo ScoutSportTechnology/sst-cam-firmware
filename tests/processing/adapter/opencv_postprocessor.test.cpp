@@ -6,6 +6,7 @@
 #include "adapters/processing/opencv/opencv-postprocessor.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/common/models/pixel-format.hpp"
+#include "domain/processing/models/color-calibration-state.hpp"
 #include "domain/processing/models/crop-rect.hpp"
 #include "domain/processing/models/postprocess-config.hpp"
 
@@ -55,7 +56,10 @@ TEST(OpenCvPostprocessorTest, CropAndResizeProducesExpectedDimsAndFormat) {
     auto src = MakeNv12Frame(200, 200, /*luma=*/76, /*chroma_u=*/84, /*chroma_v=*/255);
 
     auto out = post.Process(src, CropRect{0, 0, 100, 100});
-    ASSERT_TRUE(out.has_value());
+    if (!out) {
+        FAIL() << "Process returned nullopt";
+        return;
+    }
 
     EXPECT_EQ(out->format, sst::common::PixelFormat::BGR8);
     EXPECT_EQ(out->geometry.width, 50U);
@@ -70,6 +74,65 @@ TEST(OpenCvPostprocessorTest, CropAndResizeProducesExpectedDimsAndFormat) {
     EXPECT_GT(center[2], 150);  // R
 }
 
+// Builds an NV12 frame with a BRIGHT top band (bright_y, bright_u/v) over a DARK
+// bottom band (dark_y, dark_u/v) — a lit surface above a shadow. Test data
+// builder; the Y/U/V band bytes are passed explicitly by name at the call site.
+// NOLINTBEGIN(bugprone-easily-swappable-parameters) floor-ok: test builder, args by name
+auto MakeTwoBandNv12(std::uint32_t width, std::uint32_t height, std::uint8_t bright_y,
+                     std::uint8_t bright_u, std::uint8_t bright_v, std::uint8_t dark_y,
+                     std::uint8_t dark_u, std::uint8_t dark_v) -> sst::capture::Frame {
+    // NOLINTEND(bugprone-easily-swappable-parameters)
+    const std::size_t y_size = static_cast<std::size_t>(width) * height;
+    const std::size_t uv_size = static_cast<std::size_t>(width) * (height / 2);
+    auto buf = std::make_shared<std::vector<std::uint8_t>>(y_size + uv_size);
+    const std::uint32_t split = height / 2;
+    for (std::uint32_t row = 0; row < height; ++row) {
+        const std::uint8_t band_y = (row < split) ? bright_y : dark_y;
+        for (std::uint32_t col = 0; col < width; ++col) {
+            (*buf)[static_cast<std::size_t>(row) * width + col] = band_y;
+        }
+    }
+    for (std::uint32_t row = 0; row < height / 2; ++row) {
+        const bool bright = (row < split / 2);
+        for (std::uint32_t col = 0; col < width; col += 2) {
+            (*buf)[y_size + static_cast<std::size_t>(row) * width + col + 0] =
+                bright ? bright_u : dark_u;
+            (*buf)[y_size + static_cast<std::size_t>(row) * width + col + 1] =
+                bright ? bright_v : dark_v;
+        }
+    }
+    sst::capture::Frame frame;
+    frame.frame_id = 1;
+    frame.format = sst::common::PixelFormat::NV12;
+    frame.memory = sst::common::MemoryType::CPU;
+    frame.geometry = {width, height};
+    frame.captured_at = sst::common::Timestamp{sst::tests::processing::kSyntheticCaptureTime};
+    frame.planes.push_back(
+        sst::capture::FramePlane{.stride = width, .data = buf->data(), .size = y_size});
+    frame.planes.push_back(
+        sst::capture::FramePlane{.stride = width, .data = buf->data() + y_size, .size = uv_size});
+    frame.owner = std::shared_ptr<void>(buf);
+    return frame;
+}
+
+// White-patch: the auto-WB frame-stats sample estimates the illuminant from the
+// LIT band, not the whole-frame average. This scene's full-frame average is
+// RED-dominant (dark red shadow drags it), but the lit band is GREEN — so a
+// green-dominant stat proves the sample is highlight-weighted, not full-frame.
+TEST(OpenCvPostprocessorTest, AutoWbSampleIsHighlightWeightedNotFullFrame) {
+    sst::processing::FrameColorStats stats;
+    OpenCvPostprocessor post{PostprocessConfig{.output_width = 64, .output_height = 64}, nullptr,
+                             &stats};
+    // Bright top: green cast (U<128,V<128 raise G). Dark bottom: red cast (V>128).
+    auto src = MakeTwoBandNv12(64, 64, /*bright_y=*/200, /*bright_u=*/100, /*bright_v=*/100,
+                               /*dark_y=*/40, /*dark_u=*/128, /*dark_v=*/170);
+    ASSERT_TRUE(post.Process(src, CropRect{0, 0, 64, 64}).has_value());
+    const auto means = stats.Get();
+    ASSERT_TRUE(means.valid);
+    EXPECT_GT(means.g, means.r) << "g=" << means.g << " r=" << means.r;  // lit band, not avg
+    EXPECT_GT(means.g, means.b) << "g=" << means.g << " b=" << means.b;
+}
+
 TEST(OpenCvPostprocessorTest, RespectsSourceStride) {
     OpenCvPostprocessor post{PostprocessConfig{.output_width = 16, .output_height = 16}};
     auto strided = MakeNv12Frame(64, 64, 100, 128, 128, /*stride=*/96);
@@ -78,8 +141,14 @@ TEST(OpenCvPostprocessorTest, RespectsSourceStride) {
     auto out_strided = post.Process(strided, CropRect{0, 0, 32, 32});
     auto out_contig = post.Process(contig, CropRect{0, 0, 32, 32});
 
-    ASSERT_TRUE(out_strided.has_value());
-    ASSERT_TRUE(out_contig.has_value());
+    if (!out_strided) {
+        FAIL() << "Process(strided) returned nullopt";
+        return;
+    }
+    if (!out_contig) {
+        FAIL() << "Process(contig) returned nullopt";
+        return;
+    }
     EXPECT_EQ(out_strided->planes[0].size, out_contig->planes[0].size);
 
     // Sample center pixel of both — strided should match contig within
@@ -92,13 +161,19 @@ TEST(OpenCvPostprocessorTest, RespectsSourceStride) {
 }
 
 TEST(OpenCvPostprocessorTest, OutputFrameOwnsBuffer) {
-    OpenCvPostprocessor post{PostprocessConfig{.output_width = 16, .output_height = 16}};
+    // Ownership/brightness test — disable the WB correction so the ~200 grey it
+    // feeds stays ~200 on every channel (correction would cut B/R below 150).
+    OpenCvPostprocessor post{PostprocessConfig{
+        .output_width = 16, .output_height = 16, .color_correction = {.enabled = false}}};
     auto out = [&] {
         auto src = MakeNv12Frame(64, 64, 200, 128, 128);
         return post.Process(src, CropRect{0, 0, 32, 32});
     }();
 
-    ASSERT_TRUE(out.has_value());
+    if (!out) {
+        FAIL() << "Process returned nullopt";
+        return;
+    }
     ASSERT_NE(out->owner, nullptr);
     for (std::size_t i = 0; i < out->planes[0].size; ++i) {
         // After NV12→BGR with Y=200, U=V=128, all channels should be ~200.
@@ -111,7 +186,10 @@ TEST(OpenCvPostprocessorTest, OutputFormatGray8) {
         .output_width = 16, .output_height = 16, .output_format = sst::common::PixelFormat::GRAY8}};
     auto out = post.Process(MakeNv12Frame(64, 64, 200, 128, 128), CropRect{0, 0, 32, 32});
 
-    ASSERT_TRUE(out.has_value());
+    if (!out) {
+        FAIL() << "Process returned nullopt";
+        return;
+    }
     EXPECT_EQ(out->format, sst::common::PixelFormat::GRAY8);
     ASSERT_EQ(out->planes.size(), 1U);
     EXPECT_EQ(out->planes[0].stride, 16U);
@@ -123,9 +201,84 @@ TEST(OpenCvPostprocessorTest, MetadataPropagated) {
     auto src = MakeNv12Frame(64, 64, 100, 128, 128, /*stride=*/0, /*frame_id=*/0xCAFE);
 
     auto out = post.Process(src, CropRect{0, 0, 32, 32});
-    ASSERT_TRUE(out.has_value());
+    if (!out) {
+        FAIL() << "Process returned nullopt";
+        return;
+    }
     EXPECT_EQ(out->frame_id, src.frame_id);
     EXPECT_EQ(out->captured_at, src.captured_at);
+}
+// U10: neutral grey NV12 (Y=U=V=128) demosaics to ~(128,128,128) BGR. A diagonal
+// WB correction with explicit gains (B=0.5, G=1.0, R=0.5) must halve B and R while
+// leaving G untouched — proving the per-channel gain is applied per channel and
+// that disabling it leaves color alone.
+TEST(OpenCvPostprocessorTest, ColorCorrectionAppliesPerChannelGain) {
+    auto src = MakeNv12Frame(64, 64, 128, 128, 128);
+
+    PostprocessConfig off{.output_width = 32, .output_height = 32};
+    off.color_correction.enabled = false;
+    PostprocessConfig enabled{.output_width = 32, .output_height = 32};
+    enabled.color_correction = {.enabled = true, .r_gain = 0.5F, .g_gain = 1.0F, .b_gain = 0.5F};
+
+    auto out_off = OpenCvPostprocessor{off}.Process(src, CropRect{0, 0, 64, 64});
+    auto out_on = OpenCvPostprocessor{enabled}.Process(src, CropRect{0, 0, 64, 64});
+    ASSERT_TRUE(out_off.has_value());
+    ASSERT_TRUE(out_on.has_value());
+
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) floor-ok: ASSERT_TRUE(out_off) guards
+    const auto* poff = out_off->planes[0].data + PixelOffset(16, 16, 32, kBgrChannels);
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) floor-ok: ASSERT_TRUE(out_on) guards
+    const auto* pon = out_on->planes[0].data + PixelOffset(16, 16, 32, kBgrChannels);
+
+    EXPECT_NEAR(pon[0], static_cast<double>(poff[0]) / 2, 4);  // B halved
+    EXPECT_NEAR(pon[2], static_cast<double>(poff[2]) / 2, 4);  // R halved
+    EXPECT_NEAR(pon[1], poff[1], 3);                           // G untouched (gain 1.0)
+}
+
+// The live calibration state (diagnostic sliders) overrides config gains and a
+// mid-run Set() is reflected on the next frame — the mechanism the app relies on
+// to retune the preview live.
+TEST(OpenCvPostprocessorTest, LiveCalibrationStateOverridesConfigAndUpdates) {
+    auto src = MakeNv12Frame(64, 64, 128, 128, 128);
+    sst::processing::ColorCalibrationState calib(
+        {.r = 0.5F, .g = 1.0F, .b = 0.5F, .enabled = true});
+    OpenCvPostprocessor post{PostprocessConfig{.output_width = 32, .output_height = 32}, &calib};
+
+    auto out = post.Process(src, CropRect{0, 0, 64, 64});
+    ASSERT_TRUE(out.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) // floor-ok: ASSERT_TRUE(out.has_value())
+    const auto* pix = out->planes[0].data + PixelOffset(16, 16, 32, kBgrChannels);
+    EXPECT_LT(pix[0], 80);   // B halved from ~128
+    EXPECT_LT(pix[2], 80);   // R halved
+    EXPECT_GT(pix[1], 110);  // G ~unchanged
+
+    calib.Set({.r = 1.0F, .g = 1.0F, .b = 1.0F, .enabled = true});  // sliders back to identity
+    auto out2 = post.Process(src, CropRect{0, 0, 64, 64});
+    ASSERT_TRUE(out2.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) // floor-ok: ASSERT_TRUE(out2.has_value())
+    const auto* pix2 = out2->planes[0].data + PixelOffset(16, 16, 32, kBgrChannels);
+    EXPECT_GT(pix2[0], pix[0]);  // B restored on the next frame
+}
+
+// Saturation = 0 collapses a colored frame to greyscale (B≈G≈R); the WB gains
+// stay at identity so only saturation acts.
+TEST(OpenCvPostprocessorTest, SaturationZeroProducesGreyscale) {
+    auto src = MakeNv12Frame(64, 64, 76, 84, 255);  // red-ish (BT.601: Y=76,U=84,V=255)
+    sst::processing::ColorCalibrationState calib({.r = 1.0F,
+                                                  .g = 1.0F,
+                                                  .b = 1.0F,
+                                                  .enabled = true,
+                                                  .saturation = 0.0F,
+                                                  .contrast = 1.0F,
+                                                  .brightness = 0.0F});
+    OpenCvPostprocessor post{PostprocessConfig{.output_width = 32, .output_height = 32}, &calib};
+
+    auto out = post.Process(src, CropRect{0, 0, 64, 64});
+    ASSERT_TRUE(out.has_value());
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access) // floor-ok: ASSERT_TRUE(out.has_value())
+    const auto* pix = out->planes[0].data + PixelOffset(16, 16, 32, kBgrChannels);
+    EXPECT_NEAR(pix[0], pix[1], 6);  // B≈G
+    EXPECT_NEAR(pix[1], pix[2], 6);  // G≈R → grey
 }
 // NOLINTEND(readability-magic-numbers)
 

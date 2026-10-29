@@ -20,8 +20,8 @@
 
 #include "adapters/network/http/http-download-server.hpp"
 #include "app/network/services/download_server/download-server.hpp"
-#include "domain/storage/models/raw-capture-identity.hpp"
-#include "domain/storage/services/raw-capture-naming.hpp"
+#include "domain/raw_capture/models/raw-capture-identity.hpp"
+#include "domain/raw_capture/services/raw-capture-naming.hpp"
 #include "httplib.h"
 
 namespace fs = std::filesystem;
@@ -67,10 +67,20 @@ auto WriteRecording(const fs::path& root, const RecordingFile& recording) -> voi
 auto WriteRawFile(const fs::path& root, const std::string& group, std::uint32_t camera_index,
                   const std::string& body) -> void {
     fs::create_directories(root);
-    const auto name = sst::storage::raw_capture_naming::FileName(
-        sst::storage::RawCaptureIdentity{.capture_group_id = group, .camera_index = camera_index});
+    const auto name =
+        sst::raw_capture::raw_capture_naming::FileName(sst::raw_capture::RawCaptureIdentity{
+            .capture_group_id = group, .camera_index = camera_index});
     std::ofstream out(root / name, std::ios::binary);
     out << body;
+}
+
+// Write a <match>.jpg thumbnail under a per-match subdir of the thumbnail root,
+// mirroring the firmware's /<user>/<match>/<match>.jpg layout.
+auto WriteThumbnail(const fs::path& thumb_root, const RecordingFile& thumb) -> void {
+    const fs::path dir = thumb_root / "user" / thumb.match;
+    fs::create_directories(dir);
+    std::ofstream out(dir / (thumb.match + ".jpg"), std::ios::binary);
+    out << thumb.body;
 }
 
 // Enumeration finds MP4s on disk with their sizes.
@@ -78,7 +88,7 @@ TEST(DownloadServerTest, EnumeratesRecordings) {
     const fs::path root = MakeRoot();
     WriteRecording(root, {.match = "match-a", .body = "aaaa"});
     WriteRecording(root, {.match = "match-b", .body = "bbbbbb"});
-    DownloadServer server(root, [] { return kStubClockNow; });
+    DownloadServer server(root, root, [] { return kStubClockNow; });
 
     auto recs = server.Enumerate();
     ASSERT_EQ(recs.size(), 2U);
@@ -102,7 +112,7 @@ TEST(DownloadServerTest, EnumeratesRawCapturePairAndFinalRecording) {
     WriteRecording(root, {.match = "match-final", .body = "final-bytes"});
     WriteRawFile(root, "grp-9", 0, "cam0-raw-bytes");
     WriteRawFile(root, "grp-9", 1, "cam1-raw-bytes");
-    DownloadServer server(root, [] { return std::uint64_t{0}; });
+    DownloadServer server(root, root, [] { return std::uint64_t{0}; });
 
     auto recs = server.Enumerate();
     ASSERT_EQ(recs.size(), 3U);
@@ -131,15 +141,40 @@ TEST(DownloadServerTest, EnumeratesRawCapturePairAndFinalRecording) {
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 
+// ResolveThumbnailPath finds <id>.jpg under the thumbnail root by stem, and
+// returns nullopt for an unknown id or an empty id. Pure filesystem logic —
+// container-runnable (unlike the loopback HTTP test).
+TEST(DownloadServerTest, ResolvesThumbnailByStem) {
+    const fs::path video_root = MakeRoot();
+    const fs::path thumb_root = MakeRoot();
+    WriteThumbnail(thumb_root, {.match = "match-a", .body = "jpeg"});
+    DownloadServer server(video_root, thumb_root, [] { return kStubClockNow; });
+
+    auto path = server.ResolveThumbnailPath("match-a");
+    if (!path) {
+        FAIL() << "ResolveThumbnailPath returned nullopt";
+        return;
+    }
+    EXPECT_EQ(path->filename().string(), "match-a.jpg");
+    EXPECT_FALSE(server.ResolveThumbnailPath("ghost").has_value());
+    EXPECT_FALSE(server.ResolveThumbnailPath("").has_value());
+
+    fs::remove_all(video_root);
+    fs::remove_all(thumb_root);
+}
+
 // A token validates until it expires; an unknown token never validates.
 TEST(DownloadServerTest, TokenMintValidateExpire) {
     const fs::path root = MakeRoot();
     WriteRecording(root, {.match = "match-a", .body = "data"});
     std::uint64_t now = kFixedNow;
-    DownloadServer server(root, [&now] { return now; });
+    DownloadServer server(root, root, [&now] { return now; });
 
     auto token = server.MintToken("match-a", /*ttl_seconds=*/kTokenTtlSeconds);
-    ASSERT_TRUE(token.has_value());
+    if (!token) {
+        FAIL() << "MintToken returned nullopt";
+        return;
+    }
     EXPECT_EQ(token->expires_at_unix, kFixedExpiry);
     EXPECT_TRUE(server.ValidateToken(token->token).has_value());
 
@@ -161,19 +196,28 @@ TEST(DownloadServerTest, TokenMintValidateExpire) {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
     const fs::path root = MakeRoot();
+    const fs::path thumb_root = MakeRoot();
     const std::string body = "0123456789ABCDEF";
+    const std::string thumb_body = "\xFF\xD8\xFFjpeg-bytes";
     WriteRecording(root, {.match = "match-a", .body = body});
-    DownloadServer downloads(root, [] {
+    WriteThumbnail(thumb_root, {.match = "match-a", .body = thumb_body});
+    DownloadServer downloads(root, thumb_root, [] {
         return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
                                               std::chrono::system_clock::now().time_since_epoch())
                                               .count());
     });
     auto token = downloads.MintToken("match-a", kLongTokenTtlSeconds);
-    ASSERT_TRUE(token.has_value());
+    if (!token) {
+        FAIL() << "MintToken returned nullopt";
+        return;
+    }
 
     sst::adapters::network::HttpDownloadServer http(
         "127.0.0.1", 0,
-        [&downloads](const std::string& bearer) { return downloads.ValidateToken(bearer); });
+        [&downloads](const std::string& bearer) { return downloads.ValidateToken(bearer); },
+        [&downloads](const std::string& recording_id) {
+            return downloads.ResolveThumbnailPath(recording_id);
+        });
     ASSERT_TRUE(http.Start());
     const std::uint16_t port = http.BoundPort();
     ASSERT_GT(port, 0);
@@ -218,9 +262,24 @@ TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
         EXPECT_EQ(res->status, 206);
         EXPECT_EQ(res->body, "4567");
     }
+    // Thumbnail: untokened GET by id -> 200 image/jpeg + bytes.
+    {
+        auto res = client.Get("/thumbnails/match-a");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 200);
+        EXPECT_EQ(res->body, thumb_body);
+        EXPECT_EQ(res->get_header_value("Content-Type"), "image/jpeg");
+    }
+    // Unknown thumbnail id -> 404.
+    {
+        auto res = client.Get("/thumbnails/ghost");
+        ASSERT_TRUE(res);
+        EXPECT_EQ(res->status, 404);
+    }
 
     http.Stop();
     fs::remove_all(root);
+    fs::remove_all(thumb_root);
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 

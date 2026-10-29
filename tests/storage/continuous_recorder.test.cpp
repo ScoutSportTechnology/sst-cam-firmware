@@ -14,6 +14,7 @@
 #include "app/storage/ports/thumbnail-writer.hpp"
 #include "app/storage/services/recording_service/recording-service.hpp"
 #include "domain/capture/models/frame.hpp"
+#include "domain/common/models/video-quality.hpp"
 #include "domain/storage/models/recording-state.hpp"
 
 namespace fs = std::filesystem;
@@ -25,8 +26,9 @@ using sst::storage::RecordingState;
 
 class FakeRecorder final : public sst::storage::IContinuousRecorder {
    public:
-    auto Start(const fs::path& output) -> bool override {
+    auto Start(const fs::path& output, const sst::common::VideoQuality& quality) -> bool override {
         started_path = output;
+        started_quality = quality;
         running = true;
         ++starts;
         return start_ok;
@@ -48,6 +50,7 @@ class FakeRecorder final : public sst::storage::IContinuousRecorder {
     int stops{0};
     int pushes{0};
     fs::path started_path;
+    sst::common::VideoQuality started_quality;
 };
 
 class FakeThumbnailWriter final : public sst::storage::IThumbnailWriter {
@@ -104,11 +107,34 @@ struct Svc {
 constexpr const char* kVideo = "/tmp/sst-rec/user/match/match.mp4";
 constexpr const char* kThumb = "/tmp/sst-rec/thumb/user/match/match.jpg";
 
+// The app/session hands a per-match DIRECTORY (trailing slash), not a file.
+// RecordingService must compose a concrete file inside it before handing it to
+// the recorder (filesink) / thumbnail writer (imwrite) — both fail on a bare
+// directory, which left empty match dirs on-device. The file must be named
+// <matchId>.mp4 (the dir's own name) because the DownloadServer keys recordings
+// by file stem and the app requests downloads by match id. Guards both.
+TEST(ContinuousRecorderTest, DirectoryContractComposesMatchIdNamedFiles) {
+    Svc harness;
+    constexpr const char* kVideoDir = "/tmp/sst-rec/dir/user/match-7f48/";
+    constexpr const char* kThumbDir = "/tmp/sst-rec/dir/thumb/user/match-7f48/";
+
+    ASSERT_TRUE(harness.service->StartRecording(kVideoDir, kThumbDir, {}));
+    EXPECT_EQ(harness.recorder->started_path.string(),
+              "/tmp/sst-rec/dir/user/match-7f48/match-7f48.mp4");
+
+    harness.service->Push(MakeFrame());  // gives Stop a frame to thumbnail
+    const auto result = harness.service->Stop();
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.file_path.string(), "/tmp/sst-rec/dir/user/match-7f48/match-7f48.mp4");
+    EXPECT_EQ(harness.thumb->written_path.string(),
+              "/tmp/sst-rec/dir/thumb/user/match-7f48/match-7f48.jpg");
+}
+
 // AE4 / R21: START -> PAUSE -> RESUME -> STOP yields a single file at the
 // contract path (one recorder Start, one Stop — never multiple segments).
 TEST(ContinuousRecorderTest, StartPauseResumeStopIsSingleFile) {
     Svc harness;
-    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb));
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, {}));
     EXPECT_EQ(harness.service->CurrentState(), RecordingState::kRecording);
     EXPECT_EQ(harness.recorder->started_path.string(), kVideo);
 
@@ -128,7 +154,7 @@ TEST(ContinuousRecorderTest, StartPauseResumeStopIsSingleFile) {
 // Thumbnail is written at finalization when a frame has been seen.
 TEST(ContinuousRecorderTest, ThumbnailWrittenAtFinalize) {
     Svc harness;
-    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb));
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, {}));
     harness.service->Push(MakeFrame());
     auto result = harness.service->Stop();
     EXPECT_TRUE(result.thumbnail_written);
@@ -140,13 +166,29 @@ TEST(ContinuousRecorderTest, ThumbnailWrittenAtFinalize) {
 // EOSes the muxer to a playable file.
 TEST(ContinuousRecorderTest, DisconnectFinalizeStops) {
     Svc harness;
-    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb));
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, {}));
     harness.service->Push(MakeFrame());
     // Simulate disconnect cleanup calling Stop() directly.
     auto result = harness.service->Stop();
     EXPECT_TRUE(result.success);
     EXPECT_EQ(harness.recorder->stops, 1);
     EXPECT_EQ(harness.service->CurrentState(), RecordingState::kIdle);
+}
+
+// U8/R15: the app-supplied record quality is forwarded verbatim to the recorder
+// (the recorder then applies it via a per-branch scaler). An unset quality
+// passes through as unset so the recorder keeps its default.
+TEST(ContinuousRecorderTest, RecordQualityForwardedToRecorder) {
+    Svc harness;
+    const sst::common::VideoQuality kRecord{1920, 1080, 30};
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, kRecord));
+    EXPECT_EQ(harness.recorder->started_quality, kRecord);
+    EXPECT_TRUE(harness.recorder->started_quality.IsSet());
+    (void)harness.service->Stop();
+
+    Svc unset;
+    ASSERT_TRUE(unset.service->StartRecording(kVideo, kThumb, {}));
+    EXPECT_FALSE(unset.recorder->started_quality.IsSet());
 }
 
 // Stop while idle is a harmless no-op (idempotent cleanup path).
@@ -166,7 +208,7 @@ TEST(ContinuousRecorderTest, DiskFullBlocksStart) {
     auto thumb = std::make_unique<FakeThumbnailWriter>();
     auto* rec = recorder.get();
     RecordingService svc(std::move(recorder), std::move(thumb), harness.guard);
-    EXPECT_FALSE(svc.StartRecording(kVideo, kThumb));
+    EXPECT_FALSE(svc.StartRecording(kVideo, kThumb, {}));
     EXPECT_EQ(rec->starts, 0);
     EXPECT_EQ(svc.CurrentState(), RecordingState::kIdle);
 }
@@ -176,7 +218,7 @@ TEST(ContinuousRecorderTest, FramesPushedOnlyWhileActive) {
     Svc harness;
     harness.service->Push(MakeFrame());  // idle -> ignored
     EXPECT_EQ(harness.recorder->pushes, 0);
-    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb));
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, {}));
     harness.service->Push(MakeFrame());
     EXPECT_EQ(harness.recorder->pushes, 1);
 }

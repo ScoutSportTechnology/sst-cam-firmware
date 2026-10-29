@@ -10,6 +10,23 @@
 
 namespace sst::adapters::control {
 
+// Resolve the WiFi interface name. If [requested] is a concrete name (not empty
+// and not "auto") it is returned as-is. Otherwise the interface is detected at
+// runtime: first the wpa_supplicant control socket present in [ctrl_dir] (the
+// interface the daemon actually manages — the most reliable signal), then a
+// wireless interface under [sysfs_dir] (one exposing phy80211). Falls back to
+// "wlan0" only if nothing is found. Interface names are NOT stable across boards
+// (this Jetson is "wlP1p1s0", not "wlan0"), so hardcoding is wrong.
+auto ResolveWifiInterface(const std::string& requested, const std::string& ctrl_dir,
+                          const std::string& sysfs_dir = "/sys/class/net") -> std::string;
+
+// True if [msg] is an unsolicited wpa_supplicant event rather than a command
+// reply. After ATTACH the ctrl socket interleaves events with replies; every
+// event is prefixed with a "<priority>" tag (e.g. "<3>WPS-AP-AVAILABLE"), which
+// a reply ("OK", "FAIL", or data) never carries. SendCommand skips these so an
+// event is never mistaken for, say, the P2P_GROUP_ADD result.
+auto IsWpaUnsolicitedEvent(const std::string& msg) -> bool;
+
 // wpa_supplicant ctrl_iface adapter. Talks to the running wpa_supplicant daemon
 // over a UNIX datagram socket at <ctrl_dir>/<iface>, sending plain-text commands
 // and reading back OK/FAIL replies and unsolicited events.
@@ -22,8 +39,13 @@ namespace sst::adapters::control {
 // provisioning concern (DhcpServer + deploy steps).
 class WpaWifiManager final : public sst::control::IWifiManager {
    public:
-    explicit WpaWifiManager(std::string iface = "wlan0",
-                            std::string ctrl_dir = "/run/wpa_supplicant");
+    // iface defaults to "auto" — resolved at connect time via ResolveWifiInterface.
+    // ssid_postfix names the P2P group owner: a non-empty value (the device's
+    // `sst-cam-NNNN` name) makes the GO SSID `DIRECT-XY-sst-cam-NNNN`, matching
+    // the BLE advertised name. Empty leaves wpa_supplicant's bare `DIRECT-XY`.
+    explicit WpaWifiManager(std::string iface = "auto",
+                            std::string ctrl_dir = "/run/wpa_supplicant",
+                            std::string ssid_postfix = "");
     ~WpaWifiManager() override;
 
     WpaWifiManager(const WpaWifiManager&) = delete;
@@ -42,9 +64,24 @@ class WpaWifiManager final : public sst::control::IWifiManager {
     // Read datagrams until one contains `marker` (up to a bounded number of
     // reads) — used to capture the async P2P-GROUP-STARTED event.
     auto ReadUntil(std::string_view marker) const -> std::optional<std::string>;
+    // Non-blocking flush of any queued unsolicited events, so a following
+    // command's reply is not skipped past by the event budget.
+    auto DrainPendingEvents() const -> void;
+    // Dedicate the radio to WiFi-Direct: drop any STA association and disable
+    // every saved station network so a single-radio STA can't steal the channel
+    // from the GO. Called before forming the group.
+    auto DisableStaNetworks() -> void;
+    // The stored persistent P2P network id whose SSID carries [ssid_postfix_],
+    // if one exists — reusing it keeps the SSID/PSK stable across re-forms.
+    // Returns nullopt when none is stored yet (first bring-up) or unnamed.
+    auto FindNamedPersistentGroupId() -> std::optional<std::string>;
+    // Run [add_cmd] (P2P_GROUP_ADD ...) with the retry/await-GROUP-STARTED dance
+    // and build the resulting group, or nullopt after exhausting attempts.
+    auto FormGroup(std::string_view add_cmd) -> std::optional<sst::network::WifiDirectGroup>;
 
     std::string iface_;
     std::string ctrl_dir_;
+    std::string ssid_postfix_;
     int sock_{-1};
     std::string local_path_;
 
