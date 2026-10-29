@@ -79,5 +79,14 @@ dist/
 *.db-wal
 *.db
 # Agent tooling / local devcontainer lock (not part of the firmware)
-.claude/worktrees/
+# Agent harness folders: per-user, machine-specific state, never committed.
+# Shared agent rules live in AGENTS.md and shared skills in .agents/ (tracked).
+.claude/
+.opencode/
+.codex/
+.cursor/
+.gemini/
+.windsurf/
+.continue/
+.aider*
 .devcontainer/devcontainer-lock.json
