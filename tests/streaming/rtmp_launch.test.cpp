@@ -84,6 +84,14 @@ TEST(RtmpLaunchTest, VicOffloadUsesNvvidconv) {
     EXPECT_TRUE(Contains(vic, "voaacenc"));  // silent audio track intact
 }
 
+TEST(RtmpLaunchTest, CompleteUrlWithoutSeparateKeyIsUnchanged) {
+    PlatformStreamConfig cfg;
+    cfg.url = "rtmp://ingest.example/live/inline-key";
+    EXPECT_EQ(BuildRtmpLocation(cfg), cfg.url);
+    EXPECT_TRUE(
+        Contains(BuildRtmpLaunch(cfg), "location=\"rtmp://ingest.example/live/inline-key\""));
+}
+
 TEST(RtmpLaunchTest, LocationAppendsKeyAsFinalSegment) {
     auto cfg = MakeConfig();
     EXPECT_EQ(BuildRtmpLocation(cfg), "rtmp://ingest.example/live/secretkey");

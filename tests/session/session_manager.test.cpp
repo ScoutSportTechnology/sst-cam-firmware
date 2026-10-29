@@ -546,6 +546,21 @@ TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     fs::remove_all(root);
 }
 
+TEST(SessionManagerTest, ExplicitStopWithFailedEosKeepsOrphanMarker) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    const auto marker = fs::path(cfg.video_output_path).replace_extension(".session-active");
+    SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+    AdvanceToReady(manager, cfg);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_TRUE(fs::exists(marker));
+    ASSERT_TRUE(manager.OnRecordingStop(false));
+    EXPECT_TRUE(fs::exists(marker));
+    EXPECT_FALSE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
 TEST(SessionManagerTest, CameraFailureFinalizesWithReason) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);

@@ -11,6 +11,9 @@ auto BuildRtmpLocation(const sst::streaming::PlatformStreamConfig& cfg) -> std::
     if (cfg.url.empty()) {
         return cfg.stream_key;
     }
+    if (cfg.stream_key.empty()) {
+        return cfg.url;
+    }
     if (cfg.url.back() == '/') {
         return cfg.url + cfg.stream_key;
     }

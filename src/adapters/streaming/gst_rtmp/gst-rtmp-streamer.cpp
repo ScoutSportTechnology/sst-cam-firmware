@@ -104,8 +104,8 @@ auto GstRtmpStreamer::Start(const sst::streaming::PlatformStreamConfig& config) 
     if (running_) {
         return true;
     }
-    if (config.url.empty() || config.stream_key.empty()) {
-        spdlog::error("GstRtmpStreamer::Start rejected: url/stream_key required ({})", config);
+    if (config.url.empty()) {
+        spdlog::error("GstRtmpStreamer::Start rejected: url required ({})", config);
         return false;
     }
     config_ = config;

@@ -200,7 +200,7 @@ auto SessionManager::OnRecordingStop(bool file_valid) -> bool {
         recording_started_at_.reset();
         end = !state_.is_streaming;
         if (state_.config) {
-            if (!video_root_.empty() && !state_.config->video_output_path.empty()) {
+            if (file_valid && !video_root_.empty() && !state_.config->video_output_path.empty()) {
                 std::error_code error;
                 fs::remove(
                     fs::path(state_.config->video_output_path).replace_extension(".session-active"),
@@ -239,12 +239,15 @@ auto SessionManager::Tick() -> void {
     }
 }
 
-auto SessionManager::OnStreamingChanged(bool active) -> void {
+auto SessionManager::OnStreamingChanged(bool active) -> bool {
     bool end = false;
     {
         std::lock_guard lock(mtx_);
         if (state_.phase == SessionPhase::kIdle || state_.phase == SessionPhase::kFinalizing) {
-            return;
+            return false;
+        }
+        if (active && !state_.config) {
+            return false;
         }
         state_.is_streaming = active;
         end = !active && state_.phase == SessionPhase::kReady;
@@ -252,6 +255,7 @@ auto SessionManager::OnStreamingChanged(bool active) -> void {
     if (end) {
         EndSession(SessionEndReason::kAppStop);
     }
+    return true;
 }
 
 auto SessionManager::EndSession(SessionEndReason reason) -> bool {
@@ -293,8 +297,7 @@ auto SessionManager::EndSession(SessionEndReason reason) -> bool {
     state_ = SessionState{};
     match_clock_started_at_.reset();
     if (ending.config) {
-        if (!video_root_.empty() && !ending.config->video_output_path.empty() &&
-            (ending.phase != SessionPhase::kRecording || file_valid)) {
+        if (!video_root_.empty() && !ending.config->video_output_path.empty() && file_valid) {
             std::error_code error;
             fs::remove(
                 fs::path(ending.config->video_output_path).replace_extension(".session-active"),

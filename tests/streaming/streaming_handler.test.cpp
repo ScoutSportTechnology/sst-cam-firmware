@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -146,6 +147,9 @@ class ProxySink final : public sst::raw_capture::IRawCaptureSink {
         ++starts;
         last_group = group;
         last_dir = dir;
+        if (on_start) {
+            on_start();
+        }
         return true;
     }
     auto Stop() -> bool override {
@@ -157,6 +161,7 @@ class ProxySink final : public sst::raw_capture::IRawCaptureSink {
     [[nodiscard]] auto IsCapturing() const -> bool override { return starts > stops; }
     int starts{0};
     int stops{0};
+    std::function<void()> on_start;
     std::string last_group;
     std::filesystem::path last_dir;
 };
@@ -219,6 +224,36 @@ TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
     EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
     EXPECT_FALSE(streaming.active);
     EXPECT_EQ(sink.starts, 0);
+    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
+}
+
+TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
+    constexpr auto kMatch = "01234567-89ab-4cde-8fab-0123456789ab";
+    Cleanup cleanup;
+    std::chrono::steady_clock::time_point now{};
+    sst::session::SessionManager session(cleanup, [&] { return now; });
+    ASSERT_TRUE(session.OnConnect());
+    ASSERT_TRUE(session.OnWifiReady());
+    sst::session::SessionConfig config;
+    config.match_uuid = kMatch;
+    config.video_output_path =
+        (std::filesystem::temp_directory_path() / kMatch / (std::string(kMatch) + ".mp4")).string();
+    ASSERT_TRUE(session.ApplySessionConfig(config));
+    session.OnDisconnect();
+    ProxySink sink;
+    sst::raw_capture::ProxyOwners owners(sink);
+    FakeStreaming streaming;
+    StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
+    constexpr auto kDisconnectTimeout = std::chrono::minutes(30);
+    sink.on_start = [&] {
+        now += kDisconnectTimeout;
+        session.Tick();
+    };
+
+    EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
+    EXPECT_FALSE(streaming.active);
+    EXPECT_EQ(sink.starts, 1);
+    EXPECT_EQ(sink.stops, 1);
     std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 

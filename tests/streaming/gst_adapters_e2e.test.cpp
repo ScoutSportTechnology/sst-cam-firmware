@@ -127,19 +127,22 @@ TEST(StreamingE2E, RtmpStreamerRejectsEmptyUrl) {
     EXPECT_FALSE(streamer.IsRunning());
 }
 
-TEST(StreamingE2E, RtmpStreamerRejectsEmptyKey) {
+TEST(StreamingE2E, RtmpStreamerAcceptsCompleteUrlWithoutSeparateKey) {
+    setenv("SST_DISABLE_VIC", "1", /*overwrite=*/1);
     GstRtmpStreamer streamer;
     sst::streaming::PlatformStreamConfig cfg;
     cfg.stream_id = 2;
     cfg.name = "no-key";
-    cfg.url = "rtmp://localhost:1935/live";
+    cfg.url = "rtmp://localhost:1935/live/inline-key";
     cfg.stream_key = "";
     cfg.width = kWidth;
     cfg.height = kHeight;
     cfg.framerate = kFps;
     cfg.bitrate_kbps = kRtmpBitrateKbps;
-    EXPECT_FALSE(streamer.Start(cfg));
-    EXPECT_FALSE(streamer.IsRunning());
+    EXPECT_TRUE(streamer.Start(cfg));
+    EXPECT_TRUE(streamer.IsRunning());
+    streamer.Stop();
+    unsetenv("SST_DISABLE_VIC");
 }
 
 TEST(StreamingE2E, RtmpStreamerStartsAndPushesAgainstLocalIngest) {

@@ -30,7 +30,7 @@ class SessionManager final : public ISessionManager {
     auto OnDisconnect() -> void override;
     auto Tick() -> void override;
     auto EndSession(SessionEndReason reason) -> bool override;
-    auto OnStreamingChanged(bool active) -> void override;
+    auto OnStreamingChanged(bool active) -> bool override;
 
     auto ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool override;
     auto ReconcileMatch(const std::function<void(LiveMatch&)>& mutate) -> bool override;

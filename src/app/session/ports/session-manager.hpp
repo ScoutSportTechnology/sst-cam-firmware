@@ -29,7 +29,7 @@ class ISessionManager {
     virtual auto OnDisconnect() -> void = 0;
     virtual auto Tick() -> void = 0;
     virtual auto EndSession(SessionEndReason reason) -> bool = 0;
-    virtual auto OnStreamingChanged(bool active) -> void = 0;
+    virtual auto OnStreamingChanged(bool active) -> bool = 0;
 
     // Apply a display-only live-match mutation (score/clock/period) while a
     // session is active (phase >= Configured). Returns false (no-op) if there

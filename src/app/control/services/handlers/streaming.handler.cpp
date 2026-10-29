@@ -128,8 +128,14 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
                             state.config->match_uuid, state.config->video_output_path);
     }
-    if (session_ != nullptr) {
-        session_->OnStreamingChanged(true);
+    if (session_ != nullptr && !session_->OnStreamingChanged(true)) {
+        streaming_.StopPlatformStream(kEgressStreamId);
+        if (proxy_ != nullptr) {
+            proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
+        }
+        resp.set_status(sst_cam::ERROR);
+        resp.set_error_message("streaming start rejected: session ended");
+        return resp;
     }
     resp.set_status(sst_cam::ResponseStatus::OK);
     return resp;
