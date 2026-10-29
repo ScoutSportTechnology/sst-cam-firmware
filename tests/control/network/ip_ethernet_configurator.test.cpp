@@ -11,9 +11,11 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "adapters/control/network/ip-ethernet-command.hpp"
 #include "adapters/control/network/ip-ethernet-configurator.hpp"
+#include "adapters/control/network/nmcli-uplink-configurator.hpp"
 #include "domain/network/models/ethernet-mode.hpp"
 
 namespace {
@@ -22,12 +24,20 @@ using sst::adapters::control::BuildEthAddrDelArgv;
 using sst::adapters::control::BuildEthAddrReplaceArgv;
 using sst::adapters::control::BuildEthRouteReplaceArgv;
 using sst::adapters::control::BuildResolvConf;
+using sst::adapters::control::BuildStaDhclientArgv;
 using sst::adapters::control::DeriveEthernetMode;
 using sst::adapters::control::IsIpv4Cidr;
 using sst::adapters::control::IsIpv4Literal;
 using sst::adapters::control::MaskToPrefix;
 using sst::adapters::control::ParseDhcpOfferCidr;
 using sst::network::EthernetMode;
+
+TEST(IpEthernetCommandTest, StaDhcpUsesMetricScriptForEveryLease) {
+    EXPECT_EQ(BuildStaDhclientArgv("wlP1p1s0"),
+              (std::vector<std::string>{"dhclient", "-1", "-4", "-sf",
+                                        "/opt/sst-cam/bin/sst-sta-dhclient-script", "wlP1p1s0"}));
+    EXPECT_TRUE(BuildStaDhclientArgv("wlP1p1s0; nft flush ruleset").empty());
+}
 
 // ---- IPv4 validation (injection / content safety) ----
 

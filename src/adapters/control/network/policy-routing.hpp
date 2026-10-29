@@ -52,8 +52,6 @@ auto BuildUplinkDefaultRouteArgv(const std::string& gateway,
                                  const std::string& iface) -> std::vector<std::string>;
 // `ip route flush table 210` — drops all uplink routes (idempotent teardown).
 auto BuildUplinkRouteFlushArgv() -> std::vector<std::string>;
-auto BuildStaSubnetRouteArgv(const std::string& subnet_cidr,
-                             const std::string& iface) -> std::vector<std::string>;
 
 // Egress-only firewall (nft). The chain hooks `input` with a default ACCEPT
 // policy and matches ONLY the uplink iface, so non-uplink (LAN) traffic is never
@@ -82,11 +80,8 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string>;
 // "<iface>"` literal can carry no shell/nft metacharacters, newline, or directive.
 auto BuildFirewallRulesetScript(const std::string& iface) -> std::string;
 
-// The conntrack-free variant of the same egress-only ruleset, applied when the
-// stateful one is rejected because the kernel has no nft_ct module (JetPack 7.2 ships
-// nft_chain_nat/compat/masq/nat only). Drops inbound SYN-only TCP — no externally
-// initiated connection can reach a camera service, while SYN+ACK replies to the
-// camera's own outbound connections still pass. Empty on an unsafe iface.
+// Conntrack-free fallback denies all wired input except LAN SSH, including
+// return traffic for wired streaming. Empty on an unsafe iface.
 auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::string;
 
 // The firmware-owned policy-routing adapter. Forks `ip`/`nft` (root) via the

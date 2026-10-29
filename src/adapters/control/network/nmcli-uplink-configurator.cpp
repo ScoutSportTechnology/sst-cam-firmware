@@ -152,6 +152,13 @@ auto Capture(const std::vector<std::string>& argv) -> std::string {
 }
 }  // namespace
 
+auto BuildStaDhclientArgv(const std::string& iface) -> std::vector<std::string> {
+    if (!IsSafeIfaceName(iface)) {
+        return {};
+    }
+    return {"dhclient", "-1", "-4", "-sf", "/opt/sst-cam/bin/sst-sta-dhclient-script", iface};
+}
+
 auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
     // Do NOT use nmcli here: wlP1p1s0 is NM-UNMANAGED (dedicated wpa_supplicant for
     // the WiFi-Direct GO), and nmcli's device list is unreliable for it — right
@@ -255,26 +262,12 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     // The firmware runs as root (U2), so dhclient uses its default lease/pid paths
     // (/var/lib/dhcp, /var/run) and its dhclient-script writes /etc/resolv.conf
     // directly — the old /tmp lease/pid redirection (a non-root workaround) is gone.
-    RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
+    RunBounded(BuildStaDhclientArgv(iface), kDhcpTimeout);
     const std::string address = IfaceIpv4(iface);
     if (address.empty()) {
         WpaCli(iface, {"disconnect"});
         WpaCli(iface, {"remove_network", net_id});
         return {.ok = false, .detail = "joined wifi but got no DHCP address"};
-    }
-    const auto route = CaptureBounded(
-        {"ip", "-4", "-o", "route", "show", "dev", iface, "scope", "link"}, kQueryTimeout);
-    if (!route.ok) {
-        TeardownWifiSta();
-        return {.ok = false, .detail = "could not inspect wifi subnet route"};
-    }
-    std::istringstream routes(route.output);
-    std::string subnet;
-    routes >> subnet;
-    if (const auto argv = BuildStaSubnetRouteArgv(subnet, iface);
-        argv.empty() || !RunBounded(argv, kApplyTimeout)) {
-        TeardownWifiSta();
-        return {.ok = false, .detail = "could not prioritize wifi subnet route"};
     }
     spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", ssid, iface, address);
     return {.ok = true, .detail = address};

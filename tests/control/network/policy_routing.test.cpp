@@ -23,7 +23,6 @@ using sst::adapters::control::BuildFirewallDeleteTableArgv;
 using sst::adapters::control::BuildFirewallDropInboundArgv;
 using sst::adapters::control::BuildFirewallFlushTableArgv;
 using sst::adapters::control::BuildFirewallRulesetScript;
-using sst::adapters::control::BuildStaSubnetRouteArgv;
 using sst::adapters::control::BuildStatelessFirewallRulesetScript;
 using sst::adapters::control::BuildUplinkDefaultRouteArgv;
 using sst::adapters::control::BuildUplinkRouteFlushArgv;
@@ -141,14 +140,9 @@ TEST(PolicyRoutingCommandTest, FirewallDropsAllInboundOnUplinkExceptEstablished)
 
 // ---- F7: the whole egress firewall as ONE atomic nft transaction ----
 
-// F7: the firewall is emitted as a SINGLE `nft -f` script (add + flush + chain +
-// established-accept + drop, in that order) so nft swaps the ruleset in ONE atomic
-// transaction — a re-apply never opens a rule-less window where inbound is accepted
-// on the uplink. The old design flushed then re-added via SEPARATE nft invocations.
-// Metal finding: the JetPack 7.2 kernel (6.8.12-*-tegra) has no nft_ct module, so the
-// stateful ruleset's `ct state` expression is rejected with ENOENT and the egress-only
-// bound silently did not exist. This conntrack-free ruleset is the fallback.
-TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDropsInboundSynWithoutConntrack) {
+// A rejected conntrack rule must not leave an unfiltered wired uplink. The
+// fallback denies inbound traffic except LAN SSH, including return traffic.
+TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDeniesUnsolicitedTrafficWithoutConntrack) {
     const std::string script = BuildStatelessFirewallRulesetScript("eth0");
     ASSERT_FALSE(script.empty());
 
@@ -157,26 +151,18 @@ TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDropsInboundSynWithoutCon
     const auto add_table = script.find("add table " + table);
     const auto flush_table = script.find("flush table " + table);
     const auto chain = script.find("add chain " + table + " input");
-    const auto syn_drop = script.find("iifname \"eth0\" tcp flags syn / fin,syn,rst,ack drop");
+    const auto drop = script.find("iifname \"eth0\" drop");
     EXPECT_NE(add_table, std::string::npos);
     EXPECT_NE(flush_table, std::string::npos);
     EXPECT_NE(chain, std::string::npos);
-    EXPECT_NE(syn_drop, std::string::npos) << script;
+    EXPECT_NE(drop, std::string::npos) << script;
     EXPECT_LT(add_table, flush_table);
     EXPECT_LT(flush_table, chain);
-    EXPECT_LT(chain, syn_drop);
+    EXPECT_LT(chain, drop);
 
     // It must NOT reference conntrack — that is the whole point of the fallback.
     EXPECT_EQ(script.find("ct state"), std::string::npos) << script;
-    // And it must NOT blanket-drop inbound: a bare `drop` would also kill the SYN+ACK
-    // replies to the camera's own outbound connections (no conntrack to exempt them).
-    EXPECT_EQ(script.find("iifname \"eth0\" drop"), std::string::npos) << script;
-}
-
-TEST(PolicyRoutingCommandTest, StaSubnetRouteMustLoseToEthernet) {
-    EXPECT_EQ(BuildStaSubnetRouteArgv("10.10.1.0/24", "wlP1p1s0"),
-              (Argv{"ip", "route", "replace", "10.10.1.0/24", "dev", "wlP1p1s0", "metric", "600"}));
-    EXPECT_TRUE(BuildStaSubnetRouteArgv("10.10.1.0/24\naccept", "wlP1p1s0").empty());
+    EXPECT_EQ(script.find("tcp flags syn"), std::string::npos) << script;
 }
 
 TEST(PolicyRoutingCommandTest, FirewallAlwaysAllowsLanEthernetSshWithoutConntrack) {

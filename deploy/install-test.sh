@@ -116,6 +116,44 @@ else
   bad "src/main.cpp not found: $MAIN_CPP"
 fi
 
+# A STA lease must use the installed metric-aware script on first bind and renewal.
+STA_SCRIPT_SANDBOX="$(mktemp -d)"
+sed -n '/# --- sta-dhcp-script:begin/,/# --- sta-dhcp-script:end/p' "$INSTALL_SH" >"${STA_SCRIPT_SANDBOX}/install-sta"
+if [ -s "${STA_SCRIPT_SANDBOX}/install-sta" ]; then
+  mkdir -p "${STA_SCRIPT_SANDBOX}/bin"
+  (
+    INSTALL_DIR="${STA_SCRIPT_SANDBOX}/bin"
+    # shellcheck disable=SC2034
+    STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
+    # shellcheck disable=SC1091
+    . "${STA_SCRIPT_SANDBOX}/install-sta"
+    install_sta_dhcp_script
+  )
+  STA_SCRIPT="${STA_SCRIPT_SANDBOX}/bin/sst-sta-dhclient-script"
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
+  chmod +x "${STA_SCRIPT_SANDBOX}/bin/ip"
+  printf 'ip -4 addr add 10.10.1.148/24 dev wlP1p1s0\nip -4 addr change 10.10.1.148/24 dev wlP1p1s0\nip -4 route add default via 10.10.1.1 dev wlP1p1s0\n' >"${STA_SCRIPT_SANDBOX}/stock"
+  sed "s@/sbin/dhclient-script@${STA_SCRIPT_SANDBOX}/stock@" "$STA_SCRIPT" >"${STA_SCRIPT_SANDBOX}/sta"
+
+  for reason in BOUND RENEW REBIND REBOOT; do
+    : >"${STA_SCRIPT_SANDBOX}/ip.log"
+    PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
+      interface=wlP1p1s0 reason="$reason" new_ip_address=10.10.1.148 \
+      new_subnet_mask=24 sh "${STA_SCRIPT_SANDBOX}/sta" || true
+    if grep -q -- '-4 addr add 10.10.1.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
+       grep -q -- '-4 addr change 10.10.1.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
+       grep -q -- '-4 route add default via 10.10.1.1 dev wlP1p1s0' "${STA_SCRIPT_SANDBOX}/ip.log"; then
+      ok
+    else
+      bad "STA $reason lease did not retain metric or default route"
+    fi
+  done
+else
+  bad "STA DHCP metric script not found"
+fi
+rm -rf "$STA_SCRIPT_SANDBOX"
+
 # 7. GPU/CUDA access: install.sh must add the service user to the 'render' group.
 #    The capture pipeline runs CUDA (nvvidconv/NvBufSurface) in the firmware's own
 #    process; without render the non-root service gets cudaErrorNotSupported

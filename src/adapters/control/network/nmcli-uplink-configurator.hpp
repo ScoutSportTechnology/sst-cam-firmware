@@ -1,10 +1,13 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "app/network/ports/uplink-configurator.hpp"
 
 namespace sst::adapters::control {
+
+auto BuildStaDhclientArgv(const std::string& iface) -> std::vector<std::string>;
 
 // WiFi-STA uplink configurator (hardware-bound — fork/exec `wpa_cli`/`dhclient`/
 // `ip`). Ethernet is NO LONGER handled here — it moved to the firmware-owned

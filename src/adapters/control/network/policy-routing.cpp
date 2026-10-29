@@ -131,19 +131,14 @@ auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
                      iface);
         return true;
     }
-    // The stateful ruleset needs nftables' `ct` expression, i.e. the nft_ct kernel
-    // module. The JetPack 7.2 kernel (6.8.12-*-tegra) ships nft_chain_nat/compat/
-    // masq/nat but NOT nft_ct, so `ct state established,related` is rejected there
-    // with ENOENT no matter that nf_conntrack itself is loaded. Fall back to the
-    // stateless equivalent rather than leaving the uplink unfiltered: dropping
-    // inbound TCP whose flags are SYN-only blocks every externally-initiated
-    // connection (so no camera service is reachable on the uplink) while the
-    // SYN+ACK replies to the camera's own outbound connections still pass.
+    // If conntrack is unavailable, deny all unsolicited input on the wired
+    // interface except LAN SSH. This blocks uplink return traffic too, so streaming
+    // over this interface stays unavailable until the kernel supports stateful rules.
     const std::string stateless = BuildStatelessFirewallRulesetScript(iface);
     if (!stateless.empty() && WriteAndApplyScript(stateless, "stateless firewall ruleset")) {
-        spdlog::warn(
-            "PolicyRouting: egress-only firewall active on {} in STATELESS mode — this kernel has "
-            "no nft_ct, so inbound TCP SYN is dropped instead of matching ct state",
+        spdlog::error(
+            "PolicyRouting: conntrack unavailable on {} — denying inbound traffic except LAN "
+            "SSH; wired uplink return traffic and streaming are unavailable",
             iface);
         return true;
     }
@@ -221,14 +216,6 @@ auto BuildUplinkRouteFlushArgv() -> std::vector<std::string> {
     return {"ip", "route", "flush", "table", kUplinkRouteTable};
 }
 
-auto BuildStaSubnetRouteArgv(const std::string& subnet_cidr,
-                             const std::string& iface) -> std::vector<std::string> {
-    if (!IsIpv4Cidr(subnet_cidr) || !IsSafeIfaceName(iface)) {
-        return {};
-    }
-    return {"ip", "route", "replace", subnet_cidr, "dev", iface, "metric", "600"};
-}
-
 auto BuildFirewallAddTableArgv() -> std::vector<std::string> {
     return {"nft", "add", "table", "inet", kUplinkNftTable};
 }
@@ -295,13 +282,8 @@ auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::strin
         return {};
     }
     const std::string table = std::string("inet ") + kUplinkNftTable;
-    // Conntrack-free equivalent for kernels without nft_ct (JetPack 7.2 — see
-    // WriteAndApplyFirewallScript). `tcp flags syn / fin,syn,rst,ack` masks off those
-    // four bits and matches SYN-ONLY segments: the opening packet of an inbound
-    // connection. Dropping those makes every camera service (RTSP, control, download
-    // — all TCP) unreachable from the uplink, while the SYN+ACK that answers the
-    // camera's own outbound connections has two bits set and is not matched, so
-    // egress and its return path keep working. Same single atomic transaction (F7).
+    // Without conntrack, deny wired input except LAN SSH; do not present a
+    // SYN-only filter as protection for UDP, IPv6 or non-SYN TCP packets.
     std::string script;
     script += "add table " + table + "\n";
     script += "flush table " + table + "\n";
@@ -309,8 +291,7 @@ auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::strin
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
     script += "add rule " + table + " input iifname \"" + iface +
               "\" ip saddr 10.10.1.0/24 tcp dport 22 accept\n";
-    script += "add rule " + table + " input iifname \"" + iface +
-              "\" tcp flags syn / fin,syn,rst,ack drop\n";
+    script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
 }
 
