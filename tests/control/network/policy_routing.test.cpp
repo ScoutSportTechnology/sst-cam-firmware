@@ -173,10 +173,12 @@ TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDropsInboundSynWithoutCon
 }
 
 TEST(PolicyRoutingCommandTest, FirewallAlwaysAllowsLanEthernetSshWithoutConntrack) {
-    const std::string script = BuildStatelessFirewallRulesetScript("enP8p1s0");
-    EXPECT_NE(script.find("ip saddr 10.10.1.0/24 tcp dport 22 accept"), std::string::npos)
-        << script;
-    EXPECT_EQ(script.find("ct state"), std::string::npos) << script;
+    for (const auto& script : {BuildStatelessFirewallRulesetScript("enP8p1s0"),
+                               BuildFirewallRulesetScript("enP8p1s0")}) {
+        EXPECT_NE(script.find("ip saddr 10.10.1.0/24 tcp dport 22 accept"), std::string::npos)
+            << script;
+    }
+    EXPECT_EQ(BuildStatelessFirewallRulesetScript("enP8p1s0").find("ct state"), std::string::npos);
 }
 
 TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetRefusesUnsafeIface) {

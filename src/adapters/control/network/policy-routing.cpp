@@ -275,6 +275,8 @@ auto BuildFirewallRulesetScript(const std::string& iface) -> std::string {
     script +=
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
     script += "add rule " + table + " input iifname \"" + iface +
+              "\" ip saddr 10.10.1.0/24 tcp dport 22 accept\n";
+    script += "add rule " + table + " input iifname \"" + iface +
               "\" ct state established,related accept\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
