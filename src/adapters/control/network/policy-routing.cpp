@@ -127,7 +127,8 @@ auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
         return false;
     }
     if (WriteAndApplyScript(stateful, "stateful firewall ruleset")) {
-        spdlog::info("PolicyRouting: egress-only firewall active on {} (stateful, ct state)", iface);
+        spdlog::info("PolicyRouting: egress-only firewall active on {} (stateful, ct state)",
+                     iface);
         return true;
     }
     // The stateful ruleset needs nftables' `ct` expression, i.e. the nft_ct kernel
@@ -296,6 +297,8 @@ auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::strin
     script += "flush table " + table + "\n";
     script +=
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
+    script += "add rule " + table + " input iifname \"" + iface +
+              "\" ip saddr 10.10.1.0/24 tcp dport 22 accept\n";
     script += "add rule " + table + " input iifname \"" + iface +
               "\" tcp flags syn / fin,syn,rst,ack drop\n";
     return script;

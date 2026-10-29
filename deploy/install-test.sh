@@ -297,14 +297,7 @@ if grep -q 'ELF\*aarch64' "$INSTALL_SH"; then ok; else bad "install.sh must keep
 
 unit_output="$(bash -c "$(sed -n '/^embedded_unit() {/,/^}/p' "$INSTALL_SH"); embedded_unit")"
 for unit in "$unit_output" "$(< "${SCRIPT_DIR}/sst-cam-firmware.service")"; do
-  for directive in AmbientCapabilities CapabilityBoundingSet; do
-    value="$(printf '%s\n' "$unit" | sed -n "s/^${directive}=//p")"
-    if [[ " $value " == *" CAP_SYS_TIME "* ]]; then
-      ok
-    else
-      bad "firmware service lacks CAP_SYS_TIME in ${directive}"
-    fi
-  done
+  if grep -q '^User=root$' <<<"$unit"; then ok; else bad "firmware service must run as root for network/time operations"; fi
 done
 
 printf '\ndeploy/install-test.sh: %d passed, %d failed\n' "$pass" "$fail"
