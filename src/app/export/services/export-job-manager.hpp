@@ -64,8 +64,8 @@ class ExportJobManager {
     auto operator=(ExportJobManager&&) -> ExportJobManager& = delete;
 
     // Queue a burn for `recording_id`; returns a job id immediately (the burn
-    // runs on a worker thread). If an unfinished/ready burn for the same
-    // recording already exists it is reused instead of spawning a duplicate.
+    // runs on a worker thread). An unfinished burn is reused; a ready export
+    // gets a fresh job/token without re-burning the existing file.
     // `is_live`, when set, is re-checked on the worker just before encoding so a
     // match that goes live after the request aborts the burn.
     auto RequestExport(const std::string& recording_id, LiveGate is_live = nullptr) -> std::string;

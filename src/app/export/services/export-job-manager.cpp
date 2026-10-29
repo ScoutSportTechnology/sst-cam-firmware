@@ -45,11 +45,12 @@ auto ExportJobManager::RequestExport(const std::string& recording_id,
     job->is_live = std::move(is_live);
     {
         const std::lock_guard lock(jobs_mtx_);
-        // Dedup: a non-failed burn for the same recording is already in flight or
-        // ready — reuse it rather than spawn a second identical transcode.
+        // Reuse in-flight burns; a ready recording is reused by the worker,
+        // but needs a new job to mint a fresh download token.
         for (const auto& existing : jobs_) {
             if (existing->recording_id == recording_id &&
-                existing->state.load() != ExportState::kFailed) {
+                existing->state.load() != ExportState::kFailed &&
+                existing->state.load() != ExportState::kReady) {
                 spdlog::info("ExportJob {}: reused for recording {}", existing->id, recording_id);
                 return existing->id;
             }
@@ -122,6 +123,10 @@ void ExportJobManager::Run(Job& job) {
     const auto l1_path = resolve_(job.recording_id);
     if (!l1_path) {
         fail("recording not found");
+        return;
+    }
+    if (l1_path->stem().string().ends_with("_overlay")) {
+        fail("cannot export an overlay recording");
         return;
     }
     const auto timeline = load_timeline_(*l1_path);

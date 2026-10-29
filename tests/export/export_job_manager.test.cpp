@@ -157,6 +157,52 @@ TEST(ExportJobManagerTest, BurnedRecordingIsCatalogedAndSurvivesJobEviction) {
     fs::remove_all(root);
 }
 
+TEST(ExportJobManagerTest, RepeatedReadyRequestRenewsExpiredTokenWithoutReburn) {
+    const fs::path root =
+        fs::temp_directory_path() /
+        ("sst-export-renew-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(root);
+    std::ofstream(root / "match.mp4") << "clean";
+    FakeBurner burner;
+    burner.write_file = true;
+    int minted = 0;
+    std::uint64_t now = kStartTime;
+    sst::exportjob::ExportJobManager manager(
+        burner, [root](const std::string&) { return std::optional{root / "match.mp4"}; },
+        [](const fs::path&) { return sst::overlay::OverlayTimeline{}; },
+        [&](const fs::path&, const std::string&) {
+            auto token = MakeToken();
+            token.token = "token-" + std::to_string(++minted);
+            token.expires_at_unix = now + kTokenTtl;
+            return std::optional{token};
+        });
+    const auto first_id = manager.RequestExport("match");
+    ASSERT_EQ(WaitForTerminal(manager, first_id).state, sst::exportjob::ExportState::kReady);
+    now += kTokenTtl;
+    const auto next_id = manager.RequestExport("match");
+    EXPECT_NE(next_id, first_id);
+    const auto renewed = WaitForTerminal(manager, next_id);
+    ASSERT_TRUE(renewed.token);
+    if (renewed.token) {
+        EXPECT_EQ(renewed.token->token, "token-2");
+        EXPECT_EQ(renewed.token->expires_at_unix, kStartTime + 2 * kTokenTtl);
+    }
+    EXPECT_EQ(burner.calls.load(), 1);
+    fs::remove_all(root);
+}
+
+TEST(ExportJobManagerTest, OverlayInputIsRejectedBeforeAnotherBurn) {
+    FakeBurner burner;
+    sst::exportjob::ExportJobManager manager(
+        burner, [](const std::string&) { return std::optional<fs::path>{"/v/match_overlay.mp4"}; },
+        [](const fs::path&) { return sst::overlay::OverlayTimeline{}; },
+        [](const fs::path&, const std::string&) { return std::optional{MakeToken()}; });
+    const auto view = WaitForTerminal(manager, manager.RequestExport("match_overlay"));
+    EXPECT_EQ(view.state, sst::exportjob::ExportState::kFailed);
+    EXPECT_EQ(burner.calls.load(), 0);
+}
+
 TEST(ExportJobManagerTest, RefusesSymlinkAtStableExportPath) {
     const fs::path root =
         fs::temp_directory_path() /
