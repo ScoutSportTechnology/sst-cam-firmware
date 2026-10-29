@@ -25,7 +25,7 @@ namespace sst::control {
 // WifiReady, starts the RTSP preview stream bound to the group-owner IP, and
 // reports the camera-generated credentials in a WifiDirectGroupResponse (KTD4).
 class WifiDirectHandler final : public ICommandHandler,
-                                 public sst::network::IConnectivityTransitionHooks {
+                                public sst::network::IConnectivityTransitionHooks {
    public:
     WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
                       INetworkConfigurator& netcfg, IDhcpServer& dhcp,
