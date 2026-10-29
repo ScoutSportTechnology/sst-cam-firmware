@@ -51,12 +51,12 @@ auto ToBytes(const sst_cam::ChunkedPayload& chunk) -> std::vector<std::uint8_t> 
 // dict, returning nullopt when the key is absent or not a bool.
 auto ReadBoolProp(const std::map<std::string, sdbus::Variant>& props,
                   const char* key) -> std::optional<bool> {
-    const auto it = props.find(key);
-    if (it == props.end()) {
+    const auto property = props.find(key);
+    if (property == props.end()) {
         return std::nullopt;
     }
     try {
-        return it->second.get<bool>();
+        return property->second.get<bool>();
     } catch (const sdbus::Error&) {
         return std::nullopt;
     }
@@ -287,18 +287,18 @@ auto BluezBleTransport::RecomputeLinkEncryptedLocked() -> void {
 auto BluezBleTransport::OnDevicePropertiesChanged(
     const std::string& path, const std::map<std::string, sdbus::Variant>& changed) -> void {
     std::lock_guard lock(mtx_);
-    const auto it = devices_.find(path);
-    if (it == devices_.end()) {
+    const auto device = devices_.find(path);
+    if (device == devices_.end()) {
         return;  // property change for an untracked device
     }
     if (const auto connected = ReadBoolProp(changed, "Connected")) {
-        it->second.connected = *connected;
+        device->second.connected = *connected;
     }
     if (const auto paired = ReadBoolProp(changed, "Paired")) {
-        it->second.paired = *paired;
+        device->second.paired = *paired;
     }
     if (const auto bonded = ReadBoolProp(changed, "Bonded")) {
-        it->second.bonded = *bonded;
+        device->second.bonded = *bonded;
     }
     RecomputeLinkEncryptedLocked();
 }
@@ -310,7 +310,7 @@ auto BluezBleTransport::OnDeviceInterfacesAdded(
     if (dev_iface == interfaces.end()) {
         return;  // some other org.bluez object (adapter, GATT, …)
     }
-    const std::string dev_path = path;
+    const std::string& dev_path = path;
     const auto& props = dev_iface->second;
 
     // Attach a PropertiesChanged watcher OUTSIDE the lock (createProxy +
