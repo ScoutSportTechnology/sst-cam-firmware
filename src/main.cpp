@@ -274,9 +274,8 @@ auto RunFirmware() -> int {
         });
 
     // ── Overlay export (on-demand burn, #6 F6c) ─────────────────────────
-    // Burns the recorded overlay timeline onto a clean L1 into an L2 living
-    // OUTSIDE the video root (so it never shows up in the recordings list),
-    // tokened for download exactly like a normal recording.
+    // Burns the recorded overlay timeline onto a clean L1 into a persistent L2
+    // in the same match folder, available through the normal recording catalog.
     sst::adapters::overlay::OpenCvOverlayBurner overlay_burner;
     sst::exportjob::ExportJobManager export_manager(
         overlay_burner,
@@ -289,11 +288,10 @@ auto RunFirmware() -> int {
             return sst::adapters::overlay::LoadOverlayTimeline(timeline_path)
                 .value_or(sst::overlay::OverlayTimeline{});
         },
-        [&download_server](const std::filesystem::path& l2_path, const std::string& job_id) {
-            return download_server.MintTokenForFile(
-                l2_path, job_id, sst::runtime_defaults::kDownloadTokenTtlSeconds);
-        },
-        video_root.parent_path() / "exports");
+        [&download_server](const std::filesystem::path&, const std::string& recording_id) {
+            return download_server.MintToken(recording_id,
+                                             sst::runtime_defaults::kDownloadTokenTtlSeconds);
+        });
 
     // ── System stats (telemetry source) ────────────────────────────────
     sst::adapters::control::ProcSystemStats system_stats(video_root);

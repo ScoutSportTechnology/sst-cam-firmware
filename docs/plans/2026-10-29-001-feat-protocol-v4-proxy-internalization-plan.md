@@ -93,8 +93,8 @@ Task 5 verification (2026-10-29): devcontainer aarch64 test and debug cross-buil
 
 **Interfaces:** Burned L2 is in the same match directory as L1, with distinct stable stem, listed and downloadable via ordinary recording and token flow; no automatic deletion on download or token expiry.
 
-- [ ] Add failing export/catalog/token tests for same-folder L1+L2 and persistent L2 after token consumption/expiration.
-- [ ] Change production export output path, remove any post-download L2 deletion, run focused tests and commit `feat(export): retain L2 beside L1 as a downloadable recording`.
+- [x] Add failing export/catalog/token tests for same-folder L1+L2 and persistent L2 after token consumption/expiration.
+- [x] Change production export output path, remove any post-download L2 deletion, run focused tests and commit `feat(export): retain L2 beside L1 as a downloadable recording`.
 - [ ] Run `devcontainer exec --workspace-folder . bash -lc 'cmake --preset test && cmake --build --preset test && ctest --preset test'` as feasible; run `/root/setup/act/run-light.sh` and `/root/setup/act/run-heavy.sh` from the firmware repo, inspect `/var/log/act-*.log`, and fix all `format`, `tidy`, `test`, `ci-scripts` failures except the known unmerged-proto pin check. Review `git diff`, push branch, open draft PR to `development` with the specified breaking title and contract questions. Do not merge.
 
 ## Task 2 rulings and PR questions

@@ -42,8 +42,7 @@ auto MakeManager(FakeBurner& burner) -> sst::exportjob::ExportJobManager {
             token.token = "tok";
             token.expires_at_unix = 1;
             return std::optional{token};
-        },
-        fs::temp_directory_path() / "sst-export-handler-test");
+        });
 }
 
 auto ExportCmd(const std::string& recording_id) -> sst_cam::Command {
@@ -112,6 +111,7 @@ TEST(ExportBurnHandlerTest, PollReadyCarriesDownloadToken) {
         if (resp.export_job().state() == sst_cam::EXPORT_JOB_READY) {
             EXPECT_TRUE(resp.export_job().has_token());
             EXPECT_EQ(resp.export_job().token().auth_token(), "tok");
+            EXPECT_EQ(resp.export_job().token().recording_id(), "match_overlay");
             EXPECT_FALSE(resp.export_job().token().http_url().empty());
             return;
         }
