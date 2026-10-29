@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <system_error>
 #include <utility>
 
@@ -47,6 +48,25 @@ auto GstFormatFor(sst::common::PixelFormat fmt) -> const char* {
     return "NV12";
 }
 }  // namespace
+
+auto PackProxyFrame(const sst::capture::Frame& frame) -> std::vector<std::uint8_t> {
+    std::size_t size = 0;
+    for (const auto& plane : frame.planes) {
+        if (plane.data == nullptr && plane.size != 0) {
+            return {};
+        }
+        size += plane.size;
+    }
+    std::vector<std::uint8_t> bytes(size);
+    std::size_t offset = 0;
+    for (const auto& plane : frame.planes) {
+        if (plane.size != 0) {
+            std::memcpy(bytes.data() + offset, plane.data, plane.size);
+            offset += plane.size;
+        }
+    }
+    return bytes;
+}
 
 FilesystemRawCaptureSink::FilesystemRawCaptureSink(std::filesystem::path video_dir,
                                                    std::uint32_t camera_count)
@@ -179,12 +199,15 @@ auto FilesystemRawCaptureSink::PushCamera(std::uint32_t camera_index,
         writer.caps_set = true;
     }
 
-    const auto& plane = frame.planes[0];
-    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, plane.size, nullptr);
+    const auto bytes = PackProxyFrame(frame);
+    if (bytes.empty()) {
+        return;
+    }
+    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, bytes.size(), nullptr);
     if (buffer == nullptr) {
         return;
     }
-    gst_buffer_fill(buffer, 0, plane.data, plane.size);
+    gst_buffer_fill(buffer, 0, bytes.data(), bytes.size());
     // appsrc is block=false with a leaky=downstream queue behind it, so this
     // returns immediately and drops oldest under overload — never blocks capture.
     (void)gst_app_src_push_buffer(GST_APP_SRC(writer.appsrc), buffer);

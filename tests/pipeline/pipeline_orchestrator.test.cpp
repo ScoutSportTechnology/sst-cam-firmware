@@ -339,6 +339,31 @@ TEST(PipelineOrchestratorTest, StalledCameraRecoversAfterWatchdogRestart) {
     orchestrator.Stop();
 }
 
+TEST(PipelineOrchestratorTest, RepeatedNoFrameRestartsEventuallyFailAndNotifyOnce) {
+    auto capture = std::make_unique<FakeCapture>(kCam0Dims, true);
+    auto* camera = capture.get();
+    CountingSink record_sink;
+    CountingSink stream_sink;
+    std::atomic<int> failures{0};
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        stream_sink, config, nullptr, nullptr, nullptr, nullptr, [&] { ++failures; });
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline && failures.load() == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(failures.load(), 1);
+    const int attempts = camera->StartCalls();
+    std::this_thread::sleep_for(kHealthStallTimeout * 2);
+    EXPECT_EQ(camera->StartCalls(), attempts);
+    orchestrator.Stop();
+}
+
 TEST(PipelineOrchestratorTest, PermanentFailureStaysDownAfterStop) {
     auto capture = std::make_unique<FakeCapture>();
     capture->SetDieAfter(1);

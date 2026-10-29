@@ -136,6 +136,8 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
     auto& slot = *slots_[camera_index];
     auto last_frame = std::chrono::steady_clock::now();
     std::optional<std::uint64_t> last_frame_id;
+    int restarts_without_frame = 0;
+    constexpr int kMaxRestartsWithoutFrame = 2;
 
     while (running_) {
         if (capture.IsRunning() &&
@@ -144,6 +146,11 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
             capture.Stop();
         }
         if (!capture.IsRunning()) {
+            if (restarts_without_frame >= kMaxRestartsWithoutFrame) {
+                health_[camera_index] = sst_cam::CAMERA_HEALTH_DOWN;
+                break;
+            }
+            ++restarts_without_frame;
             health_[camera_index] = sst_cam::CAMERA_HEALTH_RECOVERING;
             {
                 // Serialize re-init: a radio reform kills both cameras at once, and
@@ -174,6 +181,7 @@ auto PipelineOrchestrator::ProducerLoop(std::size_t camera_index) -> void {
             continue;
         }
         last_frame_id = raw->frame_id;
+        restarts_without_frame = 0;
         last_frame = std::chrono::steady_clock::now();
         health_[camera_index] = sst_cam::CAMERA_HEALTH_OK;
         auto bundle = preprocessor.Process(*raw);
