@@ -296,5 +296,17 @@ fi
 # the --binary path too (rejecting an x86_64 host build).
 if grep -q 'ELF\*aarch64' "$INSTALL_SH"; then ok; else bad "install.sh must keep the aarch64-ELF guard for both install paths"; fi
 
+unit_output="$(bash -c "$(sed -n '/^embedded_unit() {/,/^}/p' "$INSTALL_SH"); embedded_unit")"
+for unit in "$unit_output" "$(< "${SCRIPT_DIR}/sst-cam-firmware.service")"; do
+  for directive in AmbientCapabilities CapabilityBoundingSet; do
+    value="$(printf '%s\n' "$unit" | sed -n "s/^${directive}=//p")"
+    if [[ " $value " == *" CAP_SYS_TIME "* ]]; then
+      ok
+    else
+      bad "firmware service lacks CAP_SYS_TIME in ${directive}"
+    fi
+  done
+done
+
 printf '\ndeploy/install-test.sh: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
