@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -27,7 +28,8 @@ class WifiDirectHandler final : public ICommandHandler {
     WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
                       INetworkConfigurator& netcfg, IDhcpServer& dhcp,
                       sst::streaming::IStreamingService& streaming, PreviewPort preview_port,
-                      DownloadPort download_port);
+                      DownloadPort download_port,
+                      std::function<sst_cam::CameraHealth(std::uint32_t)> health = {});
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -43,6 +45,7 @@ class WifiDirectHandler final : public ICommandHandler {
     sst::streaming::IStreamingService& streaming_;
     std::uint32_t preview_port_;
     std::uint32_t download_port_;
+    std::function<sst_cam::CameraHealth(std::uint32_t)> health_;
     // Group interface of the active session, retained so HandleStop can flush its
     // address before the group is removed.
     std::string group_interface_;

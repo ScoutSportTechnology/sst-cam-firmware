@@ -10,12 +10,14 @@ namespace sst::control {
 RecordingHandler::RecordingHandler(sst::session::ISessionManager& session,
                                    sst::storage::IRecordingService& recording,
                                    sst::overlay::IOverlayTimelineRecorder& timeline,
-                                   sst::raw_capture::IRawCaptureSink& proxy, Clock now_ms)
+                                   sst::raw_capture::IRawCaptureSink& proxy, Clock now_ms,
+                                   std::function<sst_cam::CameraHealth(std::uint32_t)> health)
     : session_(session),
       recording_(recording),
       timeline_(timeline),
       proxy_(proxy),
-      now_ms_(std::move(now_ms)) {}
+      now_ms_(std::move(now_ms)),
+      health_(std::move(health)) {}
 
 auto RecordingHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kRecordingControl};
@@ -42,6 +44,11 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
             if (state.phase != sst::session::SessionPhase::kReady) {
                 resp.set_status(sst_cam::ResponseStatus::ERROR);
                 resp.set_error_message("recording start rejected: session not ready");
+                return resp;
+            }
+            if (health_ && (health_(0) != sst_cam::CAMERA_HEALTH_OK ||
+                            health_(1) != sst_cam::CAMERA_HEALTH_OK)) {
+                resp.set_status(sst_cam::DEVICE_INOPERABLE);
                 return resp;
             }
             const auto quality = ResolveQuality(cmd.recording_control().has_quality(),

@@ -40,6 +40,7 @@ class DeviceHandler final : public ICommandHandler {
         FlagProvider internet_reachable;
         // Connected peer RSSI in dBm; nullopt when no peer / unavailable.
         SignalProvider wifi_signal_dbm;
+        std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> camera_health;
     };
 
     using TimeSetter = std::function<bool(std::uint64_t)>;

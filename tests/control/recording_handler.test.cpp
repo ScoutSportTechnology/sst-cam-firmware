@@ -180,6 +180,30 @@ TEST(RecordingHandlerTest, StartInReadyPhaseStartsRecorderAndTransitions) {
 
 // The gate (#16): a START before Ready must NOT touch the recorder — no stray
 // MP4/thumbnail spun up only to be rolled back.
+TEST(RecordingHandlerTest, StartRequiresBothHealthyCamerasButStopRemainsAvailable) {
+    FakeCleanup cleanup;
+    SessionManager session_mgr(cleanup);
+    FakeRecorder recorder;
+    FakeTimeline timeline;
+    FakeProxy proxy;
+    sst_cam::CameraHealth camera1 = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    RecordingHandler handler(
+        session_mgr, recorder, timeline, proxy, ZeroClock,
+        [&](std::uint32_t index) { return index == 0 ? sst_cam::CAMERA_HEALTH_OK : camera1; });
+    AdvanceToReady(session_mgr);
+    for (auto unhealthy : {sst_cam::CAMERA_HEALTH_UNKNOWN, sst_cam::CAMERA_HEALTH_RECOVERING,
+                           sst_cam::CAMERA_HEALTH_DOWN}) {
+        camera1 = unhealthy;
+        EXPECT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(),
+                  sst_cam::DEVICE_INOPERABLE);
+        EXPECT_EQ(recorder.start_calls, 0);
+    }
+    camera1 = sst_cam::CAMERA_HEALTH_OK;
+    ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::OK);
+    camera1 = sst_cam::CAMERA_HEALTH_DOWN;
+    EXPECT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_STOP)).status(), sst_cam::OK);
+}
+
 TEST(RecordingHandlerTest, StartBeforeReadyRejectedWithoutTouchingRecorder) {
     FakeCleanup cleanup;
     SessionManager session_mgr(cleanup);

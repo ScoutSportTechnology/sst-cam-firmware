@@ -7,6 +7,7 @@
 #include <ctime>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -299,6 +300,15 @@ auto RunFirmware() -> int {
     // ── Control plane: dispatcher + per-concern handlers ───────────────
     sst::control::CommandDispatcher dispatcher;
 
+    sst::pipeline::PipelineOrchestrator* live_pipeline = nullptr;
+    const auto camera_health =
+        [&live_pipeline](std::uint32_t index) -> std::optional<sst_cam::CameraHealth> {
+        return live_pipeline != nullptr ? live_pipeline->CameraHealth(index) : std::nullopt;
+    };
+    const auto required_health = [camera_health](std::uint32_t index) {
+        return camera_health(index).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN);
+    };
+
     // ★ Extensibility point — one Register() line per concern.
     dispatcher.Register(std::make_shared<sst::control::DeviceHandler>(
         cfg.device, system_stats,
@@ -314,7 +324,8 @@ auto RunFirmware() -> int {
             .wifi_state = [&wifi_manager] { return wifi_manager.State(); },
             .internet_reachable =
                 [&telemetry_probe] { return telemetry_probe.InternetReachable(); },
-            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); }},
+            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); },
+            .camera_health = camera_health},
         [](std::uint64_t epoch_ms) {
             timespec time{
                 static_cast<time_t>(epoch_ms / sst::runtime_defaults::kMillisecondsPerSecond),
@@ -330,11 +341,12 @@ auto RunFirmware() -> int {
                 preview_layout_state.Get() == sst::streaming::PreviewLayout::kSideBySide
                     ? sst_cam::PREVIEW_LAYOUT_SIDE_BY_SIDE
                     : sst_cam::PREVIEW_LAYOUT_SINGLE);
-        }));
+        },
+        camera_health));
     dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, network_configurator, dhcp_server, streaming_service,
         sst::control::PreviewPort{sst::runtime_defaults::kPreviewPort},
-        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}));
+        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health));
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
@@ -343,9 +355,10 @@ auto RunFirmware() -> int {
     dispatcher.Register(
         std::make_shared<sst::control::MatchStateHandler>(session_manager, NowEpochMs));
     dispatcher.Register(std::make_shared<sst::control::RecordingHandler>(
-        session_manager, recording_service, overlay_timeline, raw_capture_sink, NowMs));
+        session_manager, recording_service, overlay_timeline, raw_capture_sink, NowMs,
+        required_health));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(
-        streaming_service, &uplink_probe, &session_manager));
+        streaming_service, &uplink_probe, &session_manager, required_health));
     dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
         download_server, sst::runtime_defaults::kGroupOwnerIp, sst::runtime_defaults::kDownloadPort,
         sst::runtime_defaults::kDownloadTokenTtlSeconds));
@@ -446,7 +459,10 @@ auto RunFirmware() -> int {
     sst::pipeline::PipelineOrchestrator pipeline(
         std::move(camera_chains), std::move(postprocessor), std::move(decision), recording_service,
         streaming_service, sst::pipeline::PipelineConfig{}, &raw_capture_sink, &overlay_sink,
-        &side_by_side_compositor, &preview_layout_state);
+        &side_by_side_compositor, &preview_layout_state, [&session_manager] {
+            session_manager.EndSession(sst::session::SessionEndReason::kCameraFailure);
+        });
+    live_pipeline = &pipeline;
     dispatcher.Register(std::make_shared<sst::control::PreviewLayoutHandler>(
         preview_layout_state, sst::runtime_defaults::kOverlayWidth,
         sst::runtime_defaults::kOverlayHeight));

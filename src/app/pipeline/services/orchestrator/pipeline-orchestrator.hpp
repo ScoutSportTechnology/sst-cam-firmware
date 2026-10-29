@@ -1,7 +1,9 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -17,6 +19,7 @@
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
 #include "app/raw_capture/ports/raw-capture-sink.hpp"
+#include "bluetooth.pb.h"
 #include "domain/buffer/services/latest-only-slot.hpp"
 #include "domain/capture/models/frame.hpp"
 #include "domain/processing/models/frame-bundle.hpp"
@@ -32,18 +35,12 @@ struct PipelineConfig {
     // Bound on how long the consumer waits for a new bundle from the cadence
     // camera before re-evaluating. Keeps shutdown latency low.
     std::chrono::milliseconds consumer_pop_timeout{kDefaultConsumerPopTimeoutMs};
-    // Backoff a producer waits after a FAILED capture restart before retrying.
-    // A capture pipeline can die mid-run — Argus posts INVALID_SETTINGS when the
-    // WiFi-Direct radio reforms its group, and HandleBusMessages()->Stop() then
-    // leaves it torn down. The producer watchdog re-Starts the dead pipeline;
-    // this backoff keeps a persistently-failing sensor (or a still-settling
-    // radio) from hot-looping gst_parse_launch every few milliseconds.
-    std::chrono::milliseconds capture_restart_backoff{kDefaultCaptureRestartBackoffMs};
+    std::chrono::milliseconds capture_stall_timeout{kDefaultCaptureStallTimeoutMs};
 
    private:
     static constexpr int kDefaultCaptureIdleSleepMs = 5;
     static constexpr int kDefaultConsumerPopTimeoutMs = 100;
-    static constexpr int kDefaultCaptureRestartBackoffMs = 500;
+    static constexpr int kDefaultCaptureStallTimeoutMs = 2000;
 };
 
 // One capture → preprocess chain for a single camera. The orchestrator owns the
@@ -101,7 +98,8 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
                          // second camera and composites cam0 | cam1 (clean) into
                          // the stream instead of the single overlaid frame.
                          sst::processing::IFrameCompositor* compositor = nullptr,
-                         sst::streaming::PreviewLayoutState* preview_layout = nullptr);
+                         sst::streaming::PreviewLayoutState* preview_layout = nullptr,
+                         std::function<void()> on_camera_failure = {});
 
     ~PipelineOrchestrator() override;
 
@@ -117,6 +115,8 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     // Idempotent. Signals all threads to exit, joins them, stops every capture.
     auto Stop() -> void;
     [[nodiscard]] auto IsRunning() const -> bool;
+    [[nodiscard]] auto CameraHealth(std::size_t camera_index) const
+        -> std::optional<sst_cam::CameraHealth>;
 
     // IFrameSnapshotSource: the most recent post-processed final frame, deep-
     // copied off any GstBuffer so it stays valid for the caller. std::nullopt
@@ -145,10 +145,13 @@ class PipelineOrchestrator final : public sst::pipeline::IFrameSnapshotSource {
     sst::overlay::IOverlayFrameSource* overlay_source_;
     sst::processing::IFrameCompositor* compositor_;
     sst::streaming::PreviewLayoutState* preview_layout_;
+    std::function<void()> on_camera_failure_;
+    std::atomic<bool> failure_notified_{false};
 
     // One slot per camera. unique_ptr because LatestOnlySlot is non-movable and
     // we size the vector at construction from the camera count.
     std::vector<std::unique_ptr<sst::buffer::LatestOnlySlot<sst::processing::FrameBundle>>> slots_;
+    std::array<std::atomic<sst_cam::CameraHealth>, 2> health_;
 
     mutable std::mutex mtx_;
     std::atomic<bool> running_{false};

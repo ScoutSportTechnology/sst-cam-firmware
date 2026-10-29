@@ -182,6 +182,38 @@ void StepUnwiredCommandIsUnsupported(control::CommandDispatcher& dispatcher) {
     EXPECT_EQ(resp.correlation_id(), "d");
 }
 
+TEST(ControlPlaneIntegrationTest, SnapshotReportsCameraFailureAfterSessionFinalizes) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_OK;
+    control::CommandDispatcher dispatcher;
+    dispatcher.Register(std::make_shared<control::SessionHandler>(
+        manager, controller, std::function<std::optional<std::uint32_t>()>{},
+        std::function<std::optional<sst_cam::PreviewLayout>()>{}, [&](std::uint32_t index) {
+            return std::optional(index == 0 ? sst_cam::CAMERA_HEALTH_OK : health);
+        }));
+    manager.OnConnect();
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("failed-match");
+    ASSERT_EQ(dispatcher.Dispatch(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    health = sst_cam::CAMERA_HEALTH_DOWN;
+    ASSERT_TRUE(manager.EndSession(session::SessionEndReason::kCameraFailure));
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    const auto snapshot = dispatcher.Dispatch(query).session_snapshot();
+    EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_IDLE);
+    EXPECT_EQ(snapshot.camera1_health(), sst_cam::CAMERA_HEALTH_DOWN);
+    ASSERT_TRUE(snapshot.has_last_session());
+    EXPECT_EQ(snapshot.last_session().end_reason(), sst_cam::SESSION_END_CAMERA_FAILURE);
+}
+
 TEST(ControlPlaneIntegrationTest, SnapshotReportsPhasesAndOptionalState) {
     FakeCleanup cleanup;
     session::SessionManager manager(cleanup);

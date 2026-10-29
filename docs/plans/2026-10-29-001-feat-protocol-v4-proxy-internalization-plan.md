@@ -67,9 +67,13 @@ Task 3 verification (2026-10-29): devcontainer aarch64 test-preset cross-build s
 
 **Interfaces:** Both `DeviceTelemetry.camera{0,1}_health` and snapshot health are `CameraHealth`; OK only on observed frame, RECOVERING during restart, DOWN on failed restart. Return `DEVICE_INOPERABLE` on preview/record/stream starts if either required camera is not OK; stop/finalize, download, diagnostics, WiFi-Direct, reboot remain available.
 
-- [ ] Add failing tests for unknown/no-frame, OK, recovering/down transitions, start rejection and continued stop/download.
-- [ ] Reuse pipeline frame observations/watchdog state; share the health read between telemetry/snapshot and start guards rather than guessing from pipeline running state.
-- [ ] Run focused tests and commit `feat(health): report frame-truth health and gate starts`.
+- [x] Add failing tests for unknown/no-frame, OK, recovering/down transitions, start rejection and continued stop/download.
+- [x] Reuse pipeline frame observations/watchdog state; share the health read between telemetry/snapshot and start guards rather than guessing from pipeline running state.
+- [x] Run focused tests and commit `feat(health): report frame-truth health and gate starts`.
+
+Task 4 ruling: The pinned proto requires `DEVICE_INOPERABLE` for every start-class command when either camera is not OK; this includes UNKNOWN and RECOVERING, despite the app mock allowing RECOVERING. `StartWifiDirect` continues to form the group when cameras are unhealthy so downloads remain available, but defers the RTSP preview until both cameras are OK; reissuing the idempotent command after recovery starts preview without reforming the group. Record and platform-stream starts are gated. An already-connected preview viewer during a later camera failure is not forcibly disconnected. The watchdog waits up to 2 seconds without a fresh frame, attempts one serialized restart, then reports DOWN if the restart fails; a delivered frame restores OK. A permanently failed camera ends an active session with CAMERA_FAILURE, retaining existing finalization semantics. Real Jetson/Argus timing and the app's soft RECOVERING UI remain integration caveats.
+
+Task 4 verification (2026-10-29): devcontainer aarch64 test-preset cross-build succeeded; CI-excluded `ctest -j 8` 431/431 passed. Changed C++ files passed clang-format-18 dry-run and clang-tidy-18 (13 changed translation units, zero diagnostics). Real Jetson/Argus and BLE/RTSP behavior remain untested on metal; proto pin check awaits proto PR #18 merge.
 
 ### Task 5: internal ref-counted proxy and hidden files
 

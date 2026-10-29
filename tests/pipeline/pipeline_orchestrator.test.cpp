@@ -18,6 +18,9 @@
 #include "app/processing/ports/frame-compositor.hpp"
 #include "app/processing/ports/postprocessor.hpp"
 #include "app/processing/ports/preprocessor.hpp"
+#include "app/session/ports/session-cleanup.hpp"
+#include "app/session/services/session_manager/session-manager.hpp"
+#include "bluetooth.pb.h"
 #include "domain/capture/models/frame.hpp"
 #include "domain/processing/models/crop-rect.hpp"
 #include "domain/processing/models/frame-bundle.hpp"
@@ -58,6 +61,7 @@ constexpr Dims kOutputDims{1280, 720};
 // kFramePeriodMs paces ~30fps so the producer doesn't starve the consumer.
 constexpr int kIdlePollMs = 5;
 constexpr int kFramePeriodMs = 33;
+constexpr auto kHealthStallTimeout = std::chrono::milliseconds(80);
 // NOLINTEND(readability-magic-numbers)
 
 // ── Test doubles ─────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ class FakeCapture final : public ICaptureFrame {
         : width_(dims.width), height_(dims.height), stall_(stall), next_id_(id_base) {}
 
     auto Start() -> void override {
-        running_ = true;
+        running_ = !restart_fails_ || start_calls_.load() == 0;
         start_calls_.fetch_add(1);
     }
     auto Stop() -> void override { running_ = false; }
@@ -90,6 +94,9 @@ class FakeCapture final : public ICaptureFrame {
     // dead until something calls Start()/Restart() again. One-shot so a successful
     // restart runs clean forever after.
     auto SetDieAfter(std::uint64_t die_after) -> void { die_after_ = die_after; }
+    auto SetStalled(bool stalled) -> void { stall_ = stalled; }
+    auto SetReplayLast(bool replay) -> void { replay_last_ = replay; }
+    auto SetRestartFails(bool fails) -> void { restart_fails_ = fails; }
     [[nodiscard]] auto StartCalls() const -> int { return start_calls_.load(); }
 
     auto Capture() -> std::optional<Frame> override {
@@ -100,6 +107,12 @@ class FakeCapture final : public ICaptureFrame {
         if (!running_ || stall_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
             return std::nullopt;
+        }
+        if (replay_last_ && next_id_.load() > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kFramePeriodMs));
+            Frame cached;
+            cached.frame_id = next_id_.load() - 1;
+            return cached;
         }
         Frame frame;
         frame.frame_id = next_id_.fetch_add(1);
@@ -115,7 +128,9 @@ class FakeCapture final : public ICaptureFrame {
    private:
     std::uint32_t width_{kCam0Dims.width};
     std::uint32_t height_{kCam0Dims.height};
-    bool stall_{false};
+    std::atomic<bool> stall_{false};
+    std::atomic<bool> replay_last_{false};
+    std::atomic<bool> restart_fails_{false};
     std::uint64_t die_after_{0};  // 0 means never die
     std::atomic<bool> has_died_{false};
     std::atomic<int> start_calls_{0};
@@ -260,6 +275,213 @@ auto FastConfig() -> PipelineConfig {
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+TEST(PipelineOrchestratorTest, HealthRequiresFreshFramesFromBothCameras) {
+    auto stalled = std::make_unique<FakeCapture>(kCam1Dims, true);
+    auto* cam1 = stalled.get();
+    CountingSink record_sink;
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(kCam0Dims), std::make_unique<FakePreprocessor>(),
+                   std::move(stalled), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, FastConfig());
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_UNKNOWN);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_EQ(orchestrator.CameraHealth(1), sst_cam::CAMERA_HEALTH_UNKNOWN);
+    cam1->SetStalled(false);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(1) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(1), sst_cam::CAMERA_HEALTH_OK);
+    orchestrator.Stop();
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+}
+
+TEST(PipelineOrchestratorTest, StalledCameraRecoversAfterWatchdogRestart) {
+    auto capture = std::make_unique<FakeCapture>();
+    auto* camera = capture.get();
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    ASSERT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+    camera->SetStalled(true);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_RECOVERING) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_RECOVERING);
+    camera->SetStalled(false);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_GT(camera->StartCalls(), 1);
+    orchestrator.Stop();
+}
+
+TEST(PipelineOrchestratorTest, PermanentFailureStaysDownAfterStop) {
+    auto capture = std::make_unique<FakeCapture>();
+    capture->SetDieAfter(1);
+    capture->SetRestartFails(true);
+    CountingSink record_sink;
+    CountingSink sink;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, FastConfig());
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_DOWN) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    ASSERT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_DOWN);
+    orchestrator.Stop();
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_DOWN);
+}
+
+TEST(PipelineOrchestratorTest, NeverDeliveredFrameAndFailedRestartIsDown) {
+    auto capture = std::make_unique<FakeCapture>(kCam0Dims, true);
+    capture->SetRestartFails(true);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_DOWN) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_DOWN);
+    orchestrator.Stop();
+}
+
+TEST(PipelineOrchestratorTest, ReplayedFrameDoesNotMaskStall) {
+    auto capture = std::make_unique<FakeCapture>();
+    auto* camera = capture.get();
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    ASSERT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+    camera->SetReplayLast(true);
+    while (std::chrono::steady_clock::now() < deadline && camera->StartCalls() < 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_GT(camera->StartCalls(), 1);
+    orchestrator.Stop();
+}
+
+TEST(PipelineOrchestratorTest, FailedWatchdogRestartMarksCameraDown) {
+    auto capture = std::make_unique<FakeCapture>();
+    auto* camera = capture.get();
+    camera->SetRestartFails(true);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_OK) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    ASSERT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_OK);
+    camera->SetStalled(true);
+    while (std::chrono::steady_clock::now() < deadline &&
+           orchestrator.CameraHealth(0) != sst_cam::CAMERA_HEALTH_DOWN) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(orchestrator.CameraHealth(0), sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(camera->StartCalls(), 2);
+    orchestrator.Stop();
+}
+
+TEST(PipelineOrchestratorTest, PermanentCameraFailureEndsActiveSession) {
+    class Cleanup final : public sst::session::ISessionCleanup {
+       public:
+        auto FinalizeRecording() -> bool override {
+            ++finalizations;
+            return true;
+        }
+        auto StopStreaming() -> void override {}
+        auto TeardownWifiDirect() -> void override {}
+        auto ResetSelections() -> void override {}
+        int finalizations{0};
+    } cleanup;
+    sst::session::SessionManager session(cleanup);
+    ASSERT_TRUE(session.OnConnect());
+    ASSERT_TRUE(session.OnWifiReady());
+    sst::session::SessionConfig match;
+    match.match_uuid = "camera-failure";
+    ASSERT_TRUE(session.ApplySessionConfig(match));
+    ASSERT_TRUE(session.OnOverlayConfigured());
+    ASSERT_TRUE(session.OnRecordingStart());
+    auto capture = std::make_unique<FakeCapture>();
+    capture->SetDieAfter(3);
+    capture->SetRestartFails(true);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        OneCamera(std::move(capture), std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config, nullptr, nullptr, nullptr, nullptr,
+        [&session] { session.EndSession(sst::session::SessionEndReason::kCameraFailure); });
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline &&
+           session.Phase() != sst::session::SessionPhase::kIdle) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
+    }
+    EXPECT_EQ(session.Phase(), sst::session::SessionPhase::kIdle);
+    EXPECT_EQ(cleanup.finalizations, 1);
+    const auto summary = session.Snapshot().last_session;
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kCameraFailure);
+    orchestrator.Stop();
+}
 
 TEST(PipelineOrchestratorTest, StartIsIdempotentAndReturnsRunning) {
     CountingSink record_sink;

@@ -182,6 +182,29 @@ TEST(WifiDirectHandlerTest, StartReportsGeneratedCredentials) {
 }
 
 // Group-owner formation failure -> ERROR, no DHCP.
+TEST(WifiDirectHandlerTest, UnhealthyCamerasAllowWifiButDelayPreviewUntilHealthy) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_RECOVERING;
+    WifiDirectHandler handler(
+        manager, wifi, netcfg, dhcp, streaming, sst::control::PreviewPort{kPreviewPort},
+        sst::control::DownloadPort{kDownloadPort}, [&](std::uint32_t) { return health; });
+    EXPECT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    EXPECT_EQ(streaming.app_starts, 0);
+    EXPECT_EQ(wifi.starts, 1);
+    health = sst_cam::CAMERA_HEALTH_OK;
+    EXPECT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    EXPECT_EQ(wifi.starts, 1);
+    EXPECT_EQ(streaming.app_starts, 1);
+    EXPECT_EQ(streaming.last_config.address, "192.168.49.1");
+    EXPECT_EQ(streaming.last_config.port, kPreviewPort);
+}
+
 TEST(WifiDirectHandlerTest, RejoinReusesGroupWithoutReforming) {
     FakeCleanup cleanup;
     sst::session::SessionManager manager(cleanup);

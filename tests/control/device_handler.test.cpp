@@ -150,6 +150,23 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
 // The internet_reachable flag tracks the injected uplink probe in both
 // directions: a false-returning probe must report false (it replaced a
 // hardcoded false, so guard the live false path too, not just the true case).
+TEST(DeviceHandlerTest, TelemetryReportsOptionalLiveCameraHealth) {
+    FakeStats stats;
+    sst_cam::CameraHealth health = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    DeviceHandler handler(MakeDevice(), stats, {.camera_health = [&](std::uint32_t index) {
+                              return index == 0 ? std::optional(health) : std::nullopt;
+                          }});
+    auto telemetry = handler.Handle(TelemetryCommand()).telemetry();
+    EXPECT_TRUE(telemetry.has_camera0_health());
+    EXPECT_EQ(telemetry.camera0_health(), sst_cam::CAMERA_HEALTH_UNKNOWN);
+    EXPECT_FALSE(telemetry.has_camera1_health());
+    DeviceHandler no_provider(MakeDevice(), stats, {});
+    EXPECT_FALSE(no_provider.Handle(TelemetryCommand()).telemetry().has_camera0_health());
+    health = sst_cam::CAMERA_HEALTH_RECOVERING;
+    telemetry = handler.Handle(TelemetryCommand()).telemetry();
+    EXPECT_EQ(telemetry.camera0_health(), sst_cam::CAMERA_HEALTH_RECOVERING);
+}
+
 TEST(DeviceHandlerTest, TelemetryInternetReachableReflectsFalseProbe) {
     FakeStats stats;
     DeviceHandler handler(MakeDevice(), stats, {.internet_reachable = [] { return false; }});

@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <utility>
+
 #include "domain/streaming/models/app-stream-config.hpp"
 
 namespace sst::control {
@@ -15,14 +17,16 @@ constexpr const char* kGoSubnetSuffix = "/24";
 WifiDirectHandler::WifiDirectHandler(sst::session::ISessionManager& session, IWifiManager& wifi,
                                      INetworkConfigurator& netcfg, IDhcpServer& dhcp,
                                      sst::streaming::IStreamingService& streaming,
-                                     PreviewPort preview_port, DownloadPort download_port)
+                                     PreviewPort preview_port, DownloadPort download_port,
+                                     std::function<sst_cam::CameraHealth(std::uint32_t)> health)
     : session_(session),
       wifi_(wifi),
       netcfg_(netcfg),
       dhcp_(dhcp),
       streaming_(streaming),
       preview_port_(preview_port.value),
-      download_port_(download_port.value) {}
+      download_port_(download_port.value),
+      health_(std::move(health)) {}
 
 auto WifiDirectHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kStartWifiDirect, sst_cam::Command::kStopWifiDirect};
@@ -48,6 +52,12 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
         out->set_preview_port(preview_port_);
         out->set_download_port(download_port_);
         out->set_role(active_group_->role);
+        if (!streaming_.IsAppStreamRunning() &&
+            (!health_ || (health_(0) == sst_cam::CAMERA_HEALTH_OK &&
+                          health_(1) == sst_cam::CAMERA_HEALTH_OK))) {
+            streaming_.StartAppStream({.address = active_group_->group_owner_ip,
+                                       .port = static_cast<std::uint16_t>(preview_port_)});
+        }
         return existing;
     }
     auto group = wifi_.StartP2pGroupOwner();
@@ -93,7 +103,9 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
     sst::streaming::AppStreamConfig stream_cfg;
     stream_cfg.address = group->group_owner_ip;
     stream_cfg.port = static_cast<std::uint16_t>(preview_port_);
-    if (!streaming_.StartAppStream(stream_cfg)) {
+    if ((!health_ ||
+         (health_(0) == sst_cam::CAMERA_HEALTH_OK && health_(1) == sst_cam::CAMERA_HEALTH_OK)) &&
+        !streaming_.StartAppStream(stream_cfg)) {
         spdlog::warn("WifiDirectHandler: RTSP preview failed to start on {}:{} (preview degraded)",
                      stream_cfg.address, preview_port_);
     }

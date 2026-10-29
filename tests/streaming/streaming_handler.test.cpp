@@ -112,6 +112,25 @@ TEST(StreamingHandlerTest, StartToDestinationThenStop) {
 }
 
 // An empty destination with no configured fallback is an error.
+TEST(StreamingHandlerTest, StartRequiresBothHealthyCamerasButStopRemainsAvailable) {
+    FakeStreaming streaming;
+    sst_cam::CameraHealth camera1 = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    StreamingHandler handler(streaming, nullptr, nullptr, [&](std::uint32_t index) {
+        return index == 0 ? sst_cam::CAMERA_HEALTH_OK : camera1;
+    });
+    for (auto unhealthy : {sst_cam::CAMERA_HEALTH_UNKNOWN, sst_cam::CAMERA_HEALTH_RECOVERING,
+                           sst_cam::CAMERA_HEALTH_DOWN}) {
+        camera1 = unhealthy;
+        EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(),
+                  sst_cam::DEVICE_INOPERABLE);
+        EXPECT_FALSE(streaming.active);
+    }
+    camera1 = sst_cam::CAMERA_HEALTH_OK;
+    ASSERT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::OK);
+    camera1 = sst_cam::CAMERA_HEALTH_DOWN;
+    EXPECT_EQ(handler.Handle(StopCmd()).status(), sst_cam::OK);
+}
+
 TEST(StreamingHandlerTest, EmptyDestinationErrors) {
     FakeStreaming streaming;
     StreamingHandler handler(streaming);
