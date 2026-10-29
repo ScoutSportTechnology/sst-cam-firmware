@@ -81,9 +81,11 @@ Task 4 verification (2026-10-29): devcontainer aarch64 test-preset cross-build s
 
 **Interfaces:** Proxy group identifier derives from validated `match_uuid`; proxy files go inside match directory and lifecycle starts automatically with record/stream while preserving shared owners. Proxy filenames remain internal; `Enumerate`, `ResolveRecordingPath` and token minting never reveal/serve them, even by guessed ID. Recording metadata no longer includes retired raw fields.
 
-- [ ] Add failing tests for record-only, stream-only, overlapping owners, disconnect/rejoin, filename/directory and guessed proxy download denial.
-- [ ] Remove all uses of retired `capture_group_id` wire field; derive safe internal ID and keep existing sink's ownership/ref-count implementation if present, otherwise implement minimal owner accounting at the lifecycle seam.
-- [ ] Filter proxy before catalog listing and path/token resolution; preserve retention without requiring download tokens for proxies; run focused tests and commit `feat(storage): internalize proxy lifecycle and hide proxy downloads`.
+- [x] Add failing tests for record-only, stream-only, overlapping owners, disconnect/rejoin, filename/directory and guessed proxy download denial.
+- [x] Remove all uses of retired `capture_group_id` wire field; derive safe internal ID and keep existing sink's ownership/ref-count implementation if present, otherwise implement minimal owner accounting at the lifecycle seam.
+- [x] Filter proxy before catalog listing and path/token resolution; preserve retention without requiring download tokens for proxies; run focused tests and commit `feat(storage): internalize proxy lifecycle and hide proxy downloads`.
+
+Task 5 verification (2026-10-29): devcontainer aarch64 test and debug cross-builds succeeded; focused record, stream, owner, catalog, download and retention tests passed, including start/finalization races. CI-excluded `ctest -j 8` passed 445/445 with the workflow's exact exclusion expression (the unexcluded suite failed six hardware-bound tests as expected). Changed C++ files passed clang-format-18 dry-run and clang-tidy-18 with zero diagnostics. Proxy start remains best-effort like the existing recording path: invalid match identity, absent/mismatched match folder, collision or sink failure leaves the primary record/stream running without proxy; no hardware encode, BLE or HTTP listener was checked on metal. Proto pin check still awaits proto PR #18 merge.
 
 ### Task 6: persistent L2 export and complete verification
 

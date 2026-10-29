@@ -211,6 +211,7 @@ auto RunFirmware() -> int {
 
     sst::adapters::raw_capture::FilesystemRawCaptureSink raw_capture_sink(
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
+    sst::raw_capture::ProxyOwners proxy_owners(raw_capture_sink);
 
     static sst::decision::ManualCameraState manual_camera_state;
     sst::streaming::PreviewLayoutState preview_layout_state;
@@ -226,7 +227,7 @@ auto RunFirmware() -> int {
     // Persists the overlay scene timeline beside each L1 recording (#6 F6b) so
     // the overlay can be burned onto the clean recording on demand (F6c).
     sst::adapters::overlay::FilesystemOverlayTimelineRecorder overlay_timeline;
-    sst::session::SessionCleanup cleanup(recording_service, streaming_service, raw_capture_sink,
+    sst::session::SessionCleanup cleanup(recording_service, streaming_service, proxy_owners,
                                          wifi_manager, dhcp_server, manual_camera_state,
                                          preview_layout_state, overlay_timeline);
     sst::session::SessionManager session_manager(cleanup, std::chrono::steady_clock::now,
@@ -243,7 +244,7 @@ auto RunFirmware() -> int {
     // Training-proxy retention (U7): a detached periodic sweep bounds total proxy
     // footage (the raw__*.mp4 pairs accumulate one per match). Delete-oldest,
     // protected against the actively-writing group (mtime grace inside Sweep) and
-    // any file with a live download token. Off-thread so it never blocks the BLE
+    // any historical live download token. Off-thread so it never blocks the BLE
     // surface; a no-op when proxy_max_total_bytes is unset.
     static sst::adapters::raw_capture::ProxyRetention proxy_retention(
         video_root, cfg.storage.proxy_max_total_bytes.value_or(0));
@@ -355,10 +356,10 @@ auto RunFirmware() -> int {
     dispatcher.Register(
         std::make_shared<sst::control::MatchStateHandler>(session_manager, NowEpochMs));
     dispatcher.Register(std::make_shared<sst::control::RecordingHandler>(
-        session_manager, recording_service, overlay_timeline, raw_capture_sink, NowMs,
+        session_manager, recording_service, overlay_timeline, proxy_owners, NowMs,
         required_health));
     dispatcher.Register(std::make_shared<sst::control::StreamingHandler>(
-        streaming_service, &uplink_probe, &session_manager, required_health));
+        streaming_service, &uplink_probe, &session_manager, required_health, &proxy_owners));
     dispatcher.Register(std::make_shared<sst::control::DownloadHandler>(
         download_server, sst::runtime_defaults::kGroupOwnerIp, sst::runtime_defaults::kDownloadPort,
         sst::runtime_defaults::kDownloadTokenTtlSeconds));

@@ -102,6 +102,20 @@ TEST(ProxyRetentionTest, SkipsGroupsWithALiveDownloadToken) {
     EXPECT_FALSE(GroupExists(dir.path(), "free"));    // evicted instead
 }
 
+TEST(ProxyRetentionTest, EvictsProxyInsideMatchDirectoryWithoutTokens) {
+    TempDir dir;
+    const auto match_dir = dir.path() / "user" / "match";
+    fs::create_directories(match_dir);
+    constexpr int kOldAgeSeconds = 300;
+    MakeGroup(match_dir, "old", kPerFile, /*age_seconds=*/kOldAgeSeconds);
+    std::ofstream(match_dir / "match.mp4") << "final";
+    constexpr std::uint64_t kCapBytes = 10;
+    ProxyRetention retention(dir.path(), /*max_total_bytes=*/kCapBytes);
+    EXPECT_EQ(retention.Sweep([](const fs::path&) { return false; }), 200U);
+    EXPECT_FALSE(GroupExists(match_dir, "old"));
+    EXPECT_TRUE(fs::exists(match_dir / "match.mp4"));
+}
+
 TEST(ProxyRetentionTest, DisabledWhenCapIsZero) {
     TempDir dir;
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds

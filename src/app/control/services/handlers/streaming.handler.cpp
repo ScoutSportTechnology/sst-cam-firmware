@@ -10,10 +10,12 @@ namespace sst::control {
 StreamingHandler::StreamingHandler(sst::streaming::IStreamingService& streaming,
                                    sst::streaming::IUplinkProbe* uplink_probe,
                                    sst::session::ISessionManager* session,
-                                   std::function<sst_cam::CameraHealth(std::uint32_t)> health)
+                                   std::function<sst_cam::CameraHealth(std::uint32_t)> health,
+                                   sst::raw_capture::ProxyOwners* proxy)
     : streaming_(streaming),
       uplink_probe_(uplink_probe),
       session_(session),
+      proxy_(proxy),
       health_(std::move(health)) {}
 
 auto StreamingHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
@@ -37,8 +39,13 @@ auto StreamingHandler::HandleControl(const sst_cam::StreamingControlCommand& cmd
 
     if (cmd.action() == sst_cam::STREAMING_STOP) {
         const bool stopped = streaming_.StopPlatformStream(kEgressStreamId);
-        if (stopped && session_ != nullptr) {
-            session_->OnStreamingChanged(false);
+        if (stopped) {
+            if (proxy_ != nullptr) {
+                proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
+            }
+            if (session_ != nullptr) {
+                session_->OnStreamingChanged(false);
+            }
         }
         resp.set_status(stopped ? sst_cam::ResponseStatus::OK : sst_cam::ResponseStatus::ERROR);
         if (!stopped) {
@@ -58,6 +65,11 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
     if (health_ &&
         (health_(0) != sst_cam::CAMERA_HEALTH_OK || health_(1) != sst_cam::CAMERA_HEALTH_OK)) {
         resp.set_status(sst_cam::DEVICE_INOPERABLE);
+        return resp;
+    }
+    if (proxy_ != nullptr && session_ != nullptr && !session_->Snapshot().config) {
+        resp.set_status(sst_cam::ERROR);
+        resp.set_error_message("streaming start with no active match config");
         return resp;
     }
     std::string destination = cmd.destination();
@@ -104,6 +116,17 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         resp.set_status(sst_cam::ResponseStatus::ERROR);
         resp.set_error_message("streaming start failed (already streaming or bad destination)");
         return resp;
+    }
+    if (proxy_ != nullptr && session_ != nullptr) {
+        const auto state = session_->Snapshot();
+        if (!state.config) {
+            streaming_.StopPlatformStream(kEgressStreamId);
+            resp.set_status(sst_cam::ERROR);
+            resp.set_error_message("streaming start rejected: session ended");
+            return resp;
+        }
+        (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
+                            state.config->match_uuid, state.config->video_output_path);
     }
     if (session_ != nullptr) {
         session_->OnStreamingChanged(true);

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "app/control/ports/handler.hpp"
+#include "app/raw_capture/ports/proxy-owners.hpp"
 #include "app/session/ports/session-manager.hpp"
 #include "app/streaming/ports/streaming-service.hpp"
 #include "app/streaming/ports/uplink-probe.hpp"
@@ -26,7 +27,8 @@ class StreamingHandler final : public ICommandHandler {
     explicit StreamingHandler(sst::streaming::IStreamingService& streaming,
                               sst::streaming::IUplinkProbe* uplink_probe = nullptr,
                               sst::session::ISessionManager* session = nullptr,
-                              std::function<sst_cam::CameraHealth(std::uint32_t)> health = {});
+                              std::function<sst_cam::CameraHealth(std::uint32_t)> health = {},
+                              sst::raw_capture::ProxyOwners* proxy = nullptr);
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -39,6 +41,7 @@ class StreamingHandler final : public ICommandHandler {
     sst::streaming::IStreamingService& streaming_;
     sst::streaming::IUplinkProbe* uplink_probe_;
     sst::session::ISessionManager* session_;
+    sst::raw_capture::ProxyOwners* proxy_;
     std::function<sst_cam::CameraHealth(std::uint32_t)> health_;
 
     // Single egress stream for the contract's one-destination model.

@@ -6,20 +6,14 @@
 
 #include "domain/raw_capture/models/raw-capture-identity.hpp"
 
-// On-disk naming convention for raw dual-camera capture files, shared by the
-// writer (raw-capture sink) and the enumerator (download server) so the two
-// never drift on the format.
+// On-disk naming convention for internal dual-camera proxy files, shared by
+// the writer, download exclusion, and retention sweep.
 //
 // Layout:  raw__<capture_group_id>__cam<N>.mp4
 //
-// The `raw__` prefix + flat-at-video-root location marks a per-camera training
-// proxy (final-match recordings are `.mp4` too, but live in per-match subdirs
-// WITHOUT this prefix — the prefix, not the extension, is the discriminator).
-// The middle segment is the app-minted capture_group_id, and the `__cam<N>`
-// suffix is the physical sensor index. Each file is a small H.264 MP4 (the
-// training proxy — 854x480@15, see proxy-launch); one per camera. Double-
-// underscore delimiters keep parsing unambiguous as long as the group id
-// contains no `__` (app mints UUIDs, which do not).
+// The `raw__` prefix marks internal training proxies beside the final MP4.
+// The group is the match UUID; `__cam<N>` names the physical sensor. Each file
+// is a small H.264 MP4 (854x480@15). UUIDs contain no `__` delimiters.
 namespace sst::raw_capture::raw_capture_naming {
 
 inline constexpr std::string_view kPrefix = "raw__";
@@ -27,7 +21,7 @@ inline constexpr std::string_view kCameraMarker = "__cam";
 inline constexpr std::string_view kExtension = ".mp4";
 
 // `id` names a capture identity; this is a public API referenced outside this
-// module (writer + download server), so the parameter name is part of the
+// module (proxy writer + retention), so the parameter name is part of the
 // contract and stays as-is.
 // NOLINTNEXTLINE(readability-identifier-length)
 inline auto FileName(const RawCaptureIdentity& id) -> std::string {
@@ -37,7 +31,7 @@ inline auto FileName(const RawCaptureIdentity& id) -> std::string {
 
 // Parse a raw-capture filename back into its identity. Returns std::nullopt for
 // any name that is not a raw-capture file (e.g. an `.mp4` final recording), so
-// the enumerator can use it as a filter.
+// retention can distinguish them from final recordings.
 inline auto ParseFileName(std::string_view file_name) -> std::optional<RawCaptureIdentity> {
     if (file_name.substr(0, kPrefix.size()) != kPrefix) {
         return std::nullopt;

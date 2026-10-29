@@ -4,7 +4,7 @@ namespace sst::session {
 
 SessionCleanup::SessionCleanup(sst::storage::IRecordingService& recording,
                                sst::streaming::IStreamingService& streaming,
-                               sst::raw_capture::IRawCaptureSink& proxy,
+                               sst::raw_capture::ProxyOwners& proxy,
                                sst::control::IWifiManager& wifi, sst::control::IDhcpServer& dhcp,
                                sst::decision::ManualCameraState& camera_state,
                                sst::streaming::PreviewLayoutState& layout_state,
@@ -21,7 +21,7 @@ SessionCleanup::SessionCleanup(sst::storage::IRecordingService& recording,
 
 auto SessionCleanup::FinalizeRecording() -> bool {
     const auto result = recording_.Stop();
-    proxy_.Stop();
+    proxy_.Stop(sst::raw_capture::ProxyOwners::Owner::kRecording);
     timeline_.Stop();
     return result.success;
 }
@@ -31,6 +31,7 @@ auto SessionCleanup::StopStreaming() -> void {
     for (const auto& active : streaming_.ListActivePlatformStreams()) {
         streaming_.StopPlatformStream(active.stream_id);
     }
+    proxy_.StopAll();
 }
 
 auto SessionCleanup::TeardownWifiDirect() -> void {

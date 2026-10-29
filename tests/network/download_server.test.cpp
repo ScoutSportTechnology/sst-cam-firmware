@@ -101,45 +101,36 @@ TEST(DownloadServerTest, EnumeratesRecordings) {
     fs::remove_all(root);
 }
 
-// Raw capture files enumerate as a pair sharing capture_group_id with distinct
-// camera_index + is_raw=true; final recordings stay is_raw=false. A raw file
-// also resolves to a download token.
-// gtest EXPECT_* macro expansion inflates cognitive complexity; the body is a
-// linear arrange/act/assert, so the metric is suppressed here.
-// NOLINTBEGIN(readability-function-cognitive-complexity)
-TEST(DownloadServerTest, EnumeratesRawCapturePairAndFinalRecording) {
+TEST(DownloadServerTest, ProxyFilesAreAbsentFromCatalogAndDeniedByEveryTokenPath) {
     const fs::path root = MakeRoot();
+    const fs::path match_dir = root / "user" / "match-final";
     WriteRecording(root, {.match = "match-final", .body = "final-bytes"});
-    WriteRawFile(root, "grp-9", 0, "cam0-raw-bytes");
-    WriteRawFile(root, "grp-9", 1, "cam1-raw-bytes");
-    DownloadServer server(root, root, [] { return std::uint64_t{0}; });
+    WriteRawFile(match_dir, "grp-9", 0, "cam0-raw-bytes");
+    WriteRawFile(match_dir, "grp-9", 1, "cam1-raw-bytes");
+    std::ofstream(match_dir / "raw__broken.mp4") << "private";
+    fs::create_symlink(match_dir / "raw__grp-9__cam0.mp4", match_dir / "alias.mp4");
+    fs::create_symlink(match_dir / "match-final.mp4", match_dir / "raw__alias.mp4");
+    DownloadServer server(root, root, [] { return kStubClockNow; });
 
-    auto recs = server.Enumerate();
-    ASSERT_EQ(recs.size(), 3U);
-
-    int raw_count = 0;
-    int final_count = 0;
-    for (const auto& rec : recs) {
-        if (rec.is_raw) {
-            ++raw_count;
-            EXPECT_EQ(rec.capture_group_id, "grp-9");
-            EXPECT_TRUE(rec.camera_index == 0U || rec.camera_index == 1U);
-        } else {
-            ++final_count;
-            EXPECT_EQ(rec.recording_id, "match-final");
-            EXPECT_TRUE(rec.capture_group_id.empty());
-        }
-    }
-    EXPECT_EQ(raw_count, 2);
-    EXPECT_EQ(final_count, 1);
-
-    // A raw file is downloadable too (token resolves by stem).
-    auto token = server.MintToken("raw__grp-9__cam0", /*ttl_seconds=*/kTokenTtlSeconds);
-    EXPECT_TRUE(token.has_value());
-
+    const auto recs = server.Enumerate();
+    ASSERT_EQ(recs.size(), 1U);
+    EXPECT_EQ(recs.front().recording_id, "match-final");
+    EXPECT_FALSE(server.ResolveRecordingPath("raw__grp-9__cam0"));
+    EXPECT_FALSE(server.ResolveRecordingPath("raw__broken"));
+    EXPECT_FALSE(server.ResolveRecordingPath("raw__alias"));
+    EXPECT_FALSE(server.MintToken("raw__broken", kTokenTtlSeconds));
+    EXPECT_FALSE(server.ResolveRecordingPath("alias"));
+    EXPECT_FALSE(server.MintToken("raw__grp-9__cam1", kTokenTtlSeconds));
+    EXPECT_FALSE(server.MintTokenForFile(match_dir / "alias.mp4", "alias", kTokenTtlSeconds));
+    EXPECT_FALSE(
+        server.MintTokenForFile(match_dir / "raw__broken.mp4", "broken", kTokenTtlSeconds));
+    EXPECT_FALSE(
+        server.MintTokenForFile(match_dir / "raw__grp-9__cam0.mp4", "guessed", kTokenTtlSeconds));
+    EXPECT_FALSE(server.MintTokenForFile(match_dir / "raw__grp-9__cam0.mp4", "match-final",
+                                         kTokenTtlSeconds));
+    EXPECT_TRUE(server.MintToken("match-final", kTokenTtlSeconds));
     fs::remove_all(root);
 }
-// NOLINTEND(readability-function-cognitive-complexity)
 
 // ResolveThumbnailPath finds <id>.jpg under the thumbnail root by stem, and
 // returns nullopt for an unknown id or an empty id. Pure filesystem logic —

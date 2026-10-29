@@ -9,22 +9,20 @@
 namespace sst::raw_capture {
 
 // Records raw frames from BOTH cameras to per-camera files, independently of the
-// final (cam-0) recording. Driven by RawCaptureControlCommand: Start opens the
-// per-camera files for one app-minted capture_group_id, the pipeline producers
+// final (cam-0) recording. Owned by the record/stream lifecycle: Start opens the
+// per-camera files for one match-derived capture_group_id, the pipeline producers
 // push each camera's materialized frames in, Stop flushes and closes them.
 //
 // Implementations MUST NOT do synchronous file I/O on the calling (capture)
-// thread — PushCamera hands off to a per-camera writer thread via a bounded
-// queue that drops oldest under backpressure, so a slow disk can never stall
-// capture. Raw NV12 at 1080p30 is ~93 MB/s per camera (~186 MB/s for two), so
-// the bounded-queue + drop-oldest discipline is load-bearing, not optional.
+// thread — PushCamera hands off to a bounded leaky GStreamer queue so a slow
+// disk can never stall capture.
 class IRawCaptureSink {
    public:
     virtual ~IRawCaptureSink() = default;
 
-    // Open per-camera files for a new proxy session stamped with the app-minted
+    // Open per-camera files for a new proxy session stamped with the match-derived
     // capture_group_id, written INTO `output_dir` — the per-match directory
-    // (SessionConfig.video_output_path), so the proxy pair sits beside the final
+    // (the parent of SessionConfig.video_output_path), beside the final
     // <match>.mp4 + <match>.timeline.json rather than at the video root. An empty
     // output_dir falls back to the sink's construction-time root. Returns false
     // if already capturing or a file can't be opened. Independent of the final
@@ -38,7 +36,7 @@ class IRawCaptureSink {
     virtual auto PushCamera(std::uint32_t camera_index,
                             const sst::capture::Frame& frame) -> void = 0;
 
-    // Flush every per-camera queue, close the files, join the writer threads.
+    // EOS each camera pipeline and close its MP4.
     // Returns false when no session was active. Idempotent enough for cleanup.
     virtual auto Stop() -> bool = 0;
 

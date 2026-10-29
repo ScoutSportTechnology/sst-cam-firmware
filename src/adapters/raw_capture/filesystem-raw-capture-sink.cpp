@@ -78,9 +78,6 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id,
         return false;
     }
 
-    // Write the proxy pair INTO the per-match dir (SessionConfig.video_output_path)
-    // so it sits beside the final <match>.mp4 + timeline.json. Empty => fall back
-    // to the construction-time root.
     const std::filesystem::path dir = output_dir.empty() ? video_dir_ : output_dir;
 
     std::error_code err;
@@ -92,7 +89,7 @@ auto FilesystemRawCaptureSink::Start(const std::string& capture_group_id,
 
     // Group-id collision guard: reject a reused capture_group_id rather than
     // truncate-overwrite a prior group's (possibly not-yet-downloaded) proxy
-    // files. The app mints UUIDs so a collision means a retry/reconnect resend —
+    // files. A collision means a retry/reconnect resend —
     // fail loudly instead of silently destroying training footage.
     for (std::uint32_t i = 0; i < camera_count_; ++i) {
         const auto name =

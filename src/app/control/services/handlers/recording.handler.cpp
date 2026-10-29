@@ -10,7 +10,7 @@ namespace sst::control {
 RecordingHandler::RecordingHandler(sst::session::ISessionManager& session,
                                    sst::storage::IRecordingService& recording,
                                    sst::overlay::IOverlayTimelineRecorder& timeline,
-                                   sst::raw_capture::IRawCaptureSink& proxy, Clock now_ms,
+                                   sst::raw_capture::ProxyOwners& proxy, Clock now_ms,
                                    std::function<sst_cam::CameraHealth(std::uint32_t)> health)
     : session_(session),
       recording_(recording),
@@ -66,6 +66,8 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
                 resp.set_error_message("recording start rejected: session not ready");
                 return resp;
             }
+            (void)proxy_.Start(sst::raw_capture::ProxyOwners::Owner::kRecording,
+                               state.config->match_uuid, state.config->video_output_path);
             // Begin capturing the overlay timeline beside the L1 MP4 (#6 F6b),
             // anchored at the overlay clock so the burn (F6c) can realign it.
             timeline_.Start(state.config->video_output_path, now_ms_ ? now_ms_() : 0);
@@ -79,7 +81,7 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
                 return resp;
             }
             const auto result = recording_.Stop();
-            proxy_.Stop();
+            proxy_.Stop(sst::raw_capture::ProxyOwners::Owner::kRecording);
             // Flush the overlay timeline next to the L1 MP4 (#6 F6b).
             timeline_.Stop();
             session_.OnRecordingStop(result.success);

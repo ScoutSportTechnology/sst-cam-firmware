@@ -6,10 +6,9 @@
 namespace sst::raw_capture {
 
 // Identity of one per-camera raw file in a raw dual-camera capture session.
-// capture_group_id is the app-minted id (per the proto contract) shared by both
+// capture_group_id derives from the validated match UUID and is shared by both
 // per-camera files of one session; camera_index is the physical sensor index
-// (0 = primary, 1 = secondary), matching RecordingMetadata.camera_index. The
-// pair is the join key the app uses to group the two files.
+// (0 = primary, 1 = secondary). These files are never exposed over the wire.
 struct RawCaptureIdentity {
     std::string capture_group_id;
     std::uint32_t camera_index{0};
