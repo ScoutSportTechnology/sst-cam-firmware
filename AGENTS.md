@@ -56,7 +56,7 @@ pushed as `:latest`.
 ### Headless build (agents / CI-less local verify)
 
 The build does **not** require the VSCode UI. The **`devcontainer` CLI** drives the
-same container from a plain terminal — an agent (Claude Code) or a script can
+same container from a plain terminal — an agent or a script can
 cross-build without opening VSCode. This is the supported way to verify a change
 compiles before pushing when no Jetson is attached:
 
