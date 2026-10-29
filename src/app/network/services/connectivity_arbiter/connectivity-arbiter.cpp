@@ -327,9 +327,8 @@ auto ConnectivityArbiter::SyncUplinkRoutingLocked(bool want, const EthernetProbe
 // shape-validated; a swap fails the subnet checks.
 auto ConnectivityArbiter::ClassifyEthernet(
     const EthernetProbe& eth, const sst::config::UplinkData& desired,
-    const std::string&
-        phone_subnet_cidr,  // NOLINT(bugprone-easily-swappable-parameters) // floor-ok: CIDR vs IP
-    const std::string& sta_ip) -> EthernetClassification {
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters) // floor-ok: CIDR vs IP
+    const std::string& phone_subnet_cidr, const std::string& sta_ip) -> EthernetClassification {
     const bool is_dhcp = desired.ethernet.dhcp.value_or(true);
     std::string cidr;
     if (is_dhcp) {
