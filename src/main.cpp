@@ -52,7 +52,6 @@
 #include "app/control/services/handlers/network.handler.hpp"
 #include "app/control/services/handlers/overlay.handler.hpp"
 #include "app/control/services/handlers/preview-layout.handler.hpp"
-#include "app/control/services/handlers/raw-capture.handler.hpp"
 #include "app/control/services/handlers/reboot.handler.hpp"
 #include "app/control/services/handlers/recording.handler.hpp"
 #include "app/control/services/handlers/session.handler.hpp"
@@ -319,7 +318,6 @@ auto RunFirmware() -> int {
                 [&streaming_service] {
                     return !streaming_service.ListActivePlatformStreams().empty();
                 },
-            .is_raw_capturing = [&raw_capture_sink] { return raw_capture_sink.IsCapturing(); },
             .wifi_state = [&wifi_manager] { return wifi_manager.State(); },
             .internet_reachable =
                 [&telemetry_probe] { return telemetry_probe.InternetReachable(); },
@@ -445,7 +443,6 @@ auto RunFirmware() -> int {
         std::move(camera_chains), std::move(postprocessor), std::move(decision), recording_service,
         streaming_service, sst::pipeline::PipelineConfig{}, &raw_capture_sink, &overlay_sink,
         &side_by_side_compositor, &preview_layout_state);
-    dispatcher.Register(std::make_shared<sst::control::RawCaptureHandler>(raw_capture_sink));
     dispatcher.Register(std::make_shared<sst::control::PreviewLayoutHandler>(
         preview_layout_state, sst::runtime_defaults::kOverlayWidth,
         sst::runtime_defaults::kOverlayHeight));

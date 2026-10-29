@@ -98,9 +98,7 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
     const std::string stamped = SST_FIRMWARE_VERSION;
     const std::string expected_fw = (stamped.empty() || stamped == "unknown") ? "1.0.0" : stamped;
     EXPECT_EQ(resp.device_info().firmware_version(), expected_fw);
-    // The reboot command surface (U7) bumped kProtocolVersion to 3; the app gates
-    // Reboot on an exact version match, so guard against a downward regression.
-    EXPECT_GE(resp.device_info().protocol_version(), 3U);
+    EXPECT_EQ(resp.device_info().protocol_version(), 4U);
 }
 
 // U8/R16: GetDeviceInfo advertises the concrete record/stream modes the encode
@@ -124,18 +122,14 @@ TEST(DeviceHandlerTest, DeviceInfoAdvertisesSupportedModes) {
     }
 }
 
-// is_recording / is_streaming / is_raw_capturing reflect the injected providers,
-// each independently (is_raw_capturing is wire field 14, set independently of
-// is_recording — the app reads it to show raw-capture running state).
 // A flat sequence of EXPECT_* assertions; the cognitive-complexity score is
 // inflated by gtest macro expansion, and splitting the spec-style assertion list
 // into helpers would hurt readability — hence the suppression on the next line.
 TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
-     TelemetryReflectsRecordingStreamingAndRawCapturingFlags) {
+     TelemetryReflectsRecordingAndStreamingFlags) {
     FakeStats stats;
     DeviceHandler handler(MakeDevice(), stats,
-                          {.is_recording = [] { return true; },
-                           .is_raw_capturing = [] { return true; },
+                          {                           .is_recording = [] { return true; },
                            .internet_reachable = [] { return true; }});
 
     auto resp = handler.Handle(TelemetryCommand());
@@ -146,9 +140,6 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
     EXPECT_EQ(resp.telemetry().uptime_seconds(), kUptimeSeconds);
     EXPECT_TRUE(resp.telemetry().is_recording());
     EXPECT_FALSE(resp.telemetry().is_streaming());
-    // Set independently of is_recording (which is true here): proves field 14 is
-    // wired, not mirroring is_recording.
-    EXPECT_TRUE(resp.telemetry().is_raw_capturing());
     // internet_reachable reflects the injected uplink probe (true here), not a
     // hardcoded false.
     EXPECT_TRUE(resp.telemetry().internet_reachable());

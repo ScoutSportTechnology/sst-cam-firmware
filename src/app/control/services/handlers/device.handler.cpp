@@ -22,14 +22,7 @@ namespace {
 // from a git checkout.
 constexpr const char* kBuildVersion = SST_FIRMWARE_VERSION;
 // Bump on any breaking wire-schema change (proto/README.md versioning policy).
-// v2: added the network-config command surface — commands 42 (SetNetworkConfig)
-// + 43 (GetNetworkConfig) and response slot 26 (NetworkConfigResponse). New
-// capability, not a field addition, so the app gates the Network Settings page
-// on protocol_version >= 2 (an older firmware returns UNSUPPORTED with no
-// positive signal otherwise).
-// v3: RebootCommand (U7) + record/stream quality surface; the app gates the
-// Reboot action and quality pickers on protocol_version >= 3.
-constexpr std::uint32_t kProtocolVersion = 3;
+constexpr std::uint32_t kProtocolVersion = 4;
 }  // namespace
 
 DeviceHandler::DeviceHandler(sst::config::DeviceData device, ISystemStats& stats,
@@ -61,8 +54,7 @@ auto DeviceHandler::HandleDeviceInfo() const -> sst_cam::CommandResponse {
     info->set_protocol_version(kProtocolVersion);
     // Advertise the concrete record/stream modes the encode pipeline can deliver
     // so the app offers only real options (R16). Single source of truth shared
-    // with the record/stream quality validation (kSupportedVideoModes). The
-    // fixed-resolution raw dual-recording is deliberately not advertised.
+    // with the record/stream quality validation (kSupportedVideoModes).
     for (const auto& mode : sst::common::kSupportedVideoModes) {
         auto* wire_mode = info->add_supported_modes();
         wire_mode->set_width(static_cast<std::uint32_t>(mode.width));
@@ -87,7 +79,6 @@ auto DeviceHandler::HandleTelemetry() -> sst_cam::CommandResponse {
     telemetry->set_battery_level_pct(stats.battery_level_pct);
     telemetry->set_is_recording(providers_.is_recording && providers_.is_recording());
     telemetry->set_is_streaming(providers_.is_streaming && providers_.is_streaming());
-    telemetry->set_is_raw_capturing(providers_.is_raw_capturing && providers_.is_raw_capturing());
 
     // Live WiFi state from the P2P-GO manager (not hardcoded), so the app's wifi
     // indicator matches reality. The camera only ever runs as a WiFi-Direct group

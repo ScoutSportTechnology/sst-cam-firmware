@@ -25,15 +25,14 @@ class DeviceHandler final : public ICommandHandler {
     // Reports the connected WiFi-Direct peer's RSSI (dBm); nullopt → "unknown".
     using SignalProvider = std::function<std::optional<int>()>;
 
-    // The live telemetry sources, grouped and named. Four of these are the same
-    // FlagProvider type and are not adjacent, so passing them positionally invited
+    // The live telemetry sources, grouped and named. Several are the same
+    // FlagProvider type, so passing them positionally invited
     // a silent transposition bug (report the wrong flag, compiles clean). Callers
     // wire them with designated initializers instead:
     //   DeviceHandler{dev, stats, {.is_recording = ..., .wifi_signal_dbm = ...}}
     struct Providers {
         FlagProvider is_recording;
         FlagProvider is_streaming;
-        FlagProvider is_raw_capturing;
         WifiStateProvider wifi_state;
         // True when the camera has an internet uplink (default route). Distinct
         // from the WiFi-Direct GO link (link-local).

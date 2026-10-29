@@ -163,12 +163,6 @@ auto StartCmdWithQuality(const sst::common::VideoQuality& mode) -> sst_cam::Comm
     return cmd;
 }
 
-auto StartCmdWithGroup(const std::string& group_id) -> sst_cam::Command {
-    auto cmd = Cmd(sst_cam::RECORDING_START);
-    cmd.mutable_recording_control()->set_capture_group_id(group_id);
-    return cmd;
-}
-
 TEST(RecordingHandlerTest, StartInReadyPhaseStartsRecorderAndTransitions) {
     FakeCleanup cleanup;
     SessionManager session_mgr(cleanup);
@@ -312,76 +306,6 @@ TEST(RecordingHandlerTest, PauseWhileNotRecordingErrors) {
 
     auto resp = handler.Handle(Cmd(sst_cam::RECORDING_PAUSE));
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
-}
-
-// U5 / AE1: a record START carrying a capture_group_id couples the training proxy
-// to the match — it starts alongside the recorder with that group id.
-TEST(RecordingHandlerTest, StartWithGroupIdCouplesProxy) {
-    FakeCleanup cleanup;
-    SessionManager session_mgr(cleanup);
-    FakeRecorder recorder;
-    FakeTimeline timeline;
-    FakeProxy proxy;
-    RecordingHandler handler(session_mgr, recorder, timeline, proxy, ZeroClock);
-    AdvanceToReady(session_mgr);
-
-    auto resp = handler.Handle(StartCmdWithGroup("grp-42"));
-    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(recorder.start_calls, 1);
-    EXPECT_EQ(proxy.starts, 1);
-    EXPECT_EQ(proxy.last_group, "grp-42");
-    EXPECT_TRUE(proxy.IsCapturing());
-}
-
-// A record START with NO capture_group_id records normally but does not start a
-// proxy (backward-compatible with pre-coupling apps).
-TEST(RecordingHandlerTest, StartWithoutGroupIdDoesNotStartProxy) {
-    FakeCleanup cleanup;
-    SessionManager session_mgr(cleanup);
-    FakeRecorder recorder;
-    FakeTimeline timeline;
-    FakeProxy proxy;
-    RecordingHandler handler(session_mgr, recorder, timeline, proxy, ZeroClock);
-    AdvanceToReady(session_mgr);
-
-    ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::ResponseStatus::OK);
-    EXPECT_EQ(recorder.start_calls, 1);
-    EXPECT_EQ(proxy.starts, 0);
-}
-
-// STOP stops the coupled proxy alongside the recorder.
-TEST(RecordingHandlerTest, StopStopsCoupledProxy) {
-    FakeCleanup cleanup;
-    SessionManager session_mgr(cleanup);
-    FakeRecorder recorder;
-    FakeTimeline timeline;
-    FakeProxy proxy;
-    RecordingHandler handler(session_mgr, recorder, timeline, proxy, ZeroClock);
-    AdvanceToReady(session_mgr);
-    ASSERT_EQ(handler.Handle(StartCmdWithGroup("g")).status(), sst_cam::ResponseStatus::OK);
-
-    auto resp = handler.Handle(Cmd(sst_cam::RECORDING_STOP));
-    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
-    EXPECT_GE(proxy.stops, 1);
-    EXPECT_FALSE(proxy.IsCapturing());
-}
-
-// Proxy-start failure is NON-FATAL: the match record still starts (training
-// footage is best-effort).
-TEST(RecordingHandlerTest, ProxyStartFailureDoesNotFailRecord) {
-    FakeCleanup cleanup;
-    SessionManager session_mgr(cleanup);
-    FakeRecorder recorder;
-    FakeTimeline timeline;
-    FakeProxy proxy;
-    proxy.start_ok = false;  // proxy pipeline refuses to start
-    RecordingHandler handler(session_mgr, recorder, timeline, proxy, ZeroClock);
-    AdvanceToReady(session_mgr);
-
-    auto resp = handler.Handle(StartCmdWithGroup("g"));
-    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);  // record unaffected
-    EXPECT_EQ(recorder.start_calls, 1);
-    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kRecording);
 }
 
 }  // namespace

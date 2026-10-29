@@ -34,9 +34,9 @@
 
 **Interfaces:** `DeviceInfoResponse.protocol_version = 4`; existing telemetry remains pull-only. Generated v4 proto is sole source of field/message names.
 
-- [ ] Add/adjust a failing device-info version test and remove tests that assert tombstoned fields.
-- [ ] Build test preset to identify every retired-field compilation failure; delete retired wire references, raw-command registration/handler and its test, without removing the internal sink.
-- [ ] Set protocol version to 4 and pass the device-info test; commit `feat(ble)!: adopt v4 contract and retire raw wire handler`.
+- [x] Add/adjust a failing device-info version test and remove tests that assert tombstoned fields.
+- [x] Build test preset to identify every retired-field compilation failure; delete retired wire references, raw-command registration/handler and its test, without removing the internal sink.
+- [x] Set protocol version to 4 and pass the device-info test; commit `feat(ble)!: adopt v4 contract and retire raw wire handler`.
 
 ### Task 2: session survival, truthful snapshot, and bounded auto-stop
 
