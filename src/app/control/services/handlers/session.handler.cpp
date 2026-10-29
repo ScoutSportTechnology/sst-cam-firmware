@@ -29,6 +29,8 @@ auto FillMatchState(const sst::session::SessionState& state, sst_cam::MatchState
         match->set_status(sst_cam::MATCH_FINISHED);
     } else if (state.match.segment == sst::session::MatchSegment::kHalfTime) {
         match->set_status(sst_cam::MATCH_HALF_TIME);
+    } else if (state.match.status_override) {
+        match->set_status(static_cast<sst_cam::MatchStatus>(*state.match.status_override));
     } else if (state.match.period == 0) {
         match->set_status(sst_cam::MATCH_NOT_STARTED);
     } else {

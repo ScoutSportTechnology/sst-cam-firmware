@@ -42,6 +42,14 @@ auto SessionManager::Phase() const -> SessionPhase {
 auto SessionManager::Snapshot() const -> SessionState {
     std::lock_guard lock(mtx_);
     auto snapshot = state_;
+    if (match_clock_started_at_) {
+        const auto seconds =
+            std::chrono::duration_cast<std::chrono::seconds>(now_() - *match_clock_started_at_)
+                .count();
+        if (seconds > 0) {
+            snapshot.match.clock_seconds += static_cast<std::uint32_t>(seconds);
+        }
+    }
     if (recording_started_at_ && state_.phase == SessionPhase::kRecording) {
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::seconds>(now_() - *recording_started_at_)
@@ -94,6 +102,7 @@ auto SessionManager::OnWifiStopped() -> bool {
     state_.wifi_group_up = false;
     state_.config.reset();
     state_.match = LiveMatch{};
+    match_clock_started_at_.reset();
     disconnected_at_.reset();
     spdlog::info("SessionManager: WiFi stopped -> Connected (session config cleared)");
     return true;
@@ -132,6 +141,7 @@ auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
     }
     if (is_new_match) {
         state_.match = LiveMatch{};
+        match_clock_started_at_.reset();
     }
     // First config advances WifiReady -> Configured; a re-push while further
     // along keeps the current phase.
@@ -185,6 +195,7 @@ auto SessionManager::OnRecordingStop(bool file_valid) -> bool {
         if (state_.phase != SessionPhase::kRecording) {
             return false;
         }
+        AdvanceMatchClock();
         state_.phase = SessionPhase::kReady;
         recording_started_at_.reset();
         end = !state_.is_streaming;
@@ -255,6 +266,7 @@ auto SessionManager::EndSession(SessionEndReason reason) -> bool {
                                                      : kDefaultAutoStopMinutes)))) {
             return false;
         }
+        AdvanceMatchClock();
         ending = state_;
         state_.phase = SessionPhase::kFinalizing;
         disconnected_at_.reset();
@@ -279,6 +291,7 @@ auto SessionManager::EndSession(SessionEndReason reason) -> bool {
     safe("ResetSelections", [this] { cleanup_.ResetSelections(); });
     std::lock_guard lock(mtx_);
     state_ = SessionState{};
+    match_clock_started_at_.reset();
     if (ending.config) {
         if (!video_root_.empty() && !ending.config->video_output_path.empty() &&
             (ending.phase != SessionPhase::kRecording || file_valid)) {
@@ -300,8 +313,39 @@ auto SessionManager::ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mut
         !mutate) {
         return false;
     }
+    AdvanceMatchClock();
+    const auto previous_seconds = state_.match.clock_seconds;
+    const bool was_running = state_.match.clock_running;
     mutate(state_.match);
+    if (!state_.match.clock_running) {
+        match_clock_started_at_.reset();
+    } else if (!was_running || state_.match.clock_seconds != previous_seconds) {
+        match_clock_started_at_ = now_();
+    }
     return true;
+}
+
+auto SessionManager::ReconcileMatch(const std::function<void(LiveMatch&)>& mutate) -> bool {
+    std::lock_guard lock(mtx_);
+    if (state_.phase < SessionPhase::kConfigured || state_.phase == SessionPhase::kFinalizing ||
+        !mutate) {
+        return false;
+    }
+    AdvanceMatchClock();
+    mutate(state_.match);
+    match_clock_started_at_ = state_.match.clock_running ? std::optional{now_()} : std::nullopt;
+    return true;
+}
+
+auto SessionManager::AdvanceMatchClock() -> void {
+    if (match_clock_started_at_) {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::seconds>(now_() - *match_clock_started_at_);
+        if (elapsed.count() > 0) {
+            state_.match.clock_seconds += static_cast<std::uint32_t>(elapsed.count());
+            *match_clock_started_at_ += elapsed;
+        }
+    }
 }
 
 auto SessionManager::PrepareOutputDirs(const SessionConfig& config) -> bool {

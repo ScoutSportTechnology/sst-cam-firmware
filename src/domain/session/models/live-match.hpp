@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 namespace sst::session {
 
@@ -18,6 +19,7 @@ struct LiveMatch {
     std::uint32_t clock_seconds{0};
     bool clock_running{false};
     MatchSegment segment{MatchSegment::kInPlay};
+    std::optional<std::uint8_t> status_override;
 };
 
 }  // namespace sst::session

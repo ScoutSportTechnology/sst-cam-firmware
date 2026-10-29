@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -41,7 +42,10 @@ class DeviceHandler final : public ICommandHandler {
         SignalProvider wifi_signal_dbm;
     };
 
-    DeviceHandler(sst::config::DeviceData device, ISystemStats& stats, Providers providers);
+    using TimeSetter = std::function<bool(std::uint64_t)>;
+
+    DeviceHandler(sst::config::DeviceData device, ISystemStats& stats, Providers providers,
+                  TimeSetter set_time = {});
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -53,6 +57,7 @@ class DeviceHandler final : public ICommandHandler {
     sst::config::DeviceData device_;
     ISystemStats& stats_;
     Providers providers_;
+    TimeSetter set_time_;
 };
 
 }  // namespace sst::control

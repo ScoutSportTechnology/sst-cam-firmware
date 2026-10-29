@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "app/control/ports/system-stats.hpp"
 #include "app/control/ports/wifi-manager.hpp"
@@ -38,6 +39,7 @@ constexpr std::uint64_t kStorageTotalBytes = 4000;
 constexpr std::uint64_t kUptimeSeconds = 12345;
 constexpr float kCpuUsedPct = 25.0F;
 constexpr int kPeerRssiDbm = -57;
+constexpr std::uint64_t kEpoch2020Ms = 1577836800000ULL;
 
 class FakeStats final : public sst::control::ISystemStats {
    public:
@@ -128,9 +130,9 @@ TEST(DeviceHandlerTest, DeviceInfoAdvertisesSupportedModes) {
 TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
      TelemetryReflectsRecordingAndStreamingFlags) {
     FakeStats stats;
-    DeviceHandler handler(MakeDevice(), stats,
-                          {                           .is_recording = [] { return true; },
-                           .internet_reachable = [] { return true; }});
+    DeviceHandler handler(
+        MakeDevice(), stats,
+        {.is_recording = [] { return true; }, .internet_reachable = [] { return true; }});
 
     auto resp = handler.Handle(TelemetryCommand());
 
@@ -172,6 +174,48 @@ TEST(DeviceHandlerTest, TelemetryWifiSignalDbmReflectsProbe) {
 
 // R7: the handler never reads stats / produces telemetry unless a command is
 // dispatched — no background polling, no unsolicited push.
+TEST(DeviceHandlerTest, SetDeviceTimeRejectsMissingAndPre2020WithoutCallingSetter) {
+    FakeStats stats;
+    std::vector<std::uint64_t> applied;
+    DeviceHandler handler(MakeDevice(), stats, {}, [&applied](std::uint64_t epoch_ms) {
+        applied.push_back(epoch_ms);
+        return true;
+    });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time();
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::ERROR);
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms - 1);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::ERROR);
+    EXPECT_TRUE(applied.empty());
+}
+
+TEST(DeviceHandlerTest, SetDeviceTimeReportsOsFailureAndAccepts2020Boundary) {
+    FakeStats stats;
+    std::vector<std::uint64_t> applied;
+    DeviceHandler handler(MakeDevice(), stats, {}, [&applied](std::uint64_t epoch_ms) {
+        applied.push_back(epoch_ms);
+        return false;
+    });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms);
+    const auto response = handler.Handle(cmd);
+    EXPECT_EQ(response.status(), sst_cam::ERROR);
+    EXPECT_FALSE(response.error_message().empty());
+    ASSERT_EQ(applied.size(), 1U);
+    EXPECT_EQ(applied.front(), kEpoch2020Ms);
+    EXPECT_EQ(response.payload_case(), sst_cam::CommandResponse::PAYLOAD_NOT_SET);
+}
+
+TEST(DeviceHandlerTest, SetDeviceTimeReturnsStatusOnlyOnSuccess) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats, {}, [](std::uint64_t) { return true; });
+    sst_cam::Command cmd;
+    cmd.mutable_set_device_time()->set_epoch_ms(kEpoch2020Ms + 1);
+    const auto response = handler.Handle(cmd);
+    EXPECT_EQ(response.status(), sst_cam::OK);
+    EXPECT_EQ(response.payload_case(), sst_cam::CommandResponse::PAYLOAD_NOT_SET);
+}
+
 TEST(DeviceHandlerTest, NoTelemetryWithoutACommand) {
     FakeStats stats;
     DeviceHandler handler(MakeDevice(), stats, {});

@@ -23,21 +23,39 @@ namespace {
 constexpr const char* kBuildVersion = SST_FIRMWARE_VERSION;
 // Bump on any breaking wire-schema change (proto/README.md versioning policy).
 constexpr std::uint32_t kProtocolVersion = 4;
+constexpr std::uint64_t kFirstValidEpochMs = 1577836800000ULL;
 }  // namespace
 
 DeviceHandler::DeviceHandler(sst::config::DeviceData device, ISystemStats& stats,
-                             Providers providers)
-    : device_(std::move(device)), stats_(stats), providers_(std::move(providers)) {}
+                             Providers providers, TimeSetter set_time)
+    : device_(std::move(device)),
+      stats_(stats),
+      providers_(std::move(providers)),
+      set_time_(std::move(set_time)) {}
 
 auto DeviceHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
-    return {sst_cam::Command::kGetDeviceInfo, sst_cam::Command::kGetTelemetry};
+    return {sst_cam::Command::kGetDeviceInfo, sst_cam::Command::kGetTelemetry,
+            sst_cam::Command::kSetDeviceTime};
 }
 
 auto DeviceHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse {
     if (cmd.payload_case() == sst_cam::Command::kGetDeviceInfo) {
         return HandleDeviceInfo();
     }
-    return HandleTelemetry();
+    if (cmd.payload_case() == sst_cam::Command::kGetTelemetry) {
+        return HandleTelemetry();
+    }
+    sst_cam::CommandResponse resp;
+    if (cmd.set_device_time().epoch_ms() < kFirstValidEpochMs) {
+        resp.set_status(sst_cam::ERROR);
+        resp.set_error_message("device time rejected: epoch before 2020");
+    } else if (!set_time_ || !set_time_(cmd.set_device_time().epoch_ms())) {
+        resp.set_status(sst_cam::ERROR);
+        resp.set_error_message("device time: system clock update failed");
+    } else {
+        resp.set_status(sst_cam::OK);
+    }
+    return resp;
 }
 
 auto DeviceHandler::HandleDeviceInfo() const -> sst_cam::CommandResponse {

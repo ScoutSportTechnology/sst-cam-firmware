@@ -55,9 +55,11 @@
 
 **Interfaces:** `SetMatchStateCommand` changes only present fields via locked match update; `MatchState.elapsed_seconds` stays monotonic, `time_remaining_s` clamps to zero, `clock_running` and `match_uuid` are optional when available. `SetDeviceTimeCommand.epoch_ms` rejects absent/pre-2020 values; injectable clock-setting seam reports OS failure; sync only wall clock, never monotonic match/session clocks.
 
-- [ ] Add failing tests for partial updates, explicit zero/false, paused/unpaused elapsed across ticks and overrun, UUID presence, pre-2020 and OS time-setting failure.
-- [ ] Implement with existing state/clock handler and `has_*()`; map a real system clock setter from `main.cpp`, not an in-memory fake for production.
-- [ ] Run focused tests and commit `feat(ble): reconcile match state and synchronize wall time`.
+- [x] Add failing tests for partial updates, explicit zero/false, paused/unpaused elapsed across ticks and overrun, UUID presence, pre-2020 and OS time-setting failure.
+- [x] Implement with existing state/clock handler and `has_*()`; map a real system clock setter from `main.cpp`, not an in-memory fake for production.
+- [x] Run focused tests and commit `feat(ble): reconcile match state and synchronize wall time`.
+
+Task 3 verification (2026-10-29): devcontainer aarch64 test-preset cross-build succeeded; focused 27/27 passed; CI-excluded `ctest -j 8` 419/419 passed in 124.40 s. Changed C++ files passed clang-format-18 dry-run and clang-tidy-18 (nine changed translation units, zero diagnostics). System clock permission and live Jetson/BLE behavior remain untested in the container; proto pin check awaits proto PR #18 merge.
 
 ### Task 4: frame-truth camera health and start gating
 

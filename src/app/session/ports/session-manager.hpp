@@ -35,6 +35,7 @@ class ISessionManager {
     // session is active (phase >= Configured). Returns false (no-op) if there
     // is no active session.
     virtual auto ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool = 0;
+    virtual auto ReconcileMatch(const std::function<void(LiveMatch&)>& mutate) -> bool = 0;
 };
 
 }  // namespace sst::session

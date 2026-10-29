@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <ctime>
 #include <filesystem>
 #include <memory>
 #include <thread>
@@ -93,6 +94,8 @@ constexpr std::uint32_t kOverlayHeight = 1080;
 constexpr std::uint32_t kPreviewPort = 8554;   // RTSP preview (wifi.proto)
 constexpr std::uint32_t kDownloadPort = 8080;  // HTTP downloads
 constexpr std::uint64_t kDownloadTokenTtlSeconds = 3600;
+constexpr std::uint64_t kMillisecondsPerSecond = 1000;
+constexpr std::uint64_t kNanosecondsPerMillisecond = 1000000;
 constexpr const char* kGroupOwnerIp = "192.168.49.1";
 // Bound for the `systemctl reboot` exec — the call returns quickly, but the
 // deadline keeps a hung systemd/D-Bus from stalling the dispatcher thread.
@@ -311,7 +314,14 @@ auto RunFirmware() -> int {
             .wifi_state = [&wifi_manager] { return wifi_manager.State(); },
             .internet_reachable =
                 [&telemetry_probe] { return telemetry_probe.InternetReachable(); },
-            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); }}));
+            .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); }},
+        [](std::uint64_t epoch_ms) {
+            timespec time{
+                static_cast<time_t>(epoch_ms / sst::runtime_defaults::kMillisecondsPerSecond),
+                static_cast<time_t>((epoch_ms % sst::runtime_defaults::kMillisecondsPerSecond) *
+                                    sst::runtime_defaults::kNanosecondsPerMillisecond)};
+            return clock_settime(CLOCK_REALTIME, &time) == 0;
+        }));
     dispatcher.Register(std::make_shared<sst::control::SessionHandler>(
         session_manager, overlay_controller,
         [] { return std::optional<std::uint32_t>(manual_camera_state.Get()); },

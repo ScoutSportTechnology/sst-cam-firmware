@@ -42,6 +42,7 @@ struct Fixture {
 
     explicit Fixture(std::int32_t period_length = kPeriodLengthSeconds) {
         sst::session::SessionConfig cfg;
+        cfg.match_uuid = "match-123";
         cfg.team_a_id = "home";
         cfg.team_b_id = "away";
         cfg.period_length_seconds = period_length;
@@ -77,6 +78,12 @@ void ExpectSnapshotScores(const sst_cam::MatchState& state) {
 void ExpectSnapshotTiming(const sst_cam::MatchState& state) {
     EXPECT_EQ(state.time_remaining_s(), 510U);  // 600 - 90
     EXPECT_EQ(state.updated_at(), kUpdatedAtStamp);
+    EXPECT_TRUE(state.has_elapsed_seconds());
+    EXPECT_EQ(state.elapsed_seconds(), kElapsedSeconds);
+    EXPECT_TRUE(state.has_clock_running());
+    EXPECT_TRUE(state.clock_running());
+    EXPECT_TRUE(state.has_match_uuid());
+    EXPECT_EQ(state.match_uuid(), "match-123");
 }
 
 // Happy path: a populated live match maps onto a MatchState payload (OK status,
@@ -156,7 +163,9 @@ TEST(MatchStateHandlerTest, TimeRemainingClampsAtZeroWhenElapsedExceedsLength) {
         match.segment = sst::session::MatchSegment::kInPlay;
     });
     MatchStateHandler handler(fixture.manager, [] { return std::uint64_t{0}; });
-    EXPECT_EQ(handler.Handle(GetMatchStateCmd()).match_state().time_remaining_s(), 0U);
+    const auto state = handler.Handle(GetMatchStateCmd()).match_state();
+    EXPECT_EQ(state.time_remaining_s(), 0U);
+    EXPECT_EQ(state.elapsed_seconds(), kOverrunSeconds);
 }
 
 // No active session (Idle) -> MATCH_NOT_STARTED, still OK, no crash.
@@ -169,6 +178,9 @@ TEST(MatchStateHandlerTest, NoSessionReportsNotStarted) {
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(resp.match_state().status(), sst_cam::MATCH_NOT_STARTED);
     EXPECT_EQ(resp.match_state().time_remaining_s(), 0U);
+    EXPECT_FALSE(resp.match_state().has_match_uuid());
+    EXPECT_FALSE(resp.match_state().has_elapsed_seconds());
+    EXPECT_FALSE(resp.match_state().has_clock_running());
 }
 
 // Dispatcher parity: get_match_state no longer falls through to UNSUPPORTED once

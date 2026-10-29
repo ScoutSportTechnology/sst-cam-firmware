@@ -34,6 +34,9 @@ auto DeriveStatus(const SessionState& state) -> sst_cam::MatchStatus {
     // In play: a started period that is running is ACTIVE; a started period with
     // the clock halted is PAUSED; before kickoff (no period yet) it has not
     // started.
+    if (match.status_override) {
+        return static_cast<sst_cam::MatchStatus>(*match.status_override);
+    }
     if (match.period == 0) {
         return sst_cam::MATCH_NOT_STARTED;
     }
@@ -73,6 +76,11 @@ auto MatchStateHandler::Handle(const sst_cam::Command& /*cmd*/) -> sst_cam::Comm
     match_state->set_time_remaining_s(DeriveTimeRemaining(state));
     match_state->set_score_a(state.match.score_a);
     match_state->set_score_b(state.match.score_b);
+    if (state.config) {
+        match_state->set_elapsed_seconds(state.match.clock_seconds);
+        match_state->set_clock_running(state.match.clock_running);
+        match_state->set_match_uuid(state.config->match_uuid);
+    }
     if (state.config) {
         match_state->set_team_a_id(state.config->team_a_id);
         match_state->set_team_b_id(state.config->team_b_id);

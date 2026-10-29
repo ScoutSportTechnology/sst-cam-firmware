@@ -3,8 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 
+#include "app/control/services/handlers/match-state.handler.hpp"
 #include "app/control/services/handlers/match.handler.hpp"
 #include "app/overlay/ports/overlay-renderer.hpp"
 #include "app/overlay/ports/overlay-sink.hpp"
@@ -57,12 +59,18 @@ class FakeCleanup final : public sst::session::ISessionCleanup {
 
 // Overlay canvas size for the test controller; any small square works.
 constexpr std::uint32_t kOverlayDim = 64;
+constexpr std::uint32_t kInitialElapsed = 42;
+constexpr auto kRunningSeconds = std::chrono::seconds{5};
+constexpr auto kPausedSeconds = std::chrono::seconds{7};
+constexpr auto kReconciledSeconds = std::chrono::seconds{8};
+constexpr auto kPartialSecond = std::chrono::milliseconds{500};
 
 struct Fixture {
     FakeCleanup cleanup;
     FakeRenderer renderer;
     FakeSink sink;
-    sst::session::SessionManager sm{cleanup};
+    std::chrono::steady_clock::time_point now;
+    sst::session::SessionManager sm{cleanup, [this] { return now; }};
     OverlayController controller{renderer, sink, sst::common::OutputSize{kOverlayDim, kOverlayDim}};
 
     Fixture() {
@@ -100,6 +108,128 @@ auto MatchCtl(sst_cam::MatchControlAction action, std::uint32_t period = 0) -> s
 
 // Final whistle clears the overlay: a finished match has no active scoreboard,
 // so the live preview must not keep showing it.
+TEST(MatchHandlerTest, AbsoluteStateChangesOnlyPresentFieldsIncludingZeroAndFalse) {
+    Fixture fixture;
+    MatchHandler handler(fixture.sm, fixture.controller, [] { return std::uint64_t{0}; });
+    fixture.sm.ApplyMatchUpdate([](sst::session::LiveMatch& match) {
+        match.score_a = 3;
+        match.score_b = 4;
+        match.period = 2;
+        match.clock_seconds = kInitialElapsed;
+        match.clock_running = true;
+    });
+    sst_cam::Command cmd;
+    auto* update = cmd.mutable_set_match_state();
+    update->set_score_a(0);
+    update->set_elapsed_seconds(0);
+    update->set_clock_running(false);
+    update->set_status(sst_cam::MATCH_HALF_TIME);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::OK);
+    const auto match = fixture.sm.Snapshot().match;
+    EXPECT_EQ(match.score_a, 0U);
+    EXPECT_EQ(match.score_b, 4U);
+    EXPECT_EQ(match.period, 2U);
+    EXPECT_EQ(match.clock_seconds, 0U);
+    EXPECT_FALSE(match.clock_running);
+    EXPECT_EQ(match.segment, sst::session::MatchSegment::kHalfTime);
+    EXPECT_EQ(fixture.sink.pushes, 1);
+
+    sst_cam::Command partial;
+    partial.mutable_set_match_state()->set_current_period(0);
+    partial.mutable_set_match_state()->set_score_b(0);
+    EXPECT_EQ(handler.Handle(partial).status(), sst_cam::OK);
+    const auto after = fixture.sm.Snapshot().match;
+    EXPECT_EQ(after.period, 0U);
+    EXPECT_EQ(after.score_b, 0U);
+    EXPECT_EQ(after.segment, sst::session::MatchSegment::kHalfTime);
+}
+
+TEST(MatchHandlerTest, AbsoluteStateRejectsWhenNoSession) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager{cleanup};
+    FakeRenderer renderer;
+    FakeSink sink;
+    OverlayController controller{renderer, sink, sst::common::OutputSize{kOverlayDim, kOverlayDim}};
+    MatchHandler handler(manager, controller, [] { return std::uint64_t{0}; });
+    sst_cam::Command cmd;
+    cmd.mutable_set_match_state()->set_score_a(1);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::ERROR);
+}
+
+TEST(MatchHandlerTest, MonotonicClockAccumulatesOnlyWhileRunningAndSurvivesWallTimeChanges) {
+    FakeCleanup cleanup;
+    auto now = std::chrono::steady_clock::time_point{};
+    sst::session::SessionManager manager{cleanup, [&now] { return now; }};
+    ASSERT_TRUE(manager.OnConnect());
+    ASSERT_TRUE(manager.OnWifiReady());
+    ASSERT_TRUE(manager.ApplySessionConfig({}));
+    FakeRenderer renderer;
+    FakeSink sink;
+    OverlayController controller{renderer, sink, sst::common::OutputSize{kOverlayDim, kOverlayDim}};
+    MatchHandler handler(manager, controller, [] { return std::uint64_t{0}; });
+    handler.Handle(MatchCtl(sst_cam::MATCH_KICKOFF, 1));
+    now += kRunningSeconds;
+    EXPECT_EQ(manager.Snapshot().match.clock_seconds, 5U);
+    handler.Handle(MatchCtl(sst_cam::MATCH_CLOCK_PAUSE));
+    now += kPausedSeconds;
+    EXPECT_EQ(manager.Snapshot().match.clock_seconds, 5U);
+    handler.Handle(MatchCtl(sst_cam::MATCH_CLOCK_RESUME));
+    now += std::chrono::seconds(3);
+    EXPECT_EQ(manager.Snapshot().match.clock_seconds, 8U);
+    sst_cam::Command absolute;
+    absolute.mutable_set_match_state()->set_elapsed_seconds(kReconciledSeconds.count());
+    now += kPartialSecond;
+    EXPECT_EQ(handler.Handle(absolute).status(), sst_cam::OK);
+    now += std::chrono::seconds(2);
+    EXPECT_EQ(manager.Snapshot().match.clock_seconds, 10U);
+    handler.TickClock();
+    EXPECT_EQ(manager.Snapshot().match.clock_seconds, 10U);
+}
+
+TEST(MatchHandlerTest, DisconnectKeepsMatchClockAndIdentity) {
+    Fixture fixture;
+    const auto original = fixture.sm.Snapshot();
+    ASSERT_TRUE(original.config.has_value());
+    sst::session::SessionConfig config = original.config.value_or(sst::session::SessionConfig{});
+    config.match_uuid = "same-match";
+    ASSERT_TRUE(fixture.sm.ApplySessionConfig(config));
+    MatchHandler writer(fixture.sm, fixture.controller, [] { return std::uint64_t{0}; });
+    sst::control::MatchStateHandler reader(fixture.sm, [] { return std::uint64_t{0}; });
+    writer.Handle(MatchCtl(sst_cam::MATCH_KICKOFF, 1));
+    fixture.sm.OnDisconnect();
+    fixture.now += std::chrono::seconds(3);
+    sst_cam::Command get;
+    get.mutable_get_match_state();
+    const auto state = reader.Handle(get).match_state();
+    EXPECT_EQ(state.elapsed_seconds(), 3U);
+    EXPECT_TRUE(state.clock_running());
+    EXPECT_EQ(state.match_uuid(), "same-match");
+}
+
+TEST(MatchHandlerTest, AbsoluteStatusIsReportedWithoutChangingAbsentClockRunning) {
+    Fixture fixture;
+    MatchHandler handler(fixture.sm, fixture.controller, [] { return std::uint64_t{0}; });
+    sst_cam::Command cmd;
+    cmd.mutable_set_match_state()->set_status(sst_cam::MATCH_PAUSED);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::OK);
+    sst::control::MatchStateHandler reader(fixture.sm, [] { return std::uint64_t{0}; });
+    sst_cam::Command get;
+    get.mutable_get_match_state();
+    EXPECT_EQ(reader.Handle(get).match_state().status(), sst_cam::MATCH_PAUSED);
+    cmd.mutable_set_match_state()->set_status(sst_cam::MATCH_ACTIVE);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::OK);
+    EXPECT_EQ(reader.Handle(get).match_state().status(), sst_cam::MATCH_ACTIVE);
+    EXPECT_FALSE(fixture.sm.Snapshot().match.clock_running);
+    cmd.mutable_set_match_state()->set_status(sst_cam::MATCH_NOT_STARTED);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::OK);
+    EXPECT_EQ(reader.Handle(get).match_state().status(), sst_cam::MATCH_NOT_STARTED);
+    cmd.mutable_set_match_state()->set_status(sst_cam::MATCH_STATUS_UNKNOWN);
+    EXPECT_EQ(handler.Handle(cmd).status(), sst_cam::OK);
+    EXPECT_EQ(reader.Handle(get).match_state().status(), sst_cam::MATCH_STATUS_UNKNOWN);
+    handler.Handle(MatchCtl(sst_cam::MATCH_KICKOFF, 1));
+    EXPECT_EQ(reader.Handle(get).match_state().status(), sst_cam::MATCH_ACTIVE);
+}
+
 TEST(MatchHandlerTest, FinalWhistleClearsOverlay) {
     Fixture fixture;
     MatchHandler handler(fixture.sm, fixture.controller, [] { return std::uint64_t{0}; });
@@ -169,17 +299,19 @@ TEST(MatchHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
 
     handler.Handle(MatchCtl(sst_cam::MATCH_KICKOFF, 1));
     EXPECT_EQ(fixture.sm.Snapshot().match.period, 1U);
-    handler.TickClock();
+    fixture.now += std::chrono::seconds(2);
     handler.TickClock();
     EXPECT_EQ(fixture.sm.Snapshot().match.clock_seconds, 2U);
 
     // Pause halts the tick.
     handler.Handle(MatchCtl(sst_cam::MATCH_CLOCK_PAUSE));
+    fixture.now += kRunningSeconds;
     handler.TickClock();
     EXPECT_EQ(fixture.sm.Snapshot().match.clock_seconds, 2U);
 
     // Resume continues it.
     handler.Handle(MatchCtl(sst_cam::MATCH_CLOCK_RESUME));
+    fixture.now += std::chrono::seconds(1);
     handler.TickClock();
     EXPECT_EQ(fixture.sm.Snapshot().match.clock_seconds, 3U);
 

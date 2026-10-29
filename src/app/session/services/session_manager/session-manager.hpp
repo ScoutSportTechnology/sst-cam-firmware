@@ -33,6 +33,7 @@ class SessionManager final : public ISessionManager {
     auto OnStreamingChanged(bool active) -> void override;
 
     auto ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool override;
+    auto ReconcileMatch(const std::function<void(LiveMatch&)>& mutate) -> bool override;
 
    private:
     // Creates the parent directories of the session's video + thumbnail output
@@ -44,6 +45,8 @@ class SessionManager final : public ISessionManager {
     std::filesystem::path video_root_;
     std::optional<std::chrono::steady_clock::time_point> disconnected_at_;
     std::optional<std::chrono::steady_clock::time_point> recording_started_at_;
+    std::optional<std::chrono::steady_clock::time_point> match_clock_started_at_;
+    auto AdvanceMatchClock() -> void;
     mutable std::mutex mtx_;
     SessionState state_;
 };
