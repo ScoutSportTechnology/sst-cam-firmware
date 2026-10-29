@@ -146,4 +146,4 @@ Recovery gotchas:
   ladder and `release.yml` (push-to-main → stable tag + copy beta binary).
 - `docs/ci/rulesets.md` — the branch-protection / ruleset layer this recovery had to
   temporarily lift to reset `main`.
-- `CLAUDE.md` / `AGENTS.md` → "Branch + commit + tag rules" / "Release lifecycle".
+- `AGENTS.md` → "Branch + commit + tag rules" / "Release lifecycle".

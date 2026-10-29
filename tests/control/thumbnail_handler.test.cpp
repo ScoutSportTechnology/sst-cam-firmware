@@ -1,7 +1,7 @@
 // Thumbnail handler: latest frame -> JPEG bytes (U9, R6).
 // Pure — fake snapshot source + fake encoder; no pipeline, no hardware. The
 // real encode path is covered by JpegEncoderTest; here we assert the handler's
-// wiring and the no-frame error path (CLAUDE.md: a real ERROR, not a skeleton).
+// wiring and the no-frame error path (AGENTS.md: a real ERROR, not a skeleton).
 
 #include <gtest/gtest.h>
 

@@ -7,7 +7,7 @@ and is run straight from the repo at the tag you're installing (the exact comman
 is printed in every release's notes). A release is either a **beta**
 `vX.Y.Z-beta.N` (cut on `release/X.Y.Z` for on-device sign-off) or a **stable**
 `vX.Y.Z` (the SHA-256-verified beta binary promoted to `main` unchanged). See
-`CLAUDE.md` / `docs/ci/` for the ladder.
+`AGENTS.md` / `docs/ci/` for the ladder.
 
 ---
 

@@ -33,7 +33,7 @@ Development is done exclusively via the **Dev Container** in this repo, which cr
 
 1. Install the **Dev Containers** VSCode extension (`ms-vscode-remote.remote-containers`).
 2. Open the repo and run **Dev Containers: Reopen in Container**.
-3. Once inside the container, configure and build with the `debug` preset (see CLAUDE.md for the full preset list).
+3. Once inside the container, configure and build with the `debug` preset (see AGENTS.md for the full preset list).
 
 Raspberry Pi 5 support has been dropped. All development efforts are focused entirely on Jetson.
 
@@ -121,7 +121,7 @@ Not started:
 - [ ] **Physics** — ball trajectory / world-coordinate projection from both cameras' detections
 - [ ] **Microphone** — MAX4466 dual-mic integration
 
-> No database module exists (no SQLite, no `db/`); recordings are filesystem-enumerated. The Orin Nano has no NVENC — encode is software `x264enc` (see CLAUDE.md).
+> No database module exists (no SQLite, no `db/`); recordings are filesystem-enumerated. The Orin Nano has no NVENC — encode is software `x264enc` (see AGENTS.md).
 
 ---
 
@@ -170,11 +170,11 @@ cross-build runs in the published compiler image
 (`ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler`, recipe in
 `compiler-image/`, built only when that folder changes) and is pulled by
 `tidy`/`test`/the release build — not rebuilt per run; docs/workflow-only PRs skip the heavy
-checks (see `CLAUDE.md`). Two invariants hold: **`main` runs no failable build**
+checks (see `AGENTS.md`). Two invariants hold: **`main` runs no failable build**
 — it only promotes the already-built beta binary — and **no CI job commits back
 to `main`**. The aarch64 binary is published as a GitHub
 Release asset, `sst_cam_firmware-<tag>-aarch64`. `deploy/install.sh` installs a
-released (stable or beta) binary onto a Jetson. See `CLAUDE.md` and `docs/ci/`
+released (stable or beta) binary onto a Jetson. See `AGENTS.md` and `docs/ci/`
 for the workflow, ruleset, and version-reset runbooks.
 
 ---

@@ -8,7 +8,7 @@
 # zero-warning baseline are tied to this version — a silent bump to 15+ adds
 # checks and breaks the gate. Treat a version change as a deliberate, re-triaged
 # change (clang-tidy-14 is pinned in .devcontainer/Dockerfile and called
-# explicitly in CI + scripts/fix.sh). See CLAUDE.md "Linting & formatting".
+# explicitly in CI + scripts/fix.sh). See AGENTS.md "Linting & formatting".
 #
 # Enforced families (none removed — the tree passes all of them):
 #   bugprone-*     real defect classes  — FLOOR: fix, or a justified + sanctioned

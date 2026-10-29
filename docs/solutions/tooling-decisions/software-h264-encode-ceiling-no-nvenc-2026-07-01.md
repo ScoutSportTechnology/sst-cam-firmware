@@ -100,7 +100,7 @@ against the *concurrent* budget, not in isolation.
 - The finalize-timeout → corrupt-`moov` seam is the same one exploited by a blocking producer on
   the shared fan-out thread: [non-blocking-sink-with-async-stop](../architecture-patterns/non-blocking-sink-with-async-stop-2026-06-10.md)
   (`RecordingService::Push` example).
-- Repo `CLAUDE.md` "No hardware H.264 encoder on the Orin Nano" note — the canonical
+- Repo `AGENTS.md` "No hardware H.264 encoder on the Orin Nano" note — the canonical
   discoverability surface; this doc is the deep-dive it points to.
 
 Key files: `src/domain/common/models/video-quality.hpp` (`kSupportedVideoModes`),

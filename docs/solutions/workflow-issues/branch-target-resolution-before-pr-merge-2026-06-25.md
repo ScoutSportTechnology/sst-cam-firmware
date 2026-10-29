@@ -125,7 +125,7 @@ Getting the merge target wrong in a release-branch model compounds:
 - Whenever `git rev-list --count origin/<target>..HEAD` is large relative to the size
   of your change — large divergence signals the documented default and the live
   target have drifted apart.
-- Any time CLAUDE.md / AGENTS.md document a branch flow: that flow is the
+- Any time AGENTS.md documents a branch flow: that flow is the
   steady-state ideal; verify it against live remote state before acting.
 
 ## Examples
@@ -154,8 +154,7 @@ Open PR → release/0.1.0 → merge → v0.1.0-beta.11 cut automatically
   the pipeline + the `feat → development → release/X.Y.Z → main` flow this learning
   caveats. The flow there is correct for the *normal* case; this doc applies when a
   `release/*` branch is the active integration line.
-- `CLAUDE.md` → "Branch + commit + tag rules" / "Release lifecycle", and `AGENTS.md`
-  → "Branch + commit + tag rules" — the documented default-to-`development` guidance
+- `AGENTS.md` → "Branch + commit + tag rules" / "Release lifecycle" — the documented default-to-`development` guidance
   that is correct but incomplete when a release branch is open.
 - `docs/solutions/workflow-issues/merge-to-main-is-deliberate-stable-promotion-2026-06-25.md`
   — the sibling guard on the **outgoing** side: once fixes have landed on the active

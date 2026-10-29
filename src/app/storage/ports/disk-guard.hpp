@@ -11,7 +11,7 @@ namespace sst::storage {
 // pipeline.
 //
 // The check is one-shot at start; we don't watch disk space mid-recording —
-// that's the plan-of-record posture per CLAUDE.md, kept here as a comment so
+// that's the plan-of-record posture per AGENTS.md, kept here as a comment so
 // future maintainers don't reach for a continuous monitor without thinking.
 class IDiskGuard {
    public:
