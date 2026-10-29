@@ -6,6 +6,7 @@
 // expected. They pass on-device.
 
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -125,6 +127,27 @@ TEST(StreamingE2E, RtmpStreamerRejectsEmptyUrl) {
     cfg.bitrate_kbps = kRtmpBitrateKbps;
     EXPECT_FALSE(streamer.Start(cfg));
     EXPECT_FALSE(streamer.IsRunning());
+}
+
+TEST(StreamingE2E, RtmpParseFailureLogsNoDestinationCredentials) {
+    std::ostringstream output;
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(output);
+    auto logger = std::make_shared<spdlog::logger>("rtmp-test", sink);
+    auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(logger);
+
+    GstRtmpStreamer streamer;
+    sst::streaming::PlatformStreamConfig cfg;
+    cfg.url = "rtmp://ingest.example/live/inline-secret";
+    cfg.stream_key = "separate-secret";
+    cfg.width = 0;
+    EXPECT_FALSE(streamer.Start(cfg));
+
+    spdlog::set_default_logger(previous);
+    EXPECT_NE(output.str().find("parse failed"), std::string::npos);
+    EXPECT_EQ(output.str().find("inline-secret"), std::string::npos);
+    EXPECT_EQ(output.str().find("separate-secret"), std::string::npos);
+    EXPECT_EQ(output.str().find("rtmp://"), std::string::npos);
 }
 
 TEST(StreamingE2E, RtmpStreamerAcceptsCompleteUrlWithoutSeparateKey) {

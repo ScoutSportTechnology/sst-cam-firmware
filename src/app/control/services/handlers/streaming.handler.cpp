@@ -67,7 +67,8 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         resp.set_status(sst_cam::DEVICE_INOPERABLE);
         return resp;
     }
-    if (proxy_ != nullptr && session_ != nullptr && !session_->Snapshot().config) {
+    const auto initial = session_ != nullptr ? session_->Snapshot().config : std::nullopt;
+    if (proxy_ != nullptr && !initial) {
         resp.set_status(sst_cam::ERROR);
         resp.set_error_message("streaming start with no active match config");
         return resp;
@@ -117,25 +118,29 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         resp.set_error_message("streaming start failed (already streaming or bad destination)");
         return resp;
     }
-    if (proxy_ != nullptr && session_ != nullptr) {
+    if (session_ != nullptr) {
         const auto state = session_->Snapshot();
-        if (!state.config) {
+        if (!initial || !state.config || state.config->match_uuid != initial->match_uuid) {
             streaming_.StopPlatformStream(kEgressStreamId);
             resp.set_status(sst_cam::ERROR);
-            resp.set_error_message("streaming start rejected: session ended");
+            resp.set_error_message("streaming start rejected: session changed");
             return resp;
         }
-        (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
-                            state.config->match_uuid, state.config->video_output_path);
-    }
-    if (session_ != nullptr && !session_->OnStreamingChanged(true)) {
-        streaming_.StopPlatformStream(kEgressStreamId);
         if (proxy_ != nullptr) {
-            proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
+            (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
+                                state.config->match_uuid, state.config->video_output_path);
         }
-        resp.set_status(sst_cam::ERROR);
-        resp.set_error_message("streaming start rejected: session ended");
-        return resp;
+        const auto after_proxy = session_->Snapshot();
+        if (!after_proxy.config || after_proxy.config->match_uuid != initial->match_uuid ||
+            !session_->OnStreamingChanged(true)) {
+            streaming_.StopPlatformStream(kEgressStreamId);
+            if (proxy_ != nullptr) {
+                proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
+            }
+            resp.set_status(sst_cam::ERROR);
+            resp.set_error_message("streaming start rejected: session changed");
+            return resp;
+        }
     }
     resp.set_status(sst_cam::ResponseStatus::OK);
     return resp;

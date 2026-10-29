@@ -227,6 +227,85 @@ TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
     std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
+TEST(StreamingHandlerTest, NewMatchDuringStreamStartDoesNotClaimItsProxy) {
+    constexpr auto kMatchA = "01234567-89ab-4cde-8fab-0123456789ab";
+    constexpr auto kMatchB = "fedcba98-7654-4321-8abc-fedcba987654";
+    Cleanup cleanup;
+    sst::session::SessionManager session(cleanup);
+    ASSERT_TRUE(session.OnConnect());
+    ASSERT_TRUE(session.OnWifiReady());
+    sst::session::SessionConfig match_a;
+    match_a.match_uuid = kMatchA;
+    match_a.video_output_path =
+        (std::filesystem::temp_directory_path() / kMatchA / (std::string(kMatchA) + ".mp4"))
+            .string();
+    ASSERT_TRUE(session.ApplySessionConfig(match_a));
+    sst::session::SessionConfig match_b;
+    match_b.match_uuid = kMatchB;
+    match_b.video_output_path =
+        (std::filesystem::temp_directory_path() / kMatchB / (std::string(kMatchB) + ".mp4"))
+            .string();
+    ProxySink sink;
+    sst::raw_capture::ProxyOwners owners(sink);
+    FakeStreaming streaming;
+    StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
+    streaming.on_start = [&] {
+        EXPECT_TRUE(session.EndSession(sst::session::SessionEndReason::kAppStop));
+        EXPECT_TRUE(session.OnConnect());
+        EXPECT_TRUE(session.OnWifiReady());
+        EXPECT_TRUE(session.ApplySessionConfig(match_b));
+    };
+
+    EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
+    EXPECT_FALSE(streaming.active);
+    EXPECT_EQ(sink.starts, 0);
+    const auto state = session.Snapshot();
+    EXPECT_EQ(state.config ? state.config->match_uuid : "", kMatchB);
+    EXPECT_FALSE(state.is_streaming);
+    std::filesystem::remove_all(std::filesystem::path(match_a.video_output_path).parent_path());
+    std::filesystem::remove_all(std::filesystem::path(match_b.video_output_path).parent_path());
+}
+
+TEST(StreamingHandlerTest, NewMatchDuringProxyClaimRollsBackWithoutChangingNewMatch) {
+    constexpr auto kMatchA = "01234567-89ab-4cde-8fab-0123456789ab";
+    constexpr auto kMatchB = "fedcba98-7654-4321-8abc-fedcba987654";
+    Cleanup cleanup;
+    sst::session::SessionManager session(cleanup);
+    ASSERT_TRUE(session.OnConnect());
+    ASSERT_TRUE(session.OnWifiReady());
+    sst::session::SessionConfig match_a;
+    match_a.match_uuid = kMatchA;
+    match_a.video_output_path =
+        (std::filesystem::temp_directory_path() / kMatchA / (std::string(kMatchA) + ".mp4"))
+            .string();
+    ASSERT_TRUE(session.ApplySessionConfig(match_a));
+    sst::session::SessionConfig match_b;
+    match_b.match_uuid = kMatchB;
+    match_b.video_output_path =
+        (std::filesystem::temp_directory_path() / kMatchB / (std::string(kMatchB) + ".mp4"))
+            .string();
+    ProxySink sink;
+    sst::raw_capture::ProxyOwners owners(sink);
+    FakeStreaming streaming;
+    StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
+    sink.on_start = [&] {
+        EXPECT_TRUE(session.EndSession(sst::session::SessionEndReason::kAppStop));
+        EXPECT_TRUE(session.OnConnect());
+        EXPECT_TRUE(session.OnWifiReady());
+        EXPECT_TRUE(session.ApplySessionConfig(match_b));
+    };
+
+    EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
+    EXPECT_FALSE(streaming.active);
+    EXPECT_EQ(sink.starts, 1);
+    EXPECT_EQ(sink.stops, 1);
+    const auto state = session.Snapshot();
+    EXPECT_EQ(state.config ? state.config->match_uuid : "", kMatchB);
+    EXPECT_FALSE(state.is_streaming);
+    std::filesystem::remove_all(std::filesystem::path(match_a.video_output_path).parent_path());
+    std::filesystem::remove_all(std::filesystem::path(match_b.video_output_path).parent_path());
+}
+
 TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
     constexpr auto kMatch = "01234567-89ab-4cde-8fab-0123456789ab";
     Cleanup cleanup;

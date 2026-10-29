@@ -109,6 +109,12 @@ Task 5 verification (2026-10-29): devcontainer aarch64 test and debug cross-buil
 
 Review verification: aarch64 devcontainer debug and test builds succeeded; 83/83 focused tests and 454/454 CI-excluded ctest passed. Changed C++ files passed clang-format-18 dry-run and clang-tidy-18 (14 translation units, zero diagnostics); install-test 40/40 and shellcheck passed. No act, proto/app edits, push or PR were performed. Hardware/Argus behavior remains unverified on a Jetson; proto pin still awaits merged proto PR #18.
 
+Follow-up review (2026-10-29, two findings only):
+- [x] RTMP formatter omits all free-text destination/name/key fields; real spdlog-sink tests cover service success/failure and GStreamer parse failure without leaking inline or separate keys. Raw parse errors are not logged because they can contain the complete pipeline.
+- [x] Stream start captures match A before starting, rejects a changed/ended config after stream start or proxy claim, and rolls back stream/proxy without mutating replacement match B. Both A→B windows failed before the fix and pass after it.
+
+Follow-up verification: devcontainer aarch64 debug and test cross-builds passed, 7/7 focused tests and 459/459 CI-excluded ctest passed; changed files passed clang-format dry-run and six changed translation units passed clang-tidy. No act, proto/app edits, push or PR; real Jetson and real RTMP ingest not checked. The pre-existing test preset cache pointed into an inaccessible root Conan cache, so verification used separate `build/test-review` and `build/debug-review` directories.
+
 ## Task 2 rulings and PR questions
 
 - Ruling: Same-match config re-push while recording updates only the disconnect timeout and retains capture paths, overlay and live match state; a different-match push remains rejected. The old ordering gate rejected every mid-recording push, conflicting with the v4 auto-stop reconfiguration contract.

@@ -74,7 +74,7 @@ auto GstRtmpStreamer::BuildAndPlayLocked() -> bool {
     GError* err = nullptr;
     pipeline_ = gst_parse_launch(launch.c_str(), &err);
     if (err != nullptr) {
-        spdlog::error("GstRtmpStreamer: parse failed: {}", err->message);
+        spdlog::error("GstRtmpStreamer: parse failed");
         g_error_free(err);
         Teardown();
         return false;
