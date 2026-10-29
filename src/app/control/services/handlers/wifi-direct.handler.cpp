@@ -38,6 +38,18 @@ auto WifiDirectHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandR
 auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
     sst_cam::CommandResponse resp;
 
+    if (active_group_ && session_.Snapshot().wifi_group_up) {
+        sst_cam::CommandResponse existing;
+        existing.set_status(sst_cam::OK);
+        auto* out = existing.mutable_wifi_direct_group();
+        out->set_ssid(active_group_->ssid);
+        out->set_psk(active_group_->psk);
+        out->set_group_owner_ip(active_group_->group_owner_ip);
+        out->set_preview_port(preview_port_);
+        out->set_download_port(download_port_);
+        out->set_role(active_group_->role);
+        return existing;
+    }
     auto group = wifi_.StartP2pGroupOwner();
     if (!group) {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
@@ -78,9 +90,6 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
 
     // Start the RTSP preview now that the group + DHCP are up, bound to the
     // group-owner IP so it is reachable only over the phone link (R22).
-    // StopAppStream runs on disconnect via SessionCleanup. A preview failure is
-    // degraded-but-not-fatal: the group, credentials, and download path still
-    // work, so we log and return the group response rather than rolling back.
     sst::streaming::AppStreamConfig stream_cfg;
     stream_cfg.address = group->group_owner_ip;
     stream_cfg.port = static_cast<std::uint16_t>(preview_port_);
@@ -89,6 +98,7 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
                      stream_cfg.address, preview_port_);
     }
 
+    active_group_ = *group;
     resp.set_status(sst_cam::ResponseStatus::OK);
     auto* out = resp.mutable_wifi_direct_group();
     out->set_ssid(group->ssid);
@@ -101,6 +111,13 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
 }
 
 auto WifiDirectHandler::HandleStop() -> sst_cam::CommandResponse {
+    if (session_.Phase() == sst::session::SessionPhase::kRecording ||
+        session_.Snapshot().is_streaming) {
+        sst_cam::CommandResponse refused;
+        refused.set_status(sst_cam::ERROR);
+        refused.set_error_message("stop recording and streaming before stopping WiFi Direct");
+        return refused;
+    }
     dhcp_.Stop();
     // Flush the GO address while the group interface still exists (wifi_.Stop()
     // removes the interface next, which would also drop the address).
@@ -109,6 +126,7 @@ auto WifiDirectHandler::HandleStop() -> sst_cam::CommandResponse {
         group_interface_.clear();
     }
     wifi_.Stop();
+    active_group_.reset();
     session_.OnWifiStopped();
 
     sst_cam::CommandResponse resp;

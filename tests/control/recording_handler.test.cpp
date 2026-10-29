@@ -70,7 +70,7 @@ class FakeRecorder final : public sst::storage::IRecordingService {
 
 class FakeCleanup final : public sst::session::ISessionCleanup {
    public:
-    auto FinalizeRecording() -> void override {}
+    auto FinalizeRecording() -> bool override { return true; }
     auto StopStreaming() -> void override {}
     auto TeardownWifiDirect() -> void override {}
     auto ResetSelections() -> void override {}
@@ -278,7 +278,7 @@ TEST(RecordingHandlerTest, StartRolledBackWhenRecorderStartsButSmRejects) {
     EXPECT_EQ(session_mgr.Phase(), SessionPhase::kReady);  // no transition on failed start
 }
 
-TEST(RecordingHandlerTest, StopStopsRecorderAndReturnsToReady) {
+TEST(RecordingHandlerTest, StopFinalizesAndReportsIdleSummary) {
     FakeCleanup cleanup;
     SessionManager session_mgr(cleanup);
     FakeRecorder recorder;
@@ -291,7 +291,11 @@ TEST(RecordingHandlerTest, StopStopsRecorderAndReturnsToReady) {
     auto resp = handler.Handle(Cmd(sst_cam::RECORDING_STOP));
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_EQ(recorder.stop_calls, 1);
-    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kReady);
+    EXPECT_EQ(timeline.stop_calls, 1);
+    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kIdle);
+    ASSERT_TRUE(session_mgr.Snapshot().last_session.has_value());
+    EXPECT_TRUE(
+        session_mgr.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
 }
 
 TEST(RecordingHandlerTest, PauseWhileNotRecordingErrors) {

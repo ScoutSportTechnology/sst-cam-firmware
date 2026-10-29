@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 
@@ -9,12 +11,11 @@
 
 namespace sst::session {
 
-// Concrete session lifecycle state machine. Holds the in-memory SessionState
-// and enforces the ordered transitions; ApplySessionConfig prepares the output
-// directories; OnDisconnect fans out cleanup and clears memory.
 class SessionManager final : public ISessionManager {
    public:
-    explicit SessionManager(ISessionCleanup& cleanup);
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+    explicit SessionManager(ISessionCleanup& cleanup, Clock now = std::chrono::steady_clock::now,
+                            std::filesystem::path video_root = {});
 
     [[nodiscard]] auto Phase() const -> SessionPhase override;
     [[nodiscard]] auto Snapshot() const -> SessionState override;
@@ -25,8 +26,11 @@ class SessionManager final : public ISessionManager {
     auto ApplySessionConfig(const SessionConfig& config) -> bool override;
     auto OnOverlayConfigured() -> bool override;
     auto OnRecordingStart() -> bool override;
-    auto OnRecordingStop() -> bool override;
+    auto OnRecordingStop(bool file_valid) -> bool override;
     auto OnDisconnect() -> void override;
+    auto Tick() -> void override;
+    auto EndSession(SessionEndReason reason) -> bool override;
+    auto OnStreamingChanged(bool active) -> void override;
 
     auto ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool override;
 
@@ -36,6 +40,10 @@ class SessionManager final : public ISessionManager {
     static auto PrepareOutputDirs(const SessionConfig& config) -> bool;
 
     ISessionCleanup& cleanup_;
+    Clock now_;
+    std::filesystem::path video_root_;
+    std::optional<std::chrono::steady_clock::time_point> disconnected_at_;
+    std::optional<std::chrono::steady_clock::time_point> recording_started_at_;
     mutable std::mutex mtx_;
     SessionState state_;
 };

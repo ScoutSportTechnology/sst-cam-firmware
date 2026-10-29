@@ -8,6 +8,8 @@ namespace sst::session {
 // In-memory snapshot of PushSessionConfigCommand. Held only for the duration of
 // a session (R11/R12) — never persisted across sessions. The app is the source
 // of truth; this is the camera's working copy for the active match.
+inline constexpr std::uint32_t kDefaultAutoStopMinutes = 30;
+
 struct SessionConfig {
     std::string match_uuid;
     std::string user_uuid;
@@ -25,6 +27,7 @@ struct SessionConfig {
     std::string team_b_name;
     std::string team_a_color_hex;
     std::string team_b_color_hex;
+    std::uint32_t auto_stop_minutes{kDefaultAutoStopMinutes};
 };
 
 }  // namespace sst::session

@@ -2,9 +2,14 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <limits>
 #include <system_error>
+#include <utility>
 
 #include "domain/session/models/formatter/_fmt.hpp"  // IWYU pragma: keep
 
@@ -12,7 +17,22 @@ namespace sst::session {
 
 namespace fs = std::filesystem;
 
-SessionManager::SessionManager(ISessionCleanup& cleanup) : cleanup_(cleanup) {}
+SessionManager::SessionManager(ISessionCleanup& cleanup, Clock now, fs::path video_root)
+    : cleanup_(cleanup), now_(std::move(now)), video_root_(std::move(video_root)) {
+    if (video_root_.empty()) {
+        return;
+    }
+    std::error_code error;
+    for (fs::recursive_directory_iterator entry(video_root_, error), end; !error && entry != end;
+         entry.increment(error)) {
+        if (entry->is_regular_file(error) && entry->path().extension() == ".session-active") {
+            const auto marker = entry->path();
+            state_.last_session = LastSession{marker.parent_path().filename().string(),
+                                              SessionEndReason::kReboot, 0, false};
+            fs::remove(marker, error);
+        }
+    }
+}
 
 auto SessionManager::Phase() const -> SessionPhase {
     std::lock_guard lock(mtx_);
@@ -21,14 +41,25 @@ auto SessionManager::Phase() const -> SessionPhase {
 
 auto SessionManager::Snapshot() const -> SessionState {
     std::lock_guard lock(mtx_);
-    return state_;
+    auto snapshot = state_;
+    if (recording_started_at_ && state_.phase == SessionPhase::kRecording) {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::seconds>(now_() - *recording_started_at_)
+                .count();
+        snapshot.recording_elapsed_seconds = static_cast<std::uint32_t>(
+            std::clamp<std::int64_t>(elapsed, 0, std::numeric_limits<std::uint32_t>::max()));
+    }
+    return snapshot;
 }
 
 auto SessionManager::OnConnect() -> bool {
     std::lock_guard lock(mtx_);
-    if (state_.phase != SessionPhase::kIdle) {
-        spdlog::warn("SessionManager::OnConnect rejected: phase={}", state_.phase);
+    if (state_.phase == SessionPhase::kFinalizing) {
         return false;
+    }
+    disconnected_at_.reset();
+    if (state_.phase != SessionPhase::kIdle) {
+        return true;
     }
     state_.phase = SessionPhase::kConnected;
     spdlog::info("SessionManager: -> Connected");
@@ -37,7 +68,7 @@ auto SessionManager::OnConnect() -> bool {
 
 auto SessionManager::OnWifiReady() -> bool {
     std::lock_guard lock(mtx_);
-    if (state_.phase < SessionPhase::kConnected) {
+    if (state_.phase < SessionPhase::kConnected || state_.phase == SessionPhase::kFinalizing) {
         spdlog::warn("SessionManager::OnWifiReady rejected: phase={}", state_.phase);
         return false;
     }
@@ -47,48 +78,58 @@ auto SessionManager::OnWifiReady() -> bool {
         state_.phase = SessionPhase::kWifiReady;
         spdlog::info("SessionManager: -> WifiReady");
     }
+    state_.wifi_group_up = true;
     return true;
 }
 
 auto SessionManager::OnWifiStopped() -> bool {
     std::lock_guard lock(mtx_);
-    if (state_.phase == SessionPhase::kIdle) {
+    if (state_.phase == SessionPhase::kIdle || state_.phase == SessionPhase::kFinalizing ||
+        state_.phase == SessionPhase::kRecording || state_.is_streaming) {
         return false;
     }
     // Tearing down the group invalidates everything built on top of it; drop
     // back to Connected and discard the session config.
     state_.phase = SessionPhase::kConnected;
+    state_.wifi_group_up = false;
     state_.config.reset();
     state_.match = LiveMatch{};
+    disconnected_at_.reset();
     spdlog::info("SessionManager: WiFi stopped -> Connected (session config cleared)");
     return true;
 }
 
 auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
     std::lock_guard lock(mtx_);
-    // Contract §11 ordering: StartWifiDirect -> PushSessionConfig -> ... . The
-    // session config provisions the streaming sinks (RTMP / preview), which
-    // require the WiFi-Direct group already up; config before the group exists
-    // is out of order. Re-pushing config mid-recording is likewise rejected (the
-    // documented flow configures before recording starts).
-    if (state_.phase < SessionPhase::kWifiReady || state_.phase == SessionPhase::kRecording) {
+    if (state_.phase < SessionPhase::kWifiReady || state_.phase == SessionPhase::kFinalizing ||
+        ((state_.phase == SessionPhase::kRecording || state_.is_streaming) &&
+         (!state_.config || state_.config->match_uuid != config.match_uuid))) {
         spdlog::warn(
             "SessionManager::ApplySessionConfig rejected (out of order: WiFi Direct group "
             "required first per contract §11): phase={}",
             state_.phase);
         return false;
     }
+    if (state_.config && state_.config->match_uuid == config.match_uuid &&
+        (state_.phase == SessionPhase::kRecording || state_.is_streaming)) {
+        state_.config->auto_stop_minutes = config.auto_stop_minutes;
+        if (disconnected_at_) {
+            disconnected_at_ = now_();
+        }
+        return true;
+    }
     if (!PrepareOutputDirs(config)) {
         return false;
     }
-    // A config for a DIFFERENT match resets the display-only match state
-    // (scores / period / clock back to zero) so a new match never inherits the
-    // previous match's scoreboard. A same-match re-push (same match_uuid) keeps
-    // the live values the app already pushed. Mirrors the reset in
-    // OnWifiStopped()/OnDisconnect(); fixes stale-overlay score carry-over (#6).
     const bool is_new_match =
         !state_.config.has_value() || state_.config->match_uuid != config.match_uuid;
     state_.config = config;
+    if (is_new_match) {
+        state_.last_session.reset();
+    }
+    if (disconnected_at_) {
+        disconnected_at_ = now_();
+    }
     if (is_new_match) {
         state_.match = LiveMatch{};
     }
@@ -103,7 +144,7 @@ auto SessionManager::ApplySessionConfig(const SessionConfig& config) -> bool {
 
 auto SessionManager::OnOverlayConfigured() -> bool {
     std::lock_guard lock(mtx_);
-    if (state_.phase < SessionPhase::kConfigured) {
+    if (state_.phase < SessionPhase::kConfigured || state_.phase == SessionPhase::kFinalizing) {
         spdlog::warn(
             "SessionManager::OnOverlayConfigured rejected: phase={} (need a session "
             "config first)",
@@ -125,33 +166,100 @@ auto SessionManager::OnRecordingStart() -> bool {
         return false;
     }
     state_.phase = SessionPhase::kRecording;
+    recording_started_at_ = now_();
+    if (!video_root_.empty() && state_.config && !state_.config->video_output_path.empty()) {
+        std::ofstream marker(
+            fs::path(state_.config->video_output_path).replace_extension(".session-active"));
+        if (!marker) {
+            spdlog::error("SessionManager: failed to write active-session marker");
+        }
+    }
     spdlog::info("SessionManager: -> Recording");
     return true;
 }
 
-auto SessionManager::OnRecordingStop() -> bool {
-    std::lock_guard lock(mtx_);
-    if (state_.phase != SessionPhase::kRecording) {
-        spdlog::warn("SessionManager::OnRecordingStop rejected: phase={}", state_.phase);
-        return false;
+auto SessionManager::OnRecordingStop(bool file_valid) -> bool {
+    bool end = false;
+    {
+        std::lock_guard lock(mtx_);
+        if (state_.phase != SessionPhase::kRecording) {
+            return false;
+        }
+        state_.phase = SessionPhase::kReady;
+        recording_started_at_.reset();
+        end = !state_.is_streaming;
+        if (state_.config) {
+            if (!video_root_.empty() && !state_.config->video_output_path.empty()) {
+                std::error_code error;
+                fs::remove(
+                    fs::path(state_.config->video_output_path).replace_extension(".session-active"),
+                    error);
+            }
+            state_.last_session = LastSession{state_.config->match_uuid, SessionEndReason::kAppStop,
+                                              state_.match.clock_seconds, file_valid};
+        }
     }
-    state_.phase = SessionPhase::kReady;
-    spdlog::info("SessionManager: recording stopped -> Ready");
+    if (end) {
+        EndSession(SessionEndReason::kAppStop);
+    }
     return true;
 }
 
 auto SessionManager::OnDisconnect() -> void {
+    std::lock_guard lock(mtx_);
+    if (state_.phase != SessionPhase::kIdle && state_.phase != SessionPhase::kFinalizing &&
+        !disconnected_at_) {
+        disconnected_at_ = now_();
+    }
+}
+
+auto SessionManager::Tick() -> void {
+    bool expired = false;
     {
         std::lock_guard lock(mtx_);
-        if (state_.phase == SessionPhase::kIdle) {
+        if (disconnected_at_ && state_.phase != SessionPhase::kFinalizing) {
+            const auto minutes =
+                state_.config ? state_.config->auto_stop_minutes : kDefaultAutoStopMinutes;
+            expired = now_() - *disconnected_at_ >= std::chrono::minutes(minutes);
+        }
+    }
+    if (expired) {
+        EndSession(SessionEndReason::kAutoStop);
+    }
+}
+
+auto SessionManager::OnStreamingChanged(bool active) -> void {
+    bool end = false;
+    {
+        std::lock_guard lock(mtx_);
+        if (state_.phase == SessionPhase::kIdle || state_.phase == SessionPhase::kFinalizing) {
             return;
         }
-        spdlog::info("SessionManager: disconnect from phase={} — cleaning up", state_.phase);
+        state_.is_streaming = active;
+        end = !active && state_.phase == SessionPhase::kReady;
     }
+    if (end) {
+        EndSession(SessionEndReason::kAppStop);
+    }
+}
 
-    // Fan out cleanup OUTSIDE the lock — each is idempotent and a no-op when its
-    // subsystem is inactive; order is irrelevant (R15). Each step is isolated so
-    // a throw in one still runs the rest and the Idle reset below (R11).
+auto SessionManager::EndSession(SessionEndReason reason) -> bool {
+    SessionState ending;
+    {
+        std::lock_guard lock(mtx_);
+        if (state_.phase == SessionPhase::kIdle || state_.phase == SessionPhase::kFinalizing ||
+            (reason == SessionEndReason::kAutoStop &&
+             (!disconnected_at_ ||
+              now_() - *disconnected_at_ <
+                  std::chrono::minutes(state_.config ? state_.config->auto_stop_minutes
+                                                     : kDefaultAutoStopMinutes)))) {
+            return false;
+        }
+        ending = state_;
+        state_.phase = SessionPhase::kFinalizing;
+        disconnected_at_.reset();
+    }
+    bool file_valid = ending.last_session && ending.last_session->file_valid;
     const auto safe = [](const char* step, auto&& action) {
         try {
             action();
@@ -161,19 +269,35 @@ auto SessionManager::OnDisconnect() -> void {
             spdlog::error("SessionManager: cleanup step {} threw (non-std)", step);
         }
     };
-    safe("FinalizeRecording", [this] { cleanup_.FinalizeRecording(); });
+    safe("FinalizeRecording", [this, &file_valid, &ending] {
+        if (ending.phase == SessionPhase::kRecording) {
+            file_valid = cleanup_.FinalizeRecording();
+        }
+    });
     safe("StopStreaming", [this] { cleanup_.StopStreaming(); });
     safe("TeardownWifiDirect", [this] { cleanup_.TeardownWifiDirect(); });
     safe("ResetSelections", [this] { cleanup_.ResetSelections(); });
-
     std::lock_guard lock(mtx_);
-    state_ = SessionState{};  // back to Idle, all session memory cleared (R11)
-    spdlog::info("SessionManager: session cleared -> Idle");
+    state_ = SessionState{};
+    if (ending.config) {
+        if (!video_root_.empty() && !ending.config->video_output_path.empty() &&
+            (ending.phase != SessionPhase::kRecording || file_valid)) {
+            std::error_code error;
+            fs::remove(
+                fs::path(ending.config->video_output_path).replace_extension(".session-active"),
+                error);
+        }
+        state_.last_session =
+            LastSession{ending.config->match_uuid, reason, ending.match.clock_seconds, file_valid};
+    }
+    recording_started_at_.reset();
+    return true;
 }
 
 auto SessionManager::ApplyMatchUpdate(const std::function<void(LiveMatch&)>& mutate) -> bool {
     std::lock_guard lock(mtx_);
-    if (state_.phase < SessionPhase::kConfigured || !mutate) {
+    if (state_.phase < SessionPhase::kConfigured || state_.phase == SessionPhase::kFinalizing ||
+        !mutate) {
         return false;
     }
     mutate(state_.match);

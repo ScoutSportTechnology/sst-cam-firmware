@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "app/control/ports/handler.hpp"
+#include "app/session/ports/session-manager.hpp"
 #include "app/streaming/ports/streaming-service.hpp"
 #include "app/streaming/ports/uplink-probe.hpp"
 #include "bluetooth.pb.h"
@@ -22,7 +23,8 @@ class StreamingHandler final : public ICommandHandler {
     // a cloud-stream START with no internet uplink is rejected with a clear
     // message instead of an opaque rtmp connect failure (U6 / R9).
     explicit StreamingHandler(sst::streaming::IStreamingService& streaming,
-                              sst::streaming::IUplinkProbe* uplink_probe = nullptr);
+                              sst::streaming::IUplinkProbe* uplink_probe = nullptr,
+                              sst::session::ISessionManager* session = nullptr);
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -33,6 +35,7 @@ class StreamingHandler final : public ICommandHandler {
 
     sst::streaming::IStreamingService& streaming_;
     sst::streaming::IUplinkProbe* uplink_probe_;
+    sst::session::ISessionManager* session_;
 
     // Single egress stream for the contract's one-destination model.
     static constexpr std::int64_t kEgressStreamId = 1;

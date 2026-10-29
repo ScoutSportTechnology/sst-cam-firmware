@@ -33,6 +33,9 @@ struct fmt::formatter<sst::session::SessionPhase> {
             case SessionPhase::kRecording:
                 name = "Recording";
                 break;
+            case SessionPhase::kFinalizing:
+                name = "Finalizing";
+                break;
         }
         return fmt::format_to(ctx.out(), "{}", name);
     }

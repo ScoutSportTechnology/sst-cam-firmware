@@ -44,10 +44,10 @@
 
 **Interfaces:** `GetSessionSnapshotCommand` returns `SessionSnapshotResponse`; `PushSessionConfigCommand.auto_stop_minutes` uses `has_auto_stop_minutes()`; session retains its identity/actual activity through BLE loss, and produces idle-only `LastSessionSummary`. Explicit app stop, timeout, irreversible camera failure and reboot orphan map to proto end-reason enum. Auto-stop deadline is armed on disconnect and cancelled on rejoin; config update re-arms using latest duration.
 
-- [ ] Write failing module-boundary tests for record/stream disconnect survival, reconnect-before-deadline cancellation, default/custom timeout, single finalization, idle summary and orphan file validity.
-- [ ] Implement monotonic deadline in existing runtime tick, reuse recording/stream/WiFi teardown and timeline finalization, expose `FINALIZING` during actual cleanup; never end capture merely because BLE disconnected.
-- [ ] Write failing snapshot tests for optional presence, `CONFIGURED`/`READY`/`RECORDING`/`FINALIZING`/`IDLE`, elapsed from record start, camera/layout/flags, last summary only idle; map response in session handler.
-- [ ] Run focused tests under devcontainer/CI container and commit `feat(session): survive disconnect and expose bounded session snapshot`.
+- [x] Write failing module-boundary tests for record/stream disconnect survival, reconnect-before-deadline cancellation, default/custom timeout, single finalization, idle summary and orphan file validity.
+- [x] Implement monotonic deadline in existing runtime tick, reuse recording/stream/WiFi teardown and timeline finalization, expose `FINALIZING` during actual cleanup; never end capture merely because BLE disconnected.
+- [x] Write failing snapshot tests for optional presence, `CONFIGURED`/`READY`/`RECORDING`/`FINALIZING`/`IDLE`, elapsed from record start, camera/layout/flags, last summary only idle; map response in session handler. Camera health is mapped from an injectable provider but production frame-truth health is deferred to Task 4.
+- [x] Run focused tests under devcontainer/CI container and commit `feat(session): survive disconnect and expose bounded session snapshot`.
 
 ### Task 3: absolute match state and safe wall time
 
@@ -88,6 +88,14 @@
 - [ ] Add failing export/catalog/token tests for same-folder L1+L2 and persistent L2 after token consumption/expiration.
 - [ ] Change production export output path, remove any post-download L2 deletion, run focused tests and commit `feat(export): retain L2 beside L1 as a downloadable recording`.
 - [ ] Run `devcontainer exec --workspace-folder . bash -lc 'cmake --preset test && cmake --build --preset test && ctest --preset test'` as feasible; run `/root/setup/act/run-light.sh` and `/root/setup/act/run-heavy.sh` from the firmware repo, inspect `/var/log/act-*.log`, and fix all `format`, `tidy`, `test`, `ci-scripts` failures except the known unmerged-proto pin check. Review `git diff`, push branch, open draft PR to `development` with the specified breaking title and contract questions. Do not merge.
+
+## Task 2 rulings and PR questions
+
+- Ruling: Same-match config re-push while recording updates only the disconnect timeout and retains capture paths, overlay and live match state; a different-match push remains rejected. The old ordering gate rejected every mid-recording push, conflicting with the v4 auto-stop reconfiguration contract.
+- Ruling: Stop of the last recording or platform stream ends the session and tears down WiFi; stopping one while the other is active leaves the session up. Explicit StopWifiDirect is refused while either activity is active, preventing loss of an active match.
+- Ruling: A persisted `.session-active` marker beside a recording identifies a boot orphan; the boot scan reports REBOOT with `file_valid=false` and removes the marker. It does not validate an orphaned MP4's moov; the validity is deliberately conservative. A failed EOS leaves its marker for the next boot scan.
+- Ruling: Snapshot camera health remains absent until the Task 4 frame-truth provider is wired in production; an injected provider is mapped and tested in Task 2. `FINALIZING` is visible during synchronous cleanup, and `is_recording` is false once finalization has been claimed; clarify whether the UI expects the flag to remain true until EOS completes.
+- PR question: A normal SIGTERM/fatal shutdown uses REBOOT as the end reason (no on-wire shutdown reason); confirm whether a new end reason is needed for clean service shutdowns.
 
 ## Contract questions to carry to PR
 
