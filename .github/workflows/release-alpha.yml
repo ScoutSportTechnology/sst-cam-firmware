@@ -64,9 +64,8 @@ on:
         default: ""
       bump:
         description: "Force base bump level (overrides commit scan)"
-        type: choice
-        options: ["", patch, minor, major]
-        default: ""
+        type: string
+        required: false
 
 # Cancel superseded runs on the same ref to save runner time. A queued dispatch
 # tag-and-build is cheaper to let finish than to half-publish, but a superseded

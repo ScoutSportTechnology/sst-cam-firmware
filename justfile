@@ -1,19 +1,13 @@
 # SST Cam firmware — task runner.
 #
-# Every recipe runs natively when you're INSIDE the dev container, and
-# transparently delegates to the container via the `devcontainer` CLI when you
-# run it from the HOST. You never have to think about which — `just build` and
-# `just test` work the same in both places.
+# Recipes run inside the container or use the pinned compiler image from the host.
 #
 # The firmware cross-compiles to aarch64 (Jetson). Pure-logic unit tests run on
 # the x86 host under qemu (QEMU_LD_PREFIX points at the sysroot loader);
 # hardware-bound tests (real IMX477 / BlueZ / radio / live GStreamer) only pass
 # on-device and are expected to fail in the container.
 #
-# Requirements:
-#   - Host:         `just` + the `devcontainer` CLI on PATH (or at ~/.devcontainers/bin).
-#   - In-container: `just` (installed via the devcontainer `just` feature).
-# Start the container once from the host with `just up` before delegating.
+# Host requires `just` + Docker; compiler-image/VERSION pins the image.
 
 set shell := ["bash", "-uc"]
 
@@ -27,13 +21,18 @@ default:
 
 # --- container lifecycle (host-side) --------------------------------------
 
-# Start the dev container (no-op if already running).
+# Check the pinned compiler image is available locally.
 up:
-    @_DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; "$_DC" up --workspace-folder "{{justfile_directory()}}"
+    @docker image inspect "ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)" >/dev/null
 
-# Open an interactive shell in the dev container.
+# Open an interactive shell in the pinned compiler image.
 shell:
-    @_DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; "$_DC" exec --workspace-folder "{{justfile_directory()}}" bash
+    @image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)"; \
+      git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
+      docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
+      test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
+      docker run --rm -it --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
+        -w "{{justfile_directory()}}" "$image" bash
 
 # --- build (auto native-or-delegated) -------------------------------------
 
@@ -51,10 +50,11 @@ build-test:
 
 # --- test -----------------------------------------------------------------
 
-# Build the test preset and run the whole suite under qemu. Extra gtest args
-# pass through, e.g. `just test --gtest_filter=DeviceHandlerTest.*`.
-test *args: build-test
-    @just _run "QEMU_LD_PREFIX={{qemu_prefix}} {{test_bin}} {{args}}"
+test:
+    @just _run "scripts/ci/recipes.sh test"
+
+test-device:
+    @just _run 'ctest --preset test -L hardware -j "$(nproc)" --output-on-failure'
 
 # Run the already-built suite without rebuilding (faster iteration).
 test-only *args:
@@ -77,6 +77,21 @@ ci-check:
         printf '%s\\n' \"\$tus\" | xargs clang-tidy -p build/test --warnings-as-errors='*' && \
         cmake --build --preset test && \
         QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
+
+lint scope="full":
+    @just _run "scripts/ci/recipes.sh lint {{scope}}"
+
+fmt:
+    @just _run 'scripts/fix.sh --all'
+
+compile:
+    @just _run "scripts/ci/recipes.sh compile"
+
+build:
+    @just _run "scripts/ci/recipes.sh build"
+
+ci:
+    @just _run "scripts/ci/recipes.sh ci"
 
 # --- local deploy loop ----------------------------------------------------
 
@@ -105,12 +120,17 @@ clean:
 
 # --- internals ------------------------------------------------------------
 
-# Run CMD natively inside the container, else delegate to it via the CLI.
+# Run CMD natively inside a container, otherwise in the pinned compiler image.
 [private]
 _run +cmd:
     @if [ -f /.dockerenv ]; then \
         bash -lc "{{cmd}}"; \
     else \
-        _DC="$(command -v devcontainer || echo "$HOME/.devcontainers/bin/devcontainer")"; \
-        "$_DC" exec --workspace-folder "{{justfile_directory()}}" bash -lc "{{cmd}}"; \
+        image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)"; \
+        git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
+        docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
+        test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
+        docker run --rm --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
+            -w "{{justfile_directory()}}" -e BASE="${BASE:-origin/development}" -e BASE_REF="${BASE_REF:-development}" -e SST_RELEASE_TAG="${SST_RELEASE_TAG:-}" "$image" \
+            bash -lc 'set -euo pipefail; if [[ "$1" == *"recipes.sh lint"* || "$1" == *"recipes.sh ci"* ]]; then apt-get update -qq; apt-get install -y -qq --no-install-recommends clang-tidy clang-format shellcheck >/dev/null; fi; exec bash -lc "$1"' _ "{{cmd}}"; \
     fi

@@ -176,6 +176,25 @@ else
   expect_ok "all TUs in compile DB -> pass" "false"
 fi
 
+# Parallel mode must run each TU once, including an unwired TU failure.
+parallel_dir="$(mktemp -d)"
+cat >"$parallel_dir/clang-tidy" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TIDY_CALLS"
+STUB
+chmod +x "$parallel_dir/clang-tidy"
+d="$(db_tree)"
+cat >"$d/build/test/compile_commands.json" <<JSON
+[{"file":"$d/src/foo.cpp"},{"file":"$d/src/bar.cpp"}]
+JSON
+calls="$parallel_dir/calls"
+if ( cd "$d" && PATH="$parallel_dir:$stubdir:$PATH" TIDY_CALLS="$calls" TIDY_JOBS=2 "$TIDY_RUN" full ) >/dev/null 2>&1; then
+  expect_ok "parallel full scan exits successfully" "true"
+else
+  expect_ok "parallel full scan exits successfully" "false"
+fi
+expect_eq "parallel full scan lints two TUs" "$(wc -l < "$calls")" "2"
+
 # --- main() entry-path exits (the production dispatch, not just the function) -
 # These exercise the paths that run BEFORE the build, so no cmake/clang-tidy stub
 # is needed (selection + arg validation fail/early-exit ahead of the build).
