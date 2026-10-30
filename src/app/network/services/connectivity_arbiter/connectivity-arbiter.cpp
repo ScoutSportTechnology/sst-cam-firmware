@@ -230,6 +230,11 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
                                           const PreparedEthernet& prepared) -> LanSelectionResult {
     ethernet_carrier_ = prepared.eth.carrier;
     ethernet_address_cidr_ = prepared.eth.address;
+    ethernet_observed_gateway_ = prepared.eth.gateway;
+    if (!prepared.eth.gateway.empty()) {
+        ethernet_gateway_ = prepared.eth.gateway;
+        ethernet_gateway_cidr_ = prepared.eth.address;
+    }
     const auto& classification = prepared.classification;
 
     // F4: remember a DHCP-pending candidate so the carrier monitor re-polls the offer
@@ -305,7 +310,11 @@ auto ConnectivityArbiter::SyncUplinkRoutingLocked(bool want, const EthernetProbe
         // bound address WITH prefix; the gateway comes from the real Ethernet probe
         // (empty => no default route, only the source rule + connected route). A failed
         // apply leaves STA as the LAN with no uplink egress.
-        const UplinkRoutingConfig cfg{.uplink_address_cidr = cidr, .uplink_gateway = eth.gateway};
+        const UplinkRoutingConfig cfg{
+            .uplink_address_cidr = cidr,
+            .uplink_gateway = eth.gateway.empty() && SameSubnet(cidr, ethernet_gateway_cidr_)
+                                  ? ethernet_gateway_
+                                  : eth.gateway};
         uplink_routing_active_ = policy_routing_.ApplyUplinkRouting(cfg);
         if (!uplink_routing_active_) {
             spdlog::warn(
@@ -770,6 +779,7 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
     sst::config::UplinkData desired;
     std::string phone_subnet;
     std::string sta_ip;
+    bool address_changed = false;
     {
         std::lock_guard<std::mutex> lock(mtx_);
         // Re-arbitrate on carrier or address change, OR — F4 — while a DHCP-pending
@@ -777,9 +787,14 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
         // transition still promotes Ethernet. The common no-change tick is a cheap
         // early return that never holds the lock across a shell-out.
         const bool edge = carrier != ethernet_carrier_;
-        const bool address_changed = observed.address != ethernet_address_cidr_;
+        address_changed = observed.address != ethernet_address_cidr_;
+        const bool gateway_changed = observed.gateway != ethernet_observed_gateway_;
         const bool pending_repoll = carrier && dhcp_pending_;
-        if (!edge && !address_changed && !pending_repoll) {
+        const bool missing_gateway =
+            carrier && !observed.address.empty() && observed.gateway.empty() &&
+            desired_uplink_.ethernet.enabled.value_or(false) &&
+            desired_uplink_.ethernet.dhcp.value_or(true) && current_path_ != LanPath::kEthernet;
+        if (!edge && !address_changed && !gateway_changed && !pending_repoll && !missing_gateway) {
             return;
         }
         const char* reason = "DHCP-pending re-poll";
@@ -787,6 +802,8 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
             reason = "carrier edge";
         } else if (address_changed) {
             reason = "address change";
+        } else if (gateway_changed) {
+            reason = "gateway change";
         }
         spdlog::info(
             "ConnectivityArbiter: Ethernet {} (carrier={} was={} dhcp_pending={}) — re-arbitrating "
@@ -794,6 +811,11 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
             reason, carrier, ethernet_carrier_, dhcp_pending_);
         ethernet_carrier_ = carrier;
         ethernet_address_cidr_ = observed.address;
+        ethernet_observed_gateway_ = observed.gateway;
+        if (!observed.gateway.empty()) {
+            ethernet_gateway_ = observed.gateway;
+            ethernet_gateway_cidr_ = observed.address;
+        }
         desired = desired_uplink_;
         phone_subnet = phone_subnet_cidr_;
         sta_ip = preview_endpoint_;
@@ -808,10 +830,23 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
     // — if so this poll is stale and the newer event owns the re-arbitration.
     if (prepared.eth.carrier != carrier) {
         ethernet_carrier_ = prepared.eth.carrier;
+        if (prepared.eth.address != ethernet_address_cidr_ && !prepared.eth.address.empty() &&
+            current_path_ != LanPath::kEthernet && !uplink_routing_touched_) {
+            policy_routing_.RefreshEgressFirewall();
+        }
         ethernet_address_cidr_ = prepared.eth.address;
+        ethernet_observed_gateway_ = prepared.eth.gateway;
+        if (!prepared.eth.gateway.empty()) {
+            ethernet_gateway_ = prepared.eth.gateway;
+            ethernet_gateway_cidr_ = prepared.eth.address;
+        }
         return;
     }
     ArbitrateLocked(/*unsolicited=*/true, prepared);
+    if (address_changed && !observed.address.empty() && current_path_ != LanPath::kEthernet &&
+        !uplink_routing_touched_) {
+        policy_routing_.RefreshEgressFirewall();
+    }
 }
 
 auto ConnectivityArbiter::OnSelfRevertTimeout(MigrationId migration_id) -> void {

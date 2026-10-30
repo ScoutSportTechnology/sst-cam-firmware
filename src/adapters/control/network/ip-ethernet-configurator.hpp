@@ -9,6 +9,8 @@
 
 namespace sst::adapters::control {
 
+auto GatewayFromRoutes(const std::string& routes) -> std::string;
+
 // Firmware-OWNED Ethernet configurator (hardware-bound — fork/exec `ip` +
 // `dhclient`). The firmware runs as root and takes Ethernet out of
 // NetworkManager (U2 carve-out), so it drives the interface directly rather than

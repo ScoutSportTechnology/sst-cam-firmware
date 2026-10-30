@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -81,13 +82,7 @@ auto DefaultGatewayOn(const std::string& iface) -> std::string {
     const std::string out =
         CaptureBounded({"ip", "-o", "-4", "route", "show", "default", "dev", iface}, kQueryTimeout)
             .output;
-    const auto via = out.find("via ");
-    if (via == std::string::npos) {
-        return {};
-    }
-    const auto start = via + 4;
-    const auto end = out.find_first_of(" \t", start);
-    return out.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    return GatewayFromRoutes(out);
 }
 
 // Best-effort ground-truth: does the dhclient leases db hold a lease for `iface`?
@@ -119,6 +114,27 @@ auto WriteResolvConf(const std::string& body) -> void {
 }
 
 }  // namespace
+
+auto GatewayFromRoutes(const std::string& routes) -> std::string {
+    std::istringstream lines(routes);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto via = line.find("via ");
+        if (via == std::string::npos) {
+            continue;
+        }
+        const auto start = via + 4;
+        const auto end = line.find_first_of(" \t", start);
+        const std::string gateway = line.substr(start, end - start);
+        if (!IsIpv4Literal(gateway)) {
+            continue;
+        }
+        if (line.find("proto 186 ") == std::string::npos) {
+            return gateway;
+        }
+    }
+    return {};
+}
 
 auto IpEthernetConfigurator::ApplyStatic(const std::string& iface,
                                          const sst::config::EthernetUplink& cfg)

@@ -997,7 +997,12 @@ ip() {
   if [ "$1" = -4 ] && [ "$2" = addr ] &&
      { [ "$3" = add ] || [ "$3" = change ]; } &&
      [ "$4" = "${new_ip_address}${new_subnet_mask:+/$new_subnet_mask}" ]; then
-    command ip "$@" metric 600
+    if [ "$3" = change ]; then
+      shift 3
+      command ip -4 addr replace "$@" metric 600
+    else
+      command ip "$@" metric 600
+    fi
   else
     command ip "$@"
   fi

@@ -52,6 +52,10 @@ auto BuildUplinkSubnetRouteArgv(const std::string& subnet_cidr,
 auto BuildUplinkDefaultRouteArgv(const std::string& gateway,
                                  const std::string& iface) -> std::vector<std::string>;
 // `ip route flush table 210` — drops all uplink routes (idempotent teardown).
+auto OwnedMainDefaultGateway(const std::string& routes) -> std::string;
+auto IsOwnedMainDefaultRoute(const std::string& routes, const std::string& gateway) -> bool;
+auto BuildUplinkMainDefaultRouteArgv(const std::string& gateway, const std::string& iface,
+                                     const std::string& operation) -> std::vector<std::string>;
 auto BuildUplinkRouteFlushArgv() -> std::vector<std::string>;
 
 // Egress-only firewall (nft). The chain hooks `input` with a default ACCEPT
@@ -109,6 +113,7 @@ class PolicyRouting final : public sst::network::IPolicyRouting {
 
     auto ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& cfg) -> bool override;
     auto TeardownUplinkRouting() -> void override;
+    auto RefreshEgressFirewall() -> void override;
 
     // F2 (B1): install ONLY the egress-only firewall on the detected wired interface
     // — NO routing table/rule — at process start, BEFORE boot-apply addresses
