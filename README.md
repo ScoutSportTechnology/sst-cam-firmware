@@ -163,9 +163,9 @@ with a three-rung release maturity ladder:
 - **stable** (`vX.Y.Z`) — promoted on merge to `main`: the verified beta binary
   re-published unchanged (its SHA-256 is checked before promotion).
 
-Three branch-scoped product workflows drive this — `release-alpha.yml` owns
-`development` (PR checks + the alpha build), `release-beta.yml` owns `release/**`
-(PR checks + the beta build), and `release.yml` owns `main` (promote only). The
+`ci.yml` runs the `lint`, `compile`, and `test` PR checks; `release.yml` resolves
+alpha/beta versions on branch pushes and calls `publish.yml` for the artifact.
+On `main`, `release.yml` promotes the last rc only, without rebuilding. The
 cross-build runs in the published compiler image
 (`ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler`, recipe in
 `compiler-image/`, built only when that folder changes) and is pulled by

@@ -51,7 +51,7 @@ pushed as `:latest`.
 - `.devcontainer/Dockerfile` is `FROM` that tag plus editor tooling only. Bump its
   `FROM` together with `VERSION`; CI's `image` job fails if they differ or if the tag
   is not published yet (re-run it once `compiler-image` is green).
-- CI's `tidy-shard`/`test`/release cross-build pull the same tag and run in it.
+- CI's `lint`/`compile`/`test` and release `publish` pull the same tag and run in it.
 
 ### Headless build (agents / CI-less local verify)
 
@@ -93,7 +93,11 @@ ctest --preset test
 
 Tests must verify behaviour end-to-end at the **module** boundary: feed real inputs through the public port and assert the real outputs (a file on disk, a row in DB, a frame on a loopback socket). Mocks are for things outside the module (network endpoints, hardware that isn't on the test machine), not for the module's own collaborators.
 
-**Hardware-bound tests are still written and committed**, even though they can't pass in the dev container. Tests that need the IMX477 sensors, the Jetson NVENC, BlueZ on a real D-Bus, wpa_supplicant against real radio, etc., go in the same `tests/` tree alongside everything else and are expected to fail when run in the cross-compile container. They pass on the device. Don't gate them with `#ifdef` or skip them — write them for real, run them on-device when you have hardware. The container suite shows them as "Failed" and that's expected.
+**Hardware-bound tests are still written and committed**, even though they can't pass in the dev container. Tests that need IMX477 sensors, BlueZ on a real D-Bus, or wpa_supplicant against real radio belong in the same `tests/` tree, labeled `hardware` in CTest. `just test` runs all container-runnable tests in parallel with `-LE hardware`; `just test-device` runs the hardware tests on a real Jetson. Do not suppress hardware tests with `#ifdef` or leave them untested.
+
+## Standard recipes
+
+Use `just up` to check the pinned compiler image, then `just lint` (full-tree formatting, clang-tidy, shellcheck, floor-NOLINT and proto pin), `just fmt` (auto-fix), `just compile` (incremental debug build), `just test` (parallel container-runnable tests), `just test-device` (on Jetson), and `just build` (release binary in `dist/`). `just ci` runs lint, compile and test; `just clean` and `just shell` remain available. Recipes run inside the compiler image when invoked from the host. Run `just ci` before opening a PR; `just lint changed` is a faster local iteration check, not the full gate.
 
 ## Linting & formatting
 
@@ -121,9 +125,8 @@ scripts/fix.sh          # clang-format + clang-tidy --fix on STAGED C/C++ only
 scripts/fix.sh --all    # the whole src/ + tests/ tree (bulk cleanup)
 ```
 
-`scripts/fix.sh` and the CI tidy runner (`scripts/ci/tidy-run.sh`, shared
-byte-for-byte by both workflows) both source `scripts/tidy-args.sh`, so their
-cross flags can never drift. `--fix` corrects only checks that ship
+`scripts/fix.sh` and the CI tidy runner (`scripts/ci/tidy-run.sh`) both source
+`scripts/tidy-args.sh`, so their cross flags can never drift. `--fix` corrects only checks that ship
 fixits; the noisy blockers (`magic-numbers`, `easily-swappable-parameters`,
 `cognitive-complexity`, `branch-clone`) have no fixit and stay reported for you
 to resolve by hand.
@@ -149,23 +152,20 @@ PR-gated, Conventional-Commit driven. The cross-build runs **inside the publishe
 
 - **alpha** — construction: compiler-image cross-build + container `ctest` in isolation (no hardware).
 - **beta** — feature freeze for X.Y.Z; fixes only.
-- **rc** — after the hardware test (flash a real Jetson, test end to end with the app): `promote-rc.yml` re-tags the newest beta as `vX.Y.Z-rc.1` on the **same commit**; later merges to `release/X.Y.Z` mint `rc.N`.
+- **rc** — after the hardware test (flash a real Jetson, test end to end with the app): dispatch `release.yml` with `to: rc` on `release/X.Y.Z` to re-tag the newest beta as `vX.Y.Z-rc.1` on the **same commit**; later merges mint `rc.N`.
 - **stable** — merging `release/X.Y.Z → main` promotes the last rc to `vX.Y.Z`: same commit, same binary bytes (SHA-256 verified), renamed.
 - **hotfix** — `hotfix/X.Y.Z+1` from `main` → PR to `main` → `vX.Y.(Z+1)` → PR `main → development`.
 
 Version math and publishing live in the shared actions of [`ScoutSportTechnology/.github`](https://github.com/ScoutSportTechnology/.github) (`docs/release-actions.md` there), pinned `@v1.1.0`: `resolve-version` (alpha base = max(Conventional-Commit bump from the last stable, **release floor** `X.(Y+1).0` while a `release/X.Y.Z` with beta/rc tags is open); breaking bumps the minor while the major is 0; `1.0.0` is cut on purpose with dispatch `bump: major`), `publish-release` (draft → upload → publish, records `sha256: <hex>  <asset>`), `promote` (beta → rc.1, last rc → stable).
 
-Four **branch-scoped** workflows; the PR gate checks are folded into the alpha/beta workflows (`pull_request`-gated) — there is **no standalone `ci.yml`**:
+Four product workflows separate PR checks from publishing:
 
-- `.github/workflows/release-alpha.yml` (name `release-alpha`) — **owns `development`**. On **`pull_request` into `development`** it runs the gate checks `ci-scripts` (shellcheck + tidy-run/install self-tests + **proto pin check**), `format` (clang-format `--dry-run --Werror`), `tidy` (clang-tidy), `test` (cross-build the `test` preset + `ctest` under qemu; hardware-bound tests excluded by name — they only pass on-device). On **push to `development`** + dispatch: `resolve-version` (`mode: alpha`) → cross-build → `publish-release` → `vX.Y.Z-alpha.N` prerelease with `sst_cam_firmware-<tag>-aarch64`. The check jobs are `if: github.event_name == 'pull_request'`; the release jobs are `if: github.event_name != 'pull_request'`.
-- `.github/workflows/release-beta.yml` (name `release-beta`) — **owns `release/**`**. Same gate checks on PRs. On **push to `release/**`** + dispatch: `resolve-version` (`mode: release`, X.Y.Z from the branch name) → `beta.N`, or `rc.N` after `promote-rc` → cross-build → prerelease with the binary, its SHA-256 and the install command.
-- `.github/workflows/promote-rc.yml` (name `promote-rc`) — `workflow_dispatch` on `release/X.Y.Z` after the hardware sign-off: newest beta → `rc.1` (same commit, same binary).
-- `.github/workflows/release.yml` (name `release`) — **owns `main`**. On **push to `main`** (the `release/X.Y.Z → main` merge) + dispatch: `promote` (`to: stable`) — highest `vX.Y.Z-rc.N` → `vX.Y.Z`, binary SHA-256 verified and re-attached as `sst_cam_firmware-vX.Y.Z-aarch64`. Refuses a version without rc. **No cross-build runs on `main`.**
+- `.github/workflows/ci.yml` (name `ci`) — PRs into `development`, `release/**`, or `main`, plus manual dispatch. Required jobs are `lint`, `compile`, `test`. On development/release PRs, `lint` runs full-tree format, clang-tidy, shellcheck, floor-NOLINT and proto pin checks; `compile` builds debug; `test` builds and runs all container-runnable tests in parallel under qemu. `changes` skips expensive jobs on docs-only PRs. On `main` PRs, `lint` runs and `test` checks its result without a rebuild; `compile` is skipped.
+- `.github/workflows/release.yml` (name `release`) — on pushes to `development` and `release/**`, resolves the next alpha/beta (or rc after promotion), then calls `publish.yml`. On `main` pushes, promotes the latest rc to stable with SHA-256 verification and no rebuild. Dispatch with `to: rc` on `release/X.Y.Z` after hardware sign-off.
+- `.github/workflows/publish.yml` (name `publish`) — reusable via `workflow_call` from `release.yml` or manual re-publish; runs `just build` inside the pinned compiler image and publishes `sst_cam_firmware-<tag>-aarch64` with its digest and install notes.
 - `.github/workflows/compiler-image.yml` — builds/publishes the compiler image (see above).
 
-**Compiler image in CI.** Both `release-alpha.yml` and `release-beta.yml` start with an `image` job that reads the tag from `compiler-image/VERSION`, checks `.devcontainer/Dockerfile` pins the same tag, and checks it is published in GHCR. The sysroot-dependent jobs (`tidy-shard` — the sharded clang-tidy matrix — `test`, and the release cross-build) `needs: image` and `docker pull` + `docker run` it (no sysroot build in these workflows). clang-tidy is not in the compiler image: each `tidy-shard` installs noble's v18 into the container before linting. `format` + `ci-scripts` are **host-only** (apt `clang-format-18` / shellcheck — no image); the `tidy` aggregator is host-only too (it just gates on the shard results + runs the floor guard). A `changes` job (dorny/paths-filter) gates `tidy-shard`/`test` so a **docs/workflow-only PR skips them** — a job skipped by `if:` counts as success for the required checks, so the wired names stay green without running. SECURITY: consumers pull a **pinned, immutable version tag, never `:latest`**; only `compiler-image.yml` (push/dispatch, never `pull_request`) has `packages: write`.
-
-The `tidy` hard gate is intact inside `release-alpha.yml` / `release-beta.yml`: cross-toolchain header flags live in `scripts/tidy-args.sh`, the tree is clean under the full check set, and `.clang-tidy` promotes every diagnostic to an error (`WarningsAsErrors: '*'`); clang-tidy is noble's v18 (treat a version bump as a deliberate, re-triaged change). The floor-NOLINT guard ships alongside it. Auto-fix fixable findings dev-side with `scripts/fix.sh` before pushing (CI is verify-only). **tidy is SHARDED for speed:** clang-tidy cost scales with TU count (~95 TUs, each re-parsing heavy GStreamer/OpenCV headers ≈ ~21 min single-job), so `scripts/ci/tidy-run.sh shard <i> <n>` round-robin-splits the TU list across a `tidy-shard` runner matrix (4 legs) — **full-tree coverage is preserved every PR** (no diff-scoping, so "green = clean tree" still holds), only the wall-time shrinks ~Nx. A thin aggregator job named `tidy` (the byte-identical wired required check) `needs:` the shards and fails iff any shard failed (`if: always()` so a failed shard can't skip-propagate to a green "skipped"); it also hosts the floor-NOLINT guard. The selection/sharding logic has its own host-side self-test (`scripts/ci/test-tidy-run.sh`) run in `ci-scripts`. Retune the shard count by editing the matrix `shard:` list alone — `${{ strategy.job-total }}` derives the total from that list and passes it to `tidy-run.sh`, so the index and total cannot drift.
+**Compiler image in CI.** `ci.yml` checks that `compiler-image/VERSION` matches `.devcontainer/Dockerfile` and the image is published; its build jobs pull the pinned version, never `:latest`. `publish.yml` uses that image too. Only `compiler-image.yml` (push/dispatch, never `pull_request`) has `packages: write`. The full-tree `just lint` gate uses `scripts/ci/tidy-run.sh` and `.clang-tidy` with `WarningsAsErrors: '*'`; the floor-NOLINT guard remains enforced. Auto-fix locally with `just fmt` before pushing. The tidy selection logic has a host-side self-test (`scripts/ci/test-tidy-run.sh`) run by `just test`.
 
 Default `GITHUB_TOKEN` only — no PAT/App. The "Release Tags" ruleset permits creating compliant semver tags. Ruleset + version-reset runbooks live in [docs/ci/](docs/ci/).
 
@@ -173,17 +173,17 @@ Default `GITHUB_TOKEN` only — no PAT/App. The "Release Tags" ruleset permits c
 
 ### Branch + commit + tag rules
 - Flow: `feat/* → development → release/X.Y.Z → main` (Git Flow; levels are tags). `development` is the default integration branch; `release/X.Y.Z` is cut from it at feature freeze and takes fixes only; `main` holds only promoted code. One release branch at a time, same name in proto/firmware/app.
-- `development` / `release/**`: PR + green `ci-scripts`/`format`/`tidy`/`test` to merge. `main`: PR + 1 approval + green checks + **no direct push** (admin/hotfix bypass).
+- `development` / `release/**`: PR + green `lint`/`compile`/`test` to merge. `main`: PR + 1 approval + green `lint`/`compile`/`test` (the `compile` job is skipped on `main`) + **no direct push** (admin/hotfix bypass).
 - Tags `v*` are immutable semver (no delete/move/force-push), including `-alpha.N` / `-beta.N` / `-rc.N` prereleases; only workflows create them.
 - Use Conventional Commits. The **squash-merge subject** drives the alpha bump (shared `resolve-version` action) — a docs/chore-only subject mints no alpha. Breaking is `type(scope)!:` or a `BREAKING CHANGE:` footer; while the major is 0 it bumps the minor.
-- `proto/` must pin a commit **merged** into the proto branch with the same name as the PR base (`ci-scripts` checks it).
+- `proto/` must pin a commit **merged** into the proto branch with the same name as the PR base (`just lint` checks it).
 - **Never push releasable commits directly to `development` or `release/**` — always land them via a PR merged on github.com.** A release tag is a lightweight ref, so its **"Verified" badge mirrors the target commit's signature**: github.com web-flow-signs PR squash/merge commits automatically, but a locally-authored direct push is `unsigned` → the `-alpha.N`/`-beta.N` cut from it has **no Verified badge** (this is exactly how `beta.8` lost it). If a local hotfix is genuinely unavoidable, sign it (`git commit -S`, SSH/GPG key registered on GitHub) so it still verifies. The badge is commit provenance, not binary integrity (that's the `sha256:` hand-off) — but a missing badge means a release commit bypassed PR review. See [docs/ci/release-commit-signing.md](docs/ci/release-commit-signing.md).
 
 ### Releasing
-- Alpha: merge a `feat:`/`fix:`/… PR into `development` → `release-alpha.yml`'s push run cuts `vX.Y.Z-alpha.N` with the aarch64 binary. Override: `gh workflow run release-alpha.yml -f version=v0.2.0` (or `-f bump=minor`; `-f bump=major` is how `1.0.0` is cut).
-- Beta (feature freeze): `git switch -c release/X.Y.Z development && git push` — the **same X.Y.Z in proto, firmware and app** → `vX.Y.Z-beta.1`; fixes by `fix/*` PR into the branch → `beta.N`.
-- rc (hardware sign-off): flash the newest beta on a real Jetson and test end to end with the app; when it passes, run `promote-rc` on `release/X.Y.Z` (`gh workflow run promote-rc.yml --ref release/X.Y.Z`) in each repo → `rc.1`; later fixes → `rc.N`.
-- Stable: open the `release/X.Y.Z → main` PR (1 approval); on merge, `release.yml` tags `vX.Y.Z` and copies the verified rc binary — no rebuild. Afterward delete `release/X.Y.Z` and PR `main → development`.
+- Alpha: merge a `feat:`/`fix:`/… PR into `development` → `release.yml` calls `publish.yml` to cut `vX.Y.Z-alpha.N` with the aarch64 binary. Override: `gh workflow run release.yml --ref development -f version=v0.2.0` (or `-f bump=minor`; `-f bump=major` is how `1.0.0` is cut).
+- Beta (feature freeze): cut `release/X.Y.Z` from `development` through the GitHub API — the **same X.Y.Z in proto, firmware and app** → `vX.Y.Z-beta.1`; fixes by `fix/*` PR into the branch → `beta.N`.
+- rc (hardware sign-off): flash the newest beta on a real Jetson and test end to end with the app; when it passes, run `gh workflow run release.yml --ref release/X.Y.Z -f to=rc` in each repo → `rc.1`; later fixes → `rc.N`.
+- Stable: open the `release/X.Y.Z → main` PR (1 approval); on merge, `release.yml` tags `vX.Y.Z` and copies the verified rc binary — no rebuild. Afterward delete `release/X.Y.Z` and PR `main → development`. Release-branch creation, promotion and merging follow the shared `sst-cam-git-flow` skill; the `sst-cam-ci` skill link is pending a workspace PR.
 - The compiler-image build is heavy (~35 min, ~7.6 GB of NVIDIA downloads) and can flake on hosted runners — re-run with `gh run rerun <id> --failed`.
 - Install/update on a Jetson: `deploy/install.sh` installs a **released** (stable, rc or beta) binary (see `deploy/README.md`).
 
@@ -192,7 +192,7 @@ Default `GITHUB_TOKEN` only — no PAT/App. The "Release Tags" ruleset permits c
 ```
 development:   alpha.1 → alpha.2 → alpha.3
                                      │ cut release/0.1.0 (feature freeze)
-release/0.1.0:                       └► beta.1 → beta.2 ─► promote-rc ─► rc.1 → rc.2
+release/0.1.0:                       └► beta.1 → beta.2 ─► release.yml to=rc ─► rc.1 → rc.2
                                                          (hardware OK)          │ merge → main
 main:                                                                           └► v0.1.0
 ```

@@ -27,9 +27,9 @@ just deploy-firmware jetson.local --no-camera     # extra install.sh flags pass 
 Or by hand:
 
 ```bash
-just build-release-firmware                          # binary → build/release/bin/sst_cam_firmware
-scp build/release/bin/sst_cam_firmware deploy/install.sh user@jetson:/tmp/
-ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware"
+just build                                           # binary → dist/sst_cam_firmware-aarch64
+scp dist/sst_cam_firmware-aarch64 deploy/install.sh user@jetson:/tmp/
+ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64"
 ```
 
 `--binary <path>` skips the GitHub release resolve/download entirely and feeds the
