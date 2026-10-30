@@ -11,10 +11,6 @@
 
 set shell := ["bash", "-uc"]
 
-# aarch64 sysroot loader prefix — lets qemu run the cross-compiled test binary.
-qemu_prefix := "/l4t/targetfs"
-test_bin := "./build/test/bin/sst_cam_firmware_tests"
-
 # List recipes.
 default:
     @just --list
@@ -34,49 +30,13 @@ shell:
       docker run --rm -it --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
         -w "{{justfile_directory()}}" "$image" bash
 
-# --- build (auto native-or-delegated) -------------------------------------
-
-# Configure + build the debug binary (default dev-loop build).
-build-debug-firmware:
-    @just _run "cmake --preset debug && cmake --build --preset debug"
-
-# Configure + build the release binary (the deployable artifact).
-build-release-firmware:
-    @just _run "cmake --preset release && cmake --build --preset release"
-
-# Configure + build the test binary (GTest via Conan).
-build-test:
-    @just _run "cmake --preset test && cmake --build --preset test"
-
-# --- test -----------------------------------------------------------------
+# --- build and test --------------------------------------------------------
 
 test:
     @just _run "scripts/ci/recipes.sh test"
 
 test-device:
     @just _run 'ctest --preset test -L hardware -j "$(nproc)" --output-on-failure'
-
-# Run the already-built suite without rebuilding (faster iteration).
-test-only *args:
-    @just _run "QEMU_LD_PREFIX={{qemu_prefix}} {{test_bin}} {{args}}"
-
-# Run via ctest (shows the CTest test list / timings).
-ctest:
-    @just _run "QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
-
-# --- CI parity ------------------------------------------------------------
-
-# The exact gate CI runs: format-check + tidy + build-test + ctest. Same
-# entrypoint locally and in .github/workflows/ci.yml — keep the two in sync.
-ci-check:
-    @just _run "set -euo pipefail && \
-        srcs=\$(find src tests \\( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \\) -not -path '*/_old/*') && \
-        printf '%s\\n' \"\$srcs\" | xargs clang-format --dry-run --Werror && \
-        cmake --preset test && \
-        tus=\$(find src tests \\( -name '*.cpp' -o -name '*.cc' \\) -not -path '*/_old/*') && \
-        printf '%s\\n' \"\$tus\" | xargs clang-tidy -p build/test --warnings-as-errors='*' && \
-        cmake --build --preset test && \
-        QEMU_LD_PREFIX={{qemu_prefix}} ctest --preset test --output-on-failure"
 
 lint scope="full":
     @just _run "scripts/ci/recipes.sh lint {{scope}}"
@@ -103,14 +63,14 @@ ci:
 #
 # Usage: just deploy-firmware user@jetson.local
 #        just deploy-firmware jetson.local --no-camera   # extra install.sh flags pass through
-deploy-firmware HOST *flags: build-release-firmware
-    @BIN="build/release/bin/sst_cam_firmware"; \
-     [ -f "$BIN" ] || { echo "binary not found: $BIN (build-release failed?)" >&2; exit 1; }; \
+deploy-firmware HOST *flags: build
+    @BIN="dist/sst_cam_firmware-aarch64"; \
+     [ -f "$BIN" ] || { echo "binary not found: $BIN (just build failed?)" >&2; exit 1; }; \
      command -v scp >/dev/null || { echo "scp not found on host PATH" >&2; exit 1; }; \
      echo "Copying ${BIN} + install.sh to {{HOST}} ..."; \
-     scp "$BIN" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
-     echo "Running install.sh --binary on {{HOST}} (sudo) ..."; \
-     ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware {{flags}}"
+      scp "$BIN" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
+      echo "Running install.sh --binary on {{HOST}} (sudo) ..."; \
+      ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 {{flags}}"
 
 # --- housekeeping ---------------------------------------------------------
 
