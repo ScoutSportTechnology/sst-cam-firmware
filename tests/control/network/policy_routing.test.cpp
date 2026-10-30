@@ -9,6 +9,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -324,6 +328,96 @@ TEST(PolicyRoutingTest, ApplyAndTeardownAreBoundedAndDoNotThrow) {
 // addresses Ethernet, so no root listener is reachable on a wired uplink in the
 // pre-first-Set window) is bounded and never throws — in the container there is no
 // wired iface / `nft` so it is a logged no-op, on-device it installs the firewall.
+TEST(PolicyRoutingTest, XtSwapKeepsStatefulChainWhenOldChainDeletionFails) {
+    namespace fs = std::filesystem;
+    const fs::path sandbox = fs::temp_directory_path() / "sst-xt-swap-test";
+    fs::create_directories(sandbox);
+    const fs::path tools = sandbox / "bin";
+    fs::create_directories(tools);
+    const fs::path state = sandbox / "state";
+    fs::create_directories(state);
+    const auto write_tool = [&](const std::string& name, const std::string& body) {
+        const fs::path path = tools / name;
+        std::ofstream file(path);
+        file << "#!/bin/sh\n" << body;
+        file.close();
+        fs::permissions(path, fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
+                                  fs::perms::others_read | fs::perms::others_exec);
+    };
+    write_tool("ip", "if [ \"$1\" = -o ]; then printf '2: eth0 inet 10.10.1.30/24\\n'; fi\n");
+    write_tool("nft",
+               "printf '%s\\n' \"$*\" >>\"$SST_XT_LOG\"; "
+               "if [ \"$1\" = -f ]; then "
+               "if grep -q 'ct state' \"$2\"; then exit 1; fi; "
+               "printf '%s\\n' stateless >>\"$SST_XT_LOG\"; exit 0; fi; "
+               "if [ \"$1\" = list ]; then exit 1; fi; "
+               "if [ \"$1\" = delete ]; then exit 0; fi; exit 1\n");
+    const std::string xt_script =
+        "printf '%s %s\\n' \"$SST_XT_FAMILY\" \"$*\" >>\"$SST_XT_LOG\"\n"
+        "mark=\"$SST_XT_STATE/$SST_XT_FAMILY\"\n"
+        "if [ \"$2\" = -S ] && [ \"$3\" = INPUT ]; then\n"
+        "  printf '%s\\n' '-P INPUT ACCEPT'\n"
+        "  if [ ! -f \"$mark\" ]; then printf '%s\\n' '-A INPUT -j SST_UPLINK_A'; "
+        "else printf '%s\\n' '-A INPUT -j SST_UPLINK_B'; "
+        "if [ \"$SST_XT_DETACH_FAIL\" = 1 ]; then "
+        "printf '%s\\n' '-A INPUT -j SST_UPLINK_A'; fi; fi\n"
+        "fi\n"
+        "if [ \"$2\" = -C ]; then "
+        "[ \"$5\" = SST_UPLINK_A ] && [ ! -f \"$mark\" ]; exit $?; fi\n"
+        "if [ \"$2\" = -D ] && [ \"$5\" = SST_UPLINK_A ]; then "
+        "if [ \"$SST_XT_DETACH_FAIL\" = 1 ]; then exit 1; fi; : >\"$mark\"; fi\n"
+        "if [ \"$2\" = -F ] && [ \"$3\" = SST_UPLINK_A ]; then "
+        ": >\"$SST_XT_STATE/flushed-$SST_XT_FAMILY\"; fi\n"
+        "if [ \"$2\" = -X ] && [ \"$3\" = SST_UPLINK_A ] && "
+        "[ ! -f \"$SST_XT_STATE/flushed-$SST_XT_FAMILY\" ]; then exit 1; fi\n";
+    write_tool("iptables-nft", "SST_XT_FAMILY=ipv4\n" + xt_script);
+    write_tool("ip6tables-nft", "SST_XT_FAMILY=ipv6\n" + xt_script);
+    const char* old_path = std::getenv("PATH");
+    const std::string original = old_path == nullptr ? "" : old_path;
+    const std::string path = tools.string() + ":" + original;
+    setenv("PATH", path.c_str(), 1);
+    const std::string log_path = (state / "commands").string();
+    setenv("SST_XT_LOG", log_path.c_str(), 1);
+    const std::string state_path = state.string();
+    setenv("SST_XT_STATE", state_path.c_str(), 1);
+    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+    std::ifstream commands(state / "commands");
+    const std::string log((std::istreambuf_iterator<char>(commands)),
+                          std::istreambuf_iterator<char>());
+    EXPECT_NE(log.find("ipv4 -w -I INPUT 1 -j SST_UPLINK_B"), std::string::npos);
+    EXPECT_NE(log.find("ipv4 -w -D INPUT -j SST_UPLINK_A"), std::string::npos);
+    EXPECT_NE(log.find("ipv4 -w -F SST_UPLINK_A"), std::string::npos);
+    EXPECT_NE(log.find("ipv4 -w -X SST_UPLINK_A"), std::string::npos);
+    EXPECT_NE(log.find("delete table inet sst_uplink"), std::string::npos);
+    EXPECT_EQ(log.find("stateless"), std::string::npos);
+    std::ofstream(state / "flushed-ipv4").close();
+    std::ofstream(state / "flushed-ipv6").close();
+    fs::remove(state / "ipv4");
+    fs::remove(state / "ipv6");
+    std::ofstream(log_path, std::ios::trunc).close();
+    setenv("SST_XT_DETACH_FAIL", "1", 1);
+    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+    std::ifstream second_commands(log_path);
+    const std::string second_log((std::istreambuf_iterator<char>(second_commands)),
+                                 std::istreambuf_iterator<char>());
+    EXPECT_EQ(second_log.find("stateless"), std::string::npos);
+    EXPECT_NE(second_log.find("ipv4 -w -I INPUT 1 -j SST_UPLINK_B"), std::string::npos);
+    EXPECT_NE(second_log.find("delete table inet sst_uplink"), std::string::npos);
+    std::ofstream(state / "ipv4").close();
+    std::ofstream(state / "ipv6").close();
+    std::ofstream(log_path, std::ios::trunc).close();
+    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+    std::ifstream third_commands(log_path);
+    const std::string third_log((std::istreambuf_iterator<char>(third_commands)),
+                                std::istreambuf_iterator<char>());
+    EXPECT_EQ(third_log.find("stateless"), std::string::npos);
+    unsetenv("SST_XT_DETACH_FAIL");
+    setenv("PATH", original.c_str(), 1);
+    unsetenv("SST_XT_LOG");
+    unsetenv("SST_XT_STATE");
+    fs::remove_all(sandbox);
+}
+
 TEST(PolicyRoutingTest, ApplyEgressFirewallIsBoundedAndDoesNotThrow) {
     EXPECT_NO_THROW({ sst::adapters::control::PolicyRouting::ApplyEgressFirewall(); });
 }
