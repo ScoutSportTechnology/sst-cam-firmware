@@ -13,9 +13,11 @@
 
 #include "adapters/capture/frame/gstreamer/gstreamer.hpp"
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
+#include "adapters/control/network/ip-ethernet-configurator.hpp"
 #include "adapters/control/network/ip-route-uplink-probe.hpp"
 #include "adapters/control/network/iw-station-rssi-probe.hpp"
 #include "adapters/control/network/nmcli-uplink-configurator.hpp"
+#include "adapters/control/network/policy-routing.hpp"
 #include "adapters/control/network/subprocess.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
@@ -24,6 +26,8 @@
 #include "adapters/focus/i2c-focuser.hpp"
 #include "adapters/network/http/http-download-server.hpp"
 #include "adapters/network/json/json-uplink-store.hpp"
+#include "adapters/network/monitor/thread-ethernet-carrier-monitor.hpp"
+#include "adapters/network/timer/thread-self-revert-timer.hpp"
 #include "adapters/overlay/burn/opencv-overlay-burner.hpp"
 #include "adapters/overlay/caching/caching-overlay-sink.hpp"
 #include "adapters/overlay/cairo/cairo-overlay-renderer.hpp"
@@ -62,6 +66,7 @@
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
 #include "app/control/services/telemetry_probe/telemetry-probe.hpp"
 #include "app/decision/services/manual_decision/manual-decision.hpp"
+#include "app/network/services/connectivity_arbiter/connectivity-arbiter.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "app/network/services/uplink-manager/uplink-manager.hpp"
 #include "app/overlay/services/overlay_controller/overlay-controller.hpp"
@@ -101,6 +106,12 @@ constexpr const char* kGroupOwnerIp = "192.168.49.1";
 // Bound for the `systemctl reboot` exec — the call returns quickly, but the
 // deadline keeps a hung systemd/D-Bus from stalling the dispatcher thread.
 constexpr std::chrono::seconds kRebootTimeout{10};
+// Self-revert backstop window for a P2P->STA migration (OQ1/KTD5): if the app
+// never confirms preview reachability within this window the arbiter restores
+// S1. It must be comfortably longer than a normal app probe round-trip (the app
+// probe timeout is strictly shorter). Correctness rests on the epoch guard, not
+// this value; tune on-metal.
+constexpr std::chrono::milliseconds kSelfRevertWindow{20000};
 
 }  // namespace sst::runtime_defaults
 
@@ -186,7 +197,16 @@ auto RunFirmware() -> int {
     // persisted config on boot; re-pushable from the app over BLE (U4). Driven via
     // NetworkManager (the camera's ethernet is NM-managed, unlike the P2P radio).
     sst::adapters::control::NmcliUplinkConfigurator uplink_configurator;
+    // Firmware-owned Ethernet (ip/dhclient, out of NetworkManager per U2) — the
+    // source of truth for the real static-vs-DHCP mode GetNetworkConfig reports.
+    sst::adapters::control::IpEthernetConfigurator ethernet_configurator;
+    // Per-interface internet reachability (R7): the real SO_BINDTODEVICE connects
+    // run on this probe's OWN background poll thread into a cache, so the streaming
+    // handler's egress selection reads it instantly (never an inline connect on the
+    // BLE dispatcher). Started here; self-stops in its dtor (declared before
+    // telemetry_probe, which borrows it, so it outlives that borrow).
     sst::adapters::control::IpRouteUplinkProbe uplink_probe;
+    uplink_probe.Start();
     // Telemetry signals that need a subprocess to read — internet uplink (`ip
     // route`) and WiFi-Direct peer RSSI (`iw`) — are sampled on a background
     // thread, not inline on the BLE dispatcher. A per-telemetry-request fork
@@ -196,9 +216,20 @@ auto RunFirmware() -> int {
     sst::adapters::control::IwStationRssiProbe wifi_signal_probe;
     sst::control::TelemetryProbe telemetry_probe(uplink_probe, wifi_signal_probe);
     telemetry_probe.Start();
-    sst::network::UplinkManager uplink_manager(uplink_configurator);
+    sst::network::UplinkManager uplink_manager(uplink_configurator, ethernet_configurator);
     sst::adapters::network::JsonUplinkStore uplink_store(std::string(sst::paths::kConfigDir) +
                                                          "/uplink.json");
+    // U7 / B1 / F2: the different-subnet uplink (R4) gets source-based policy routing +
+    // an egress-only firewall (the security bound for running as root). Declared here,
+    // ahead of the boot-apply, so the boot egress firewall is installed BEFORE any
+    // persisted Ethernet uplink is addressed — no root listener (e.g. the download
+    // server on 0.0.0.0:8080) is ever reachable on a wired uplink in the boot / pre-
+    // first-Set window. The arbiter (below) borrows it: it re-applies the full routing
+    // + firewall for a different-subnet uplink and removes it on a same-subnet-LAN
+    // commit. Declared before the arbiter so it outlives the arbiter's teardown.
+    sst::adapters::control::PolicyRouting policy_routing;
+    // F2: close the boot exposure window before boot-apply touches Ethernet.
+    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
     // Bring up enabled uplinks on boot OFF the main path: nmcli con up can stall
     // (NM mid-restart, DHCP wait), and the subprocess deadline is generous (45s).
     // Doing it synchronously here would delay BLE/WiFi-Direct/preview start by
@@ -342,10 +373,24 @@ auto RunFirmware() -> int {
                     : sst_cam::PREVIEW_LAYOUT_SINGLE);
         },
         camera_health));
-    dispatcher.Register(std::make_shared<sst::control::WifiDirectHandler>(
+    auto wifi_direct_handler = std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, network_configurator, dhcp_server, streaming_service,
         sst::control::PreviewPort{sst::runtime_defaults::kPreviewPort},
-        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health));
+        sst::control::DownloadPort{sst::runtime_defaults::kDownloadPort}, required_health);
+    dispatcher.Register(wifi_direct_handler);
+
+    sst::adapters::network::ThreadSelfRevertTimer self_revert_timer;
+    // Always-on Ethernet-carrier monitor (U4/R20): re-runs LAN-path arbitration on
+    // an Ethernet hotplug/unplug INDEPENDENT of the radio mode (the S2 carrier
+    // watchdog only arms in kStaOnly). Owns a poll thread off the BLE dispatcher;
+    // the arbiter Starts it in its ctor and Stops it in its dtor.
+    sst::adapters::network::ThreadEthernetCarrierMonitor ethernet_carrier_monitor;
+    // policy_routing declared earlier (before boot-apply, for the F2 boot firewall);
+    // the arbiter borrows it to apply/tear down the different-subnet uplink routing.
+    sst::network::ConnectivityArbiter connectivity_arbiter(
+        wifi_manager, uplink_configurator, self_revert_timer, *wifi_direct_handler,
+        ethernet_configurator, ethernet_carrier_monitor, policy_routing,
+        sst::runtime_defaults::kSelfRevertWindow);
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =
@@ -471,8 +516,17 @@ auto RunFirmware() -> int {
                                                                                 calibration_state));
     dispatcher.Register(std::make_shared<sst::control::CameraFocusHandler>(focuser, focus_state));
     dispatcher.Register(std::make_shared<sst::control::ActiveCameraHandler>(manual_camera_state));
-    dispatcher.Register(
-        std::make_shared<sst::control::NetworkHandler>(uplink_manager, uplink_store, cfg.uplink));
+    // INV6 / AE7: gate SetNetworkConfig (WiFi passphrase) on an encrypted link.
+    // Encryption comes from LINK-LEVEL BONDING (KTD / OQ3): the transport registers
+    // a Just Works pairing agent + is Pairable, the app calls createBond before
+    // provisioning, and a bonded link encrypts ALL ATT traffic — including the
+    // write-without-response command char (so no per-characteristic encrypt flag,
+    // which conflicts with the app's chunked write path, is needed). The transport
+    // reports the bonded/encrypted state via ILinkSecurity (org.bluez Device1
+    // Paired/Bonded); the handler rejects credentials until the link is encrypted.
+    dispatcher.Register(std::make_shared<sst::control::NetworkHandler>(
+        uplink_manager, uplink_store, cfg.uplink, connectivity_arbiter, ethernet_configurator,
+        &ble_transport));
     // Reboot: `systemctl reboot` requires the sst-cam service user to be
     // permitted (polkit / sudoers — provisioned by deploy/install.sh). Run
     // bounded so a hung call can't stall the single dispatcher thread.

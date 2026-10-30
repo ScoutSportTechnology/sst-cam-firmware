@@ -22,7 +22,7 @@ namespace {
 // from a git checkout.
 constexpr const char* kBuildVersion = SST_FIRMWARE_VERSION;
 // Bump on any breaking wire-schema change (proto/README.md versioning policy).
-constexpr std::uint32_t kProtocolVersion = 4;
+constexpr std::uint32_t kProtocolVersion = 5;
 constexpr std::uint64_t kFirstValidEpochMs = 1577836800000ULL;
 }  // namespace
 

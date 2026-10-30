@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,7 @@ class StreamingHandler final : public ICommandHandler {
    private:
     auto HandleControl(const sst_cam::StreamingControlCommand& cmd) -> sst_cam::CommandResponse;
     auto HandleStart(const sst_cam::StreamingControlCommand& cmd) -> sst_cam::CommandResponse;
+    auto CommitStreamingSession(const std::optional<sst::session::SessionConfig>& initial) -> bool;
     auto HandleSetConfig(const sst_cam::SetStreamingConfigCommand& cmd) -> sst_cam::CommandResponse;
 
     sst::streaming::IStreamingService& streaming_;

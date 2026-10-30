@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,16 +18,30 @@
 #include "app/streaming/ports/uplink-probe.hpp"
 #include "bluetooth.pb.h"
 #include "domain/common/models/video-quality.hpp"
+#include "domain/network/models/interface-reachability.hpp"
 #include "domain/streaming/models/platform-stream-config.hpp"
 
 namespace {
 
 using sst::control::StreamingHandler;
+using sst::network::EgressInterface;
+using sst::network::InterfaceReachability;
+using sst::network::SelectEgress;
 
 class FakeUplinkProbe final : public sst::streaming::IUplinkProbe {
    public:
     auto HasInternetUplink() -> bool override { return has_uplink; }
+    auto ReachableInterfaces() -> InterfaceReachability override {
+        // Tests exercising per-interface egress selection set `reach` explicitly;
+        // otherwise mirror the legacy has_uplink flag (Ethernet reachable when up).
+        if (reach.has_value()) {
+            return *reach;
+        }
+        return has_uplink ? InterfaceReachability{.ethernet_wan = true, .wifi_sta = false}
+                          : InterfaceReachability{};
+    }
     bool has_uplink{true};
+    std::optional<InterfaceReachability> reach;
 };
 
 class FakeStreaming final : public sst::streaming::IStreamingService {
@@ -36,6 +51,9 @@ class FakeStreaming final : public sst::streaming::IStreamingService {
     }
     auto StopAppStream() -> bool override { return true; }
     [[nodiscard]] auto IsAppStreamRunning() const -> bool override { return false; }
+    auto RebindAppStream(const sst::streaming::AppStreamConfig& /*config*/) -> bool override {
+        return true;
+    }
 
     auto StartPlatformStream(const sst::streaming::PlatformStreamConfig& config) -> bool override {
         if (!start_ok) {
@@ -381,6 +399,60 @@ TEST(StreamingHandlerTest, UplinkUpAllowsStart) {
     auto resp = handler.Handle(StartCmd("rtmp://ingest.example/live/key"));
     EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
     EXPECT_FALSE(streaming.ListActivePlatformStreams().empty());
+}
+
+// KTD6: uplink present is necessary, not sufficient. When the uplink gate passes
+// but the RTMP egress fails to start (and nothing is already streaming), the
+// error is the distinct "egress unreachable" reason, not "already streaming".
+TEST(StreamingHandlerTest, UplinkUpButEgressFailsGivesDistinctReason) {
+    FakeStreaming streaming;
+    streaming.start_ok = false;  // RTMP push fails despite an uplink
+    FakeUplinkProbe probe;       // has_uplink defaults true
+    StreamingHandler handler(streaming, &probe);
+
+    auto resp = handler.Handle(StartCmd("rtmp://ingest.example/live/key"));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_NE(resp.error_message().find("egress"), std::string::npos);
+    EXPECT_EQ(resp.error_message().find("already streaming"), std::string::npos);
+}
+
+// U7 / R7: egress-selection decision (pure). Ethernet-WAN is preferred over STA;
+// only-STA selects STA; neither is unavailable.
+TEST(StreamingEgressSelectionTest, PrefersEthernetThenStaElseNone) {
+    EXPECT_EQ(SelectEgress({.ethernet_wan = true, .wifi_sta = true}),
+              EgressInterface::kEthernetWan);
+    EXPECT_EQ(SelectEgress({.ethernet_wan = true, .wifi_sta = false}),
+              EgressInterface::kEthernetWan);
+    EXPECT_EQ(SelectEgress({.ethernet_wan = false, .wifi_sta = true}), EgressInterface::kWifiSta);
+    EXPECT_EQ(SelectEgress({.ethernet_wan = false, .wifi_sta = false}), EgressInterface::kNone);
+}
+
+// U7 / R7: only STA has internet -> the START is still allowed (egress selects STA).
+TEST(StreamingHandlerTest, OnlyStaReachableAllowsStart) {
+    FakeStreaming streaming;
+    FakeUplinkProbe probe;
+    probe.reach = InterfaceReachability{.ethernet_wan = false, .wifi_sta = true};
+    StreamingHandler handler(streaming, &probe);
+
+    auto resp = handler.Handle(StartCmd("rtmp://ingest.example/live/key"));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::OK);
+    EXPECT_FALSE(streaming.ListActivePlatformStreams().empty());
+}
+
+// U7 / R7 / AE6: NEITHER interface reachable -> streaming unavailable with a reason
+// distinct from the reachable-but-egress-refused case; nothing is started (and
+// recording/preview, not touched here, stay unaffected).
+TEST(StreamingHandlerTest, NoInterfaceReachableRejectsWithDistinctReason) {
+    FakeStreaming streaming;
+    FakeUplinkProbe probe;
+    probe.reach = InterfaceReachability{.ethernet_wan = false, .wifi_sta = false};
+    StreamingHandler handler(streaming, &probe);
+
+    auto resp = handler.Handle(StartCmd("rtmp://ingest.example/live/key"));
+    EXPECT_EQ(resp.status(), sst_cam::ResponseStatus::ERROR);
+    EXPECT_NE(resp.error_message().find("any interface"), std::string::npos);
+    EXPECT_EQ(resp.error_message().find("egress unreachable"), std::string::npos);
+    EXPECT_TRUE(streaming.ListActivePlatformStreams().empty());  // never started
 }
 
 // SetStreamingConfig supplies a fallback destination used by a START with no

@@ -35,6 +35,12 @@ struct AppStreamConfig {
     std::uint32_t height{kDefaultHeight};
     std::uint32_t framerate{kDefaultFramerate};
     std::uint32_t bitrate_kbps{kDefaultBitrateKbps};
+
+    // Per-session RTSP Basic-auth credential ("user:pass") required to pull the
+    // preview (INV5/U10). EMPTY = unauthenticated, used in S1 where the preview is
+    // on the private WiFi-Direct GO subnet. NON-EMPTY = authenticated, minted per
+    // migration and required in S2 where the preview is served on a shared LAN.
+    std::string auth_credential;
 };
 
 }  // namespace sst::streaming

@@ -11,18 +11,15 @@
 
 [Unit]
 Description=SST Cam firmware runtime
-After=network-online.target
+# Order after the Argus camera daemon so the capture pipeline isn't racing its
+# socket at cold boot. Ordering-only: harmless if nvargus-daemon is absent.
+After=network-online.target nvargus-daemon.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-# Non-root system user; create it as documented above. Hardware access
-# (cameras, GPIO, etc.) may require extra group membership / udev rules on the
-# device — grant those to this user, do NOT run the service as root.
-User=sst-cam
-Group=sst-cam
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
+User=root
+Group=root
 WorkingDirectory=/opt/sst-cam
 ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure

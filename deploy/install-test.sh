@@ -116,6 +116,44 @@ else
   bad "src/main.cpp not found: $MAIN_CPP"
 fi
 
+# A STA lease must use the installed metric-aware script on first bind and renewal.
+STA_SCRIPT_SANDBOX="$(mktemp -d)"
+sed -n '/# --- sta-dhcp-script:begin/,/# --- sta-dhcp-script:end/p' "$INSTALL_SH" >"${STA_SCRIPT_SANDBOX}/install-sta"
+if [ -s "${STA_SCRIPT_SANDBOX}/install-sta" ]; then
+  mkdir -p "${STA_SCRIPT_SANDBOX}/bin"
+  (
+    INSTALL_DIR="${STA_SCRIPT_SANDBOX}/bin"
+    # shellcheck disable=SC2034
+    STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
+    # shellcheck disable=SC1091
+    . "${STA_SCRIPT_SANDBOX}/install-sta"
+    install_sta_dhcp_script
+  )
+  STA_SCRIPT="${STA_SCRIPT_SANDBOX}/bin/sst-sta-dhclient-script"
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
+  chmod +x "${STA_SCRIPT_SANDBOX}/bin/ip"
+  printf 'ip -4 addr add 198.51.100.148/24 dev wlP1p1s0\nip -4 addr change 198.51.100.148/24 dev wlP1p1s0\nip -4 route add default via 198.51.100.1 dev wlP1p1s0\n' >"${STA_SCRIPT_SANDBOX}/stock"
+  sed "s@/sbin/dhclient-script@${STA_SCRIPT_SANDBOX}/stock@" "$STA_SCRIPT" >"${STA_SCRIPT_SANDBOX}/sta"
+
+  for reason in BOUND RENEW REBIND REBOOT; do
+    : >"${STA_SCRIPT_SANDBOX}/ip.log"
+    PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
+      interface=wlP1p1s0 reason="$reason" new_ip_address=198.51.100.148 \
+      new_subnet_mask=24 sh "${STA_SCRIPT_SANDBOX}/sta" || true
+    if grep -q -- '-4 addr add 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
+       grep -q -- '-4 addr change 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
+       grep -q -- '-4 route add default via 198.51.100.1 dev wlP1p1s0' "${STA_SCRIPT_SANDBOX}/ip.log"; then
+      ok
+    else
+      bad "STA $reason lease did not retain metric or default route"
+    fi
+  done
+else
+  bad "STA DHCP metric script not found"
+fi
+rm -rf "$STA_SCRIPT_SANDBOX"
+
 # 7. GPU/CUDA access: install.sh must add the service user to the 'render' group.
 #    The capture pipeline runs CUDA (nvvidconv/NvBufSurface) in the firmware's own
 #    process; without render the non-root service gets cudaErrorNotSupported
@@ -126,18 +164,17 @@ if grep -qE 'video render' "$INSTALL_SH"; then ok; else bad "install.sh must gra
 #     wpa_supplicant control socket; without it WiFi-Direct fails with EACCES.
 if grep -qE 'video render netdev' "$INSTALL_SH"; then ok; else bad "install.sh must grant SERVICE_USER the netdev group (wpa_supplicant)"; fi
 
-# 7c. WiFi data plane: the systemd unit must grant CAP_NET_ADMIN (assign the GO IP)
-#     and CAP_NET_BIND_SERVICE (dnsmasq DHCP port 67) ambiently; without them the
-#     non-root service cannot bring the P2P data plane up and preview fails.
-if grep -qE 'AmbientCapabilities=.*CAP_NET_ADMIN.*CAP_NET_BIND_SERVICE.*CAP_NET_RAW' "$INSTALL_SH"; then
-  ok
+# 7c. Process model: the firmware owns every network adapter (Ethernet + WiFi
+#     radio NM-unmanaged, direct ip/dhclient, writes /etc/resolv.conf), so the
+#     unit runs as root — no CAP_NET_* juggling. Assert root and that the old
+#     ambient-capability lines are gone (the security bound is U7's LAN-only bind
+#     + egress-only uplink firewall, not confinement).
+if grep -qE '^User=root' "$INSTALL_SH"; then ok; else bad "embedded_unit must run as User=root"; fi
+if grep -qE '^Group=root' "$INSTALL_SH"; then ok; else bad "embedded_unit must run as Group=root"; fi
+if grep -qE 'AmbientCapabilities=|CapabilityBoundingSet=' "$INSTALL_SH"; then
+  bad "embedded_unit must NOT set AmbientCapabilities/CapabilityBoundingSet under the root process model"
 else
-  bad "embedded_unit must set AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW"
-fi
-if grep -qE 'CapabilityBoundingSet=.*CAP_NET_ADMIN.*CAP_NET_BIND_SERVICE.*CAP_NET_RAW' "$INSTALL_SH"; then
   ok
-else
-  bad "embedded_unit must set a matching CapabilityBoundingSet (incl. CAP_NET_RAW)"
 fi
 
 # 8. Camera overlay provisioning: an idempotent, fdtoverlay-based merge that wires
@@ -298,14 +335,7 @@ if grep -q 'ELF\*aarch64' "$INSTALL_SH"; then ok; else bad "install.sh must keep
 
 unit_output="$(bash -c "$(sed -n '/^embedded_unit() {/,/^}/p' "$INSTALL_SH"); embedded_unit")"
 for unit in "$unit_output" "$(< "${SCRIPT_DIR}/sst-cam-firmware.service")"; do
-  for directive in AmbientCapabilities CapabilityBoundingSet; do
-    value="$(printf '%s\n' "$unit" | sed -n "s/^${directive}=//p")"
-    if [[ " $value " == *" CAP_SYS_TIME "* ]]; then
-      ok
-    else
-      bad "firmware service lacks CAP_SYS_TIME in ${directive}"
-    fi
-  done
+  if grep -q '^User=root$' <<<"$unit"; then ok; else bad "firmware service must run as root for network/time operations"; fi
 done
 
 printf '\ndeploy/install-test.sh: %d passed, %d failed\n' "$pass" "$fail"

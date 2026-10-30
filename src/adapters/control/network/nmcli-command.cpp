@@ -5,41 +5,55 @@
 
 namespace sst::adapters::control {
 
-auto BuildEthDhcpArgv(const std::string& connection) -> std::vector<std::string> {
-    if (connection.empty()) {
+auto BuildWifiManagedArgv(const std::string& device) -> std::vector<std::string> {
+    if (device.empty()) {
         return {};
     }
-    // Clear any leftover static address when switching to DHCP, else NM keeps the
-    // manual ipv4.addresses pinned alongside the auto lease.
-    return {"nmcli",          "con", "mod",          connection, "ipv4.method", "auto",
-            "ipv4.addresses", "",    "ipv4.gateway", "",         "ipv4.dns",    ""};
+    return {"nmcli", "device", "set", device, "managed", "yes"};
 }
 
-auto BuildEthStaticArgv(const std::string& connection,
-                        const sst::config::EthernetUplink& cfg) -> std::vector<std::string> {
-    // A static uplink is meaningless without a CIDR address (must carry "/len").
-    const std::string address = cfg.address.value_or("");
-    if (connection.empty() || address.find('/') == std::string::npos) {
+auto BuildWifiStaDeleteArgv(const std::string& profile) -> std::vector<std::string> {
+    if (profile.empty()) {
         return {};
     }
-    std::vector<std::string> argv{
-        "nmcli", "con", "mod", connection, "ipv4.method", "manual", "ipv4.addresses", address};
-    if (cfg.gateway.has_value() && !cfg.gateway->empty()) {
-        argv.emplace_back("ipv4.gateway");
-        argv.push_back(*cfg.gateway);
+    return {"nmcli", "con", "delete", profile};
+}
+
+auto BuildWifiStaAddArgv(const std::string& profile, const std::string& device,
+                         const sst::config::WifiStaUplink& cfg) -> std::vector<std::string> {
+    const std::string ssid = cfg.ssid.value_or("");
+    if (profile.empty() || device.empty() || ssid.empty()) {
+        return {};
     }
-    if (cfg.dns.has_value() && !cfg.dns->empty()) {
-        argv.emplace_back("ipv4.dns");
-        argv.push_back(*cfg.dns);
+    std::vector<std::string> argv{"nmcli", "con",    "add",  "type", "wifi", "con-name",
+                                  profile, "ifname", device, "ssid", ssid};
+
+    // WPA-PSK when a passphrase is present; an empty passphrase = an open network.
+    const std::string psk = cfg.passphrase.value_or("");
+    if (!psk.empty()) {
+        argv.insert(argv.end(), {"wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", psk});
     }
+
+    if (cfg.dhcp.value_or(true)) {
+        argv.insert(argv.end(), {"ipv4.method", "auto"});
+    } else {
+        const std::string address = cfg.address.value_or("");
+        if (address.find('/') == std::string::npos) {
+            return {};  // a static uplink needs a CIDR address
+        }
+        argv.insert(argv.end(), {"ipv4.method", "manual", "ipv4.addresses", address});
+        if (cfg.gateway.has_value() && !cfg.gateway->empty()) {
+            argv.insert(argv.end(), {"ipv4.gateway", *cfg.gateway});
+        }
+        if (cfg.dns.has_value() && !cfg.dns->empty()) {
+            argv.insert(argv.end(), {"ipv4.dns", *cfg.dns});
+        }
+    }
+
+    // Never auto-activate (R-BOOT/INV1): only an app-confirmed migration brings
+    // this profile up.
+    argv.insert(argv.end(), {"connection.autoconnect", "no"});
     return argv;
-}
-
-auto BuildConnectionUpArgv(const std::string& connection) -> std::vector<std::string> {
-    if (connection.empty()) {
-        return {};
-    }
-    return {"nmcli", "con", "up", connection};
 }
 
 }  // namespace sst::adapters::control

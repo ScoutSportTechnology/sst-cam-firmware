@@ -1,11 +1,38 @@
 #include "app/control/services/handlers/streaming.handler.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <utility>
 
 #include "app/control/services/handlers/quality-mapping.hpp"
+#include "domain/network/models/formatter/_fmt.hpp"  // IWYU pragma: keep
+#include "domain/network/models/interface-reachability.hpp"
 #include "domain/streaming/models/platform-stream-config.hpp"
 
 namespace sst::control {
+
+namespace {
+
+// The R7 egress gate: returns the rejection reason (empty when streaming egress is
+// available). Reads the per-interface reachability CACHE (no inline probe on the
+// BLE dispatcher) and applies the preference — Ethernet-WAN, else WiFi-STA; kNone
+// (neither reachable) is a distinct "no uplink on any interface" reason. A null
+// probe disables the gate. Recording + preview are never consulted (R10).
+auto EgressRejectReason(sst::streaming::IUplinkProbe* probe) -> std::string {
+    if (probe == nullptr) {
+        return {};
+    }
+    const sst::network::InterfaceReachability reachability = probe->ReachableInterfaces();
+    const sst::network::EgressInterface egress = sst::network::SelectEgress(reachability);
+    if (egress == sst::network::EgressInterface::kNone) {
+        return "streaming start: no internet uplink reachable on any interface — configure "
+               "ethernet or wifi in Settings -> Network";
+    }
+    spdlog::info("StreamingHandler: egress interface selected {} ({})", egress, reachability);
+    return {};
+}
+
+}  // namespace
 
 StreamingHandler::StreamingHandler(sst::streaming::IStreamingService& streaming,
                                    sst::streaming::IUplinkProbe* uplink_probe,
@@ -84,15 +111,10 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         return resp;
     }
 
-    // Cloud streaming egresses over the camera's internet uplink (ethernet /
-    // wifi-STA), never the link-local WiFi-Direct GO. With no uplink there is
-    // no route to the cloud — fail clearly so the app points the user at
-    // Settings -> Network rather than surfacing an opaque rtmp connect error.
-    if (uplink_probe_ != nullptr && !uplink_probe_->HasInternetUplink()) {
+    if (const std::string egress_reject = EgressRejectReason(uplink_probe_);
+        !egress_reject.empty()) {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message(
-            "streaming start: no internet uplink — configure ethernet or wifi in "
-            "Settings -> Network");
+        resp.set_error_message(egress_reject);
         return resp;
     }
 
@@ -113,37 +135,52 @@ auto StreamingHandler::HandleStart(const sst_cam::StreamingControlCommand& cmd)
         config.framerate = quality.fps;
     }
 
+    bool already_streaming = false;
+    for (const auto& active : streaming_.ListActivePlatformStreams()) {
+        if (active.stream_id == kEgressStreamId) {
+            already_streaming = true;
+            break;
+        }
+    }
     if (!streaming_.StartPlatformStream(config)) {
         resp.set_status(sst_cam::ResponseStatus::ERROR);
-        resp.set_error_message("streaming start failed (already streaming or bad destination)");
+        resp.set_error_message(
+            already_streaming
+                ? "streaming start: already streaming to a destination"
+                : "streaming start: the streaming server could not be reached (egress "
+                  "unreachable) — an uplink is present but outbound streaming failed");
         return resp;
     }
-    if (session_ != nullptr) {
-        const auto state = session_->Snapshot();
-        if (!initial || !state.config || state.config->match_uuid != initial->match_uuid) {
-            streaming_.StopPlatformStream(kEgressStreamId);
-            resp.set_status(sst_cam::ERROR);
-            resp.set_error_message("streaming start rejected: session changed");
-            return resp;
-        }
-        if (proxy_ != nullptr) {
-            (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
-                                state.config->match_uuid, state.config->video_output_path);
-        }
-        const auto after_proxy = session_->Snapshot();
-        if (!after_proxy.config || after_proxy.config->match_uuid != initial->match_uuid ||
-            !session_->OnStreamingChanged(true)) {
-            streaming_.StopPlatformStream(kEgressStreamId);
-            if (proxy_ != nullptr) {
-                proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
-            }
-            resp.set_status(sst_cam::ERROR);
-            resp.set_error_message("streaming start rejected: session changed");
-            return resp;
-        }
+    if (session_ != nullptr && !CommitStreamingSession(initial)) {
+        resp.set_status(sst_cam::ERROR);
+        resp.set_error_message("streaming start rejected: session changed");
+        return resp;
     }
     resp.set_status(sst_cam::ResponseStatus::OK);
     return resp;
+}
+
+auto StreamingHandler::CommitStreamingSession(
+    const std::optional<sst::session::SessionConfig>& initial) -> bool {
+    const auto state = session_->Snapshot();
+    if (!initial || !state.config || state.config->match_uuid != initial->match_uuid) {
+        streaming_.StopPlatformStream(kEgressStreamId);
+        return false;
+    }
+    if (proxy_ != nullptr) {
+        (void)proxy_->Start(sst::raw_capture::ProxyOwners::Owner::kStreaming,
+                            state.config->match_uuid, state.config->video_output_path);
+    }
+    const auto after_proxy = session_->Snapshot();
+    if (!after_proxy.config || after_proxy.config->match_uuid != initial->match_uuid ||
+        !session_->OnStreamingChanged(true)) {
+        streaming_.StopPlatformStream(kEgressStreamId);
+        if (proxy_ != nullptr) {
+            proxy_->Stop(sst::raw_capture::ProxyOwners::Owner::kStreaming);
+        }
+        return false;
+    }
+    return true;
 }
 
 auto StreamingHandler::HandleSetConfig(const sst_cam::SetStreamingConfigCommand& cmd)

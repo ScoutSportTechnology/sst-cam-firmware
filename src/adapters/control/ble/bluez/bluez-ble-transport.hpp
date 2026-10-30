@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -12,6 +13,7 @@
 #include "adapters/control/ble/bluez/chunk-assembler.hpp"
 #include "adapters/control/ble/bluez/gatt-application.hpp"
 #include "app/control/ports/ble-transport.hpp"
+#include "app/control/ports/link-security.hpp"
 
 namespace sst::adapters::control {
 
@@ -24,7 +26,8 @@ namespace sst::adapters::control {
 //
 // On Stop(): unregister advertisement + application, leave the event loop, and
 // drop all D-Bus objects.
-class BluezBleTransport final : public sst::control::IBleTransport {
+class BluezBleTransport final : public sst::control::IBleTransport,
+                                public sst::control::ILinkSecurity {
    public:
     // `advertised_name` is the contract `sst-cam-NNNN` name (computed from the
     // device identity in config). It is used both as the LEAdvertisement
@@ -46,8 +49,19 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     auto SetOnConnect(ConnectionHandler handler) -> void override;
     auto SetOnDisconnect(ConnectionHandler handler) -> void override;
 
+    // ILinkSecurity (INV6 / AE7). True when a paired/bonded (hence encrypted)
+    // central is connected, derived from the org.bluez Device1 property state
+    // we track below. Delegated to by IsCredentialLinkSecure().
+    [[nodiscard]] auto IsLinkEncrypted() const -> bool;
+    [[nodiscard]] auto IsCredentialLinkSecure() const -> bool override { return IsLinkEncrypted(); }
+
    private:
     auto BuildAdvertisement() -> void;
+    // Build + export a "Just Works" org.bluez.Agent1 so BlueZ can complete SMP
+    // pairing (bonding) with no camera-side UI. A bonded link is encrypted, so the
+    // WiFi passphrase on the write-without-response command char never crosses a
+    // cleartext channel (INV6/AE7). Registered with AgentManager1 in Start().
+    auto BuildAgent() -> void;
     // The central unsubscribed (StopNotify) — BlueZ fires this on disconnect.
     // Fire on_disconnect_ (session cleanup) and resume advertising so the camera
     // is discoverable again. Invoked on the D-Bus event-loop thread, so it hands
@@ -80,24 +94,65 @@ class BluezBleTransport final : public sst::control::IBleTransport {
     static auto CallManagerAsync(sdbus::IProxy& proxy, const char* iface, const char* method,
                                  const sdbus::ObjectPath& object_path) -> void;
 
+    // Subscribe to org.bluez's ObjectManager (InterfacesAdded/Removed) on "/" so
+    // we learn when a Device1 appears/disappears, seed the already-known devices,
+    // and attach a per-device PropertiesChanged watcher — the source of the
+    // Connected/Paired/Bonded state that IsLinkEncrypted() reports. Best-effort:
+    // a failure here only disables the app-layer double-check, never BLE itself
+    // (the GATT `encrypt-authenticated-write` flag remains the primary gate).
+    // Exercised only against real BlueZ; compiles in-container.
+    auto WatchBluezDevices() -> void;
+    // Handle a Device1 object appearing (or being seeded from GetManagedObjects):
+    // record its link state and attach a PropertiesChanged watcher.
+    auto OnDeviceInterfacesAdded(
+        const sdbus::ObjectPath& path,
+        const std::map<std::string, std::map<std::string, sdbus::Variant>>& interfaces) -> void;
+    // Handle a Device1 object disappearing: drop its tracked state.
+    auto OnDeviceInterfacesRemoved(const sdbus::ObjectPath& path,
+                                   const std::vector<std::string>& interfaces) -> void;
+    // Handle a Device1 property change (Connected/Paired/Bonded flipping) on a
+    // tracked device path.
+    auto OnDevicePropertiesChanged(const std::string& path,
+                                   const std::map<std::string, sdbus::Variant>& changed) -> void;
+    // Recompute link_encrypted_ from the tracked devices. Caller holds mtx_.
+    auto RecomputeLinkEncryptedLocked() -> void;
+
+    // Per-central link state, tracked from org.bluez Device1 properties. `watcher`
+    // is the per-device PropertiesChanged subscription that keeps the flags fresh.
+    struct DeviceLink {
+        bool connected{false};
+        bool paired{false};
+        bool bonded{false};
+        std::unique_ptr<sdbus::IProxy> watcher;
+    };
+
     std::string advertised_name_;
     std::string adapter_path_;
     std::string app_root_path_;
     std::string adv_path_;
+    std::string agent_path_;
 
     std::unique_ptr<sdbus::IConnection> connection_;
     std::unique_ptr<sdbus::IObject> adv_obj_;
+    std::unique_ptr<sdbus::IObject> agent_obj_;
     std::unique_ptr<GattApplication> gatt_app_;
+    std::unique_ptr<sdbus::IProxy> device_watcher_;
 
     mutable std::mutex mtx_;
     CommandHandler on_command_;
     ConnectionHandler on_connect_;
     ConnectionHandler on_disconnect_;
     bool central_present_{false};
+    // Tracked Device1 link state, keyed by D-Bus object path. Guarded by mtx_.
+    std::map<std::string, DeviceLink> devices_;
+    // Cached aggregate: any tracked device Connected && (Paired || Bonded).
+    // Guarded by mtx_; read by IsLinkEncrypted().
+    bool link_encrypted_{false};
     ChunkAssembler assembler_;
     std::atomic<bool> running_{false};
     bool advertisement_registered_{false};
     bool application_registered_{false};
+    bool agent_registered_{false};
 };
 
 }  // namespace sst::adapters::control

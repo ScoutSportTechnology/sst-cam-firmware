@@ -38,6 +38,7 @@ INSTALL_ROOT="/opt/sst-cam"
 INSTALL_DIR="${INSTALL_ROOT}/bin"
 INSTALL_PATH="${INSTALL_DIR}/sst_cam_firmware"
 BACKUP_PATH="${INSTALL_PATH}.bak"
+STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
 UNIT_PATH="/etc/systemd/system/${SERVICE}.service"
 XORG_UNIT_PATH="/etc/systemd/system/xorg-headless.service"
 NVARGUS_DROPIN_DIR="/etc/systemd/system/nvargus-daemon.service.d"
@@ -220,18 +221,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Non-root system user. ensure_setup() grants it the video + render groups for
-# camera + GPU/CUDA access; BlueZ/GPIO/NVENC may need further udev rules on the
-# device.
-User=sst-cam
-Group=sst-cam
-# WiFi-Direct data plane: the service assigns the group-owner IP to the P2P
-# interface (CAP_NET_ADMIN), and spawns dnsmasq, which binds DHCP port 67
-# (CAP_NET_BIND_SERVICE) and uses raw sockets for DHCP (CAP_NET_RAW). Ambient so
-# the forked ip/dnsmasq children inherit them; bounding set caps the ceiling.
-# Without these the service has no capabilities and WiFi preview fails.
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SYS_TIME
+User=root
+Group=root
 WorkingDirectory=/opt/sst-cam
 ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure
@@ -285,6 +276,63 @@ polkit.addRule(function(action, subject) {
     }
 });
 RULE
+}
+
+# BLE-only Bluetooth + device category. The camera is a GATT/LE peripheral, NOT a
+# classic (BR/EDR) device. A DUAL controller makes Android bond BOTH transports on
+# pairing: the LE bond succeeds but the BR/EDR bond fails (mgmt status 0x0e) and
+# the phone then REJECTS the whole pairing — the camera shows as "not paired" even
+# though the app holds a working GATT link. Forcing the controller LE-only removes
+# the BR/EDR bond attempt so pairing completes cleanly (validated on-metal, Galaxy
+# Tab S11). Also: set a real Class of Device (Imaging/Camera) for the phone's
+# device category, and mask PipeWire/WirePlumber — desktop-audio cruft on a
+# headless camera whose bluez module registers a phantom Hands-Free BR/EDR profile
+# that mis-categorises the camera. Idempotent; restarts bluetoothd only on change.
+BT_MAIN_CONF="/etc/bluetooth/main.conf"
+ensure_ble_config() {
+  [ -f "$BT_MAIN_CONF" ] || { log "BLE: ${BT_MAIN_CONF} absent — skipping LE-only config."; return 0; }
+  local bt_changed="no"
+
+  # 1. LE-only controller — the load-bearing pairing fix.
+  if ! grep -qE '^[[:space:]]*ControllerMode[[:space:]]*=[[:space:]]*le\b' "$BT_MAIN_CONF"; then
+    if grep -qE '^[[:space:]]*#?[[:space:]]*ControllerMode[[:space:]]*=' "$BT_MAIN_CONF"; then
+      sed -i -E 's|^[[:space:]]*#?[[:space:]]*ControllerMode[[:space:]]*=.*|ControllerMode = le|' "$BT_MAIN_CONF"
+    else
+      sed -i '/^\[General\]/a ControllerMode = le' "$BT_MAIN_CONF"
+    fi
+    log "BLE: set ControllerMode = le (LE-only pairing)."
+    bt_changed="yes"
+  fi
+
+  # 2. Class of Device = Imaging/Camera (device category / icon on the phone).
+  if ! grep -qE '^[[:space:]]*Class[[:space:]]*=[[:space:]]*0x000620\b' "$BT_MAIN_CONF"; then
+    if grep -qE '^[[:space:]]*#?[[:space:]]*Class[[:space:]]*=' "$BT_MAIN_CONF"; then
+      sed -i -E 's|^[[:space:]]*#?[[:space:]]*Class[[:space:]]*=.*|Class = 0x000620|' "$BT_MAIN_CONF"
+    else
+      sed -i '/^\[General\]/a Class = 0x000620' "$BT_MAIN_CONF"
+    fi
+    log "BLE: set Class of Device = 0x000620 (Imaging/Camera)."
+    bt_changed="yes"
+  fi
+
+  # 3. Mask PipeWire/WirePlumber (headless camera; kills the phantom Hands-Free
+  #    profile + frees the audio-daemon RAM). --global masks it for every user —
+  #    they start via the user session, not a system unit.
+  if command -v systemctl >/dev/null 2>&1; then
+    for _u in wireplumber.service pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket; do
+      if [ ! -L "/etc/systemd/user/${_u}" ]; then
+        systemctl --global mask "$_u" >/dev/null 2>&1 || true
+        bt_changed="yes"
+      fi
+    done
+    for _p in wireplumber pipewire pipewire-pulse; do pkill -x "$_p" 2>/dev/null || true; done
+  fi
+
+  # 4. Restart bluetoothd to re-read main.conf — only when something changed.
+  if [ "$bt_changed" = "yes" ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl restart bluetooth >/dev/null 2>&1 || true
+    log "BLE: restarted bluetooth to apply LE-only + Class."
+  fi
 }
 
 ensure_setup() {
@@ -350,6 +398,10 @@ ensure_setup() {
     changed="yes"
   fi
   systemctl enable "$SERVICE" >/dev/null 2>&1 || true
+
+  # BLE-only Bluetooth + device category so the camera pairs cleanly and shows as
+  # a paired camera on the phone (see ensure_ble_config).
+  ensure_ble_config
 
   # Headless boot WITH the GPU alive: install a bare Xorg (GPU/EGL init only, no
   # desktop), order nvargus-daemon after it, and default to multi-user.target.
@@ -666,6 +718,98 @@ ensure_wifi_direct_provisioning() {
   fi
 }
 
+# One-shot removal of the RETIRED same-subnet STA source-routing (policy rule +
+# dedicated table 142). Older firmware installed `ip rule from <sta_ip> lookup 142`
+# to paper over the Ethernet/STA same-subnet dual-home; that whole approach is gone,
+# replaced by single-LAN-path selection in the connectivity arbiter. The firmware no
+# longer contains the code that created these, so nothing would ever clean them up:
+# upgrading old -> new leaves an orphaned rule pointing at a stale STA address
+# (observed on metal). A lingering rule is a silent misroute waiting to happen, so
+# remove it here at install time. Idempotent: a clean box is a no-op.
+STA_RETIRED_ROUTE_TABLE="142"
+cleanup_retired_sta_source_routing() {
+  command -v ip >/dev/null 2>&1 || return 0
+  ip rule show 2>/dev/null | grep -q "lookup ${STA_RETIRED_ROUTE_TABLE}\b" || return 0
+  # `ip rule del table N` removes ONE matching rule per call; loop (bounded) in case
+  # several accumulated across migrations.
+  local attempt=0
+  while [ "$attempt" -lt 8 ]; do
+    ip rule del table "$STA_RETIRED_ROUTE_TABLE" 2>/dev/null || break
+    attempt=$((attempt + 1))
+  done
+  ip route flush table "$STA_RETIRED_ROUTE_TABLE" 2>/dev/null || true
+  log "Network: removed ${attempt} retired STA source-routing rule(s) + flushed table ${STA_RETIRED_ROUTE_TABLE}."
+}
+
+# First wired Ethernet-type interface (ARPHRD_ETHER, non-wireless, non-virtual).
+# Empty if none present.
+detect_eth_iface() {
+  local i name
+  for i in /sys/class/net/*; do
+    name="$(basename "$i")"
+    case "$name" in
+      lo|docker*|veth*|br-*|virbr*|wl*|p2p*|rndis*|usb*) continue ;;
+    esac
+    [ -e "/sys/class/net/${name}/wireless" ] && continue
+    [ "$(cat "/sys/class/net/${name}/type" 2>/dev/null)" = "1" ] || continue
+    printf '%s\n' "$name"
+    return 0
+  done
+  return 0
+}
+
+# Take the wired Ethernet interface out of NetworkManager so the firmware owns it
+# directly (ip/dhclient), exactly as the WiFi radio is carved out for WiFi-Direct.
+# The firmware is the single owner of every LAN adapter (one-LAN-path arbitration):
+# NM must not DHCP the Ethernet or rewrite /etc/resolv.conf underneath it. Root
+# firmware then leases/configures Ethernet and writes DNS itself. Idempotent.
+ensure_ethernet_provisioning() {
+  local iface
+  iface="$(detect_eth_iface)"
+  if [ -z "$iface" ]; then
+    log "Ethernet: no wired interface detected — skipping NM carve-out."
+    return 0
+  fi
+
+  local changed="no"
+  local nm_conf="/etc/NetworkManager/conf.d/98-sst-cam-ethernet.conf"
+  local nm_want
+  nm_want="$(printf '[keyfile]\nunmanaged-devices=interface-name:%s\n' "$iface")"
+  if [ "$(cat "$nm_conf" 2>/dev/null)" != "$nm_want" ]; then
+    printf '%s\n' "$nm_want" >"$nm_conf"
+    changed="yes"
+  fi
+
+  # Firmware (root dhclient-script) writes /etc/resolv.conf on an Ethernet lease.
+  # If resolv.conf is a symlink (systemd-resolved stub / NM), dereference it to a
+  # regular file so those writes land instead of being swallowed by the resolver.
+  if [ -L /etc/resolv.conf ]; then
+    local cur
+    cur="$(readlink -f /etc/resolv.conf 2>/dev/null)"
+    rm -f /etc/resolv.conf
+    if [ -n "$cur" ] && [ -f "$cur" ]; then
+      cp "$cur" /etc/resolv.conf
+    else
+      : >/etc/resolv.conf
+    fi
+    changed="yes"
+    log "Ethernet: converted /etc/resolv.conf to a firmware-owned regular file."
+  fi
+
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "$iface" managed no >/dev/null 2>&1 || true
+  fi
+  systemctl restart NetworkManager >/dev/null 2>&1 || true
+
+  if [ "$changed" = "yes" ]; then
+    log "Ethernet: ${iface} is NM-unmanaged; firmware owns Ethernet + DNS."
+  else
+    log "Ethernet: provisioning already in place (${iface})."
+  fi
+  # Deferred on-device check: `nmcli con show` should show no OTHER active
+  # connection relying on NM for DNS before this carve-out is trusted in prod.
+}
+
 # Install the runtime shared-library packages the binary needs but a base JetPack
 # flash lacks. Idempotent: dpkg-query skips already-installed packages, so the
 # common (everything-present) path costs a few queries and no apt-get. Best-
@@ -723,6 +867,8 @@ if [ "$DO_SETUP" = "yes" ]; then
   ensure_device_identity
   ensure_camera_overlay
   ensure_wifi_direct_provisioning
+  ensure_ethernet_provisioning
+  cleanup_retired_sta_source_routing
 fi
 # Runtime deps are about the binary, not host setup — install them even with
 # --no-setup so an unloadable binary is never deployed.
@@ -841,7 +987,29 @@ if [ "${SST_SKIP_PLATFORM_CHECK:-0}" != "1" ] && [ -r /etc/nv_tegra_release ]; t
   fi
 fi
 
+# --- sta-dhcp-script:begin
+install_sta_dhcp_script() {
+  install -d -m 755 "$INSTALL_DIR"
+  cat >"$STA_SCRIPT_PATH" <<'STA_SCRIPT'
+#!/bin/sh
+IF_METRIC=600
+ip() {
+  if [ "$1" = -4 ] && [ "$2" = addr ] &&
+     { [ "$3" = add ] || [ "$3" = change ]; } &&
+     [ "$4" = "${new_ip_address}${new_subnet_mask:+/$new_subnet_mask}" ]; then
+    command ip "$@" metric 600
+  else
+    command ip "$@"
+  fi
+}
+. /sbin/dhclient-script
+STA_SCRIPT
+  chmod 755 "$STA_SCRIPT_PATH"
+}
+# --- sta-dhcp-script:end
+
 # --- Idempotency: skip if already installed and identical --------------------
+install_sta_dhcp_script
 if [ -f "$INSTALL_PATH" ]; then
   cur_sum="$(sha256sum "$INSTALL_PATH" | awk '{print $1}')"
   if [ "$dl_sha" = "$cur_sum" ]; then

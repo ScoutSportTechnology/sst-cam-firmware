@@ -42,6 +42,23 @@ auto StreamingService::StartAppStream(const AppStreamConfig& config) -> bool {
     return started;
 }
 
+auto StreamingService::RebindAppStream(const AppStreamConfig& config) -> bool {
+    std::lock_guard lock(mtx_);
+    // The RTSP server binds its address once at Start, so switching the preview
+    // transport (GO IP <-> STA LAN IP, unauth <-> auth) on a connectivity mode
+    // change is a Stop + Start with the new config (U3/U10).
+    if (app_stream_server_->IsRunning()) {
+        app_stream_server_->Stop();
+    }
+    const bool started = app_stream_server_->Start(config);
+    if (started) {
+        spdlog::info("StreamingService::RebindAppStream OK: {}", config);
+    } else {
+        spdlog::error("StreamingService::RebindAppStream failed: {}", config);
+    }
+    return started;
+}
+
 auto StreamingService::StopAppStream() -> bool {
     std::lock_guard lock(mtx_);
     if (!app_stream_server_->IsRunning()) {

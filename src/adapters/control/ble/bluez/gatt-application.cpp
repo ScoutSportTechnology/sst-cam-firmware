@@ -75,6 +75,23 @@ auto GattApplication::BuildCommandChar() -> void {
         return sdbus::ObjectPath{service_path_};
     });
     command_obj_->registerProperty("Flags").onInterface(kIfaceGattChar).withGetter([] {
+        // The Command-Write characteristic carries EVERY command via chunked
+        // write-without-response (the app's throughput path; the proto contract
+        // mandates a single Command-Write char). It MUST advertise
+        // write-without-response or the app's writes — including the GetDeviceInfo
+        // handshake — fail with "write_no_response not supported".
+        //
+        // INV6/AE7 NOTE: `encrypt-authenticated-write` was tried here but it IS a
+        // (with-response) write permission that REPLACES write-without-response, so
+        // it broke every app write (OQ3's realized risk). BlueZ has no
+        // "encrypt-...-write-without-response" flag, and a second (credential-only)
+        // characteristic is forbidden by the contract — so per-characteristic
+        // encryption cannot coexist with the app's write path. Credential-link
+        // encryption is therefore deferred to link-level bonding (app-initiated
+        // createBond + firmware requiring encryption on the notify/CCCD path), to
+        // be done + validated on-metal in a follow-up. Residual risk this cycle:
+        // credentials can cross an unbonded (cleartext) link. See the connectivity
+        // plan OQ3.
         return std::vector<std::string>{"write-without-response"};
     });
 

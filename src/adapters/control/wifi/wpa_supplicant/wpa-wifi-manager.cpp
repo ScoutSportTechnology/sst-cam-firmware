@@ -437,6 +437,13 @@ auto WpaWifiManager::Stop() -> void {
         } else {
             SendCommand("P2P_GROUP_REMOVE *");
         }
+        // wpa->NM ownership handoff (KTD2): once the group is gone, clear the P2P
+        // peer/find state so the base radio returns cleanly to a station-capable
+        // state that NetworkManager can (re)claim for a STA join. Best-effort — a
+        // FAIL here just means there was nothing to flush. This does NOT re-enable
+        // any saved STA network (INV1: the camera never self-joins); the arbiter's
+        // explicit nmcli join is the only way onto a network.
+        SendCommand("P2P_FLUSH");
     }
     group_interface_.clear();
     state_ = {};

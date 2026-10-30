@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "app/network/ports/ethernet-controller.hpp"
 #include "app/network/ports/uplink-configurator.hpp"
 #include "domain/config/models/uplink-config.hpp"
 
@@ -17,14 +18,14 @@ struct UplinkStatus {
 };
 
 // Orchestrates the camera's internet uplink from its persisted/pushed config:
-// brings up each enabled interface (ethernet, gated wifi-STA) via the
-// configurator, independent of the WiFi-Direct GO. Applied on boot and whenever
-// the app pushes a new NetworkConfig (U4). Disabled interfaces are skipped (not
-// torn down aggressively — leaving NM's defaults alone), so a disabled uplink is
-// simply not driven by us.
+// brings up each enabled interface via the firmware-owned Ethernet controller
+// (ip/dhclient) + the WiFi-STA configurator, independent of the WiFi-Direct GO.
+// Applied on boot and whenever the app pushes a new NetworkConfig (U4). Disabled
+// interfaces are skipped, so a disabled uplink is simply not driven by us.
 class UplinkManager {
    public:
-    explicit UplinkManager(IUplinkConfigurator& configurator) : configurator_(configurator) {}
+    UplinkManager(IUplinkConfigurator& configurator, IEthernetController& ethernet)
+        : configurator_(configurator), ethernet_(ethernet) {}
 
     // Apply the config; returns the per-interface outcome for status reporting.
     auto Apply(const sst::config::UplinkData& cfg) -> UplinkStatus;
@@ -35,6 +36,7 @@ class UplinkManager {
 
    private:
     IUplinkConfigurator& configurator_;
+    IEthernetController& ethernet_;
 };
 
 }  // namespace sst::network

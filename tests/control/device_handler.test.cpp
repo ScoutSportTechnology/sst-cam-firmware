@@ -100,7 +100,7 @@ TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
     const std::string stamped = SST_FIRMWARE_VERSION;
     const std::string expected_fw = (stamped.empty() || stamped == "unknown") ? "1.0.0" : stamped;
     EXPECT_EQ(resp.device_info().firmware_version(), expected_fw);
-    EXPECT_EQ(resp.device_info().protocol_version(), 4U);
+    EXPECT_EQ(resp.device_info().protocol_version(), 5U);
 }
 
 // U8/R16: GetDeviceInfo advertises the concrete record/stream modes the encode
