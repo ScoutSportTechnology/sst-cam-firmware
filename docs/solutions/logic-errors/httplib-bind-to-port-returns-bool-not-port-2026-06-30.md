@@ -43,12 +43,13 @@ assigned port number. The code conflated the two APIs.
 ## What Didn't Work
 
 - **Blaming qemu.** The test failure was first attributed to "qemu-user can't run
-  the threaded accept loop / loopback binds port 1." That is a real, separate
-  environment limitation for the *accept loop*, but it was the wrong diagnosis
-  here: the test got `BoundPort() == 1` because of the API misuse, not the
-  emulator. The tell was that the value was *always exactly 1* (a bool), never a
-  plausible ephemeral port — an emulator scheduling issue would not pin the port
-  to the integer `1`.
+  the threaded accept loop / loopback binds port 1." The test got
+  `BoundPort() == 1` because of the API misuse, not the emulator: an emulator
+  scheduling issue would not pin the port to the integer `1`. In the pinned
+  compiler image, `ctest --preset test -j "$(nproc)" -LE hardware` passed all
+  571 tests, including `DownloadServerTest.HttpServesByteRangeWithBearerToken`
+  (test #337); a second full run passed it again, and a focused qemu repeat
+  passed 3/3. Keep the HTTP test in the container suite.
 
 ## Solution
 

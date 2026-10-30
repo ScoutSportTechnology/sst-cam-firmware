@@ -229,17 +229,19 @@ target_include_directories(sst_cam_firmware_internal_libs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
-# Firmware build version, stamped from `git describe` at configure time (the
-# parallel of the app's APP_VERSION --dart-define). This is the version reported
-# over the wire in DeviceInfoResponse — the config's `version` field is only a
-# fallback. Falls back to "unknown" outside a git checkout (e.g. a tarball build).
-execute_process(
-    COMMAND git describe --tags --always --dirty
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE SST_FIRMWARE_VERSION
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
+# Firmware build version, stamped from the release tag or `git describe` at
+# configure time. This is reported over the wire in DeviceInfoResponse.
+if(DEFINED ENV{SST_RELEASE_TAG} AND NOT "$ENV{SST_RELEASE_TAG}" STREQUAL "")
+    set(SST_FIRMWARE_VERSION "$ENV{SST_RELEASE_TAG}")
+else()
+    execute_process(
+        COMMAND git describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE SST_FIRMWARE_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
 if(NOT SST_FIRMWARE_VERSION)
     set(SST_FIRMWARE_VERSION "unknown")
 endif()
@@ -280,4 +282,6 @@ if (SST_ENABLE_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(sst_cam_firmware_tests DISCOVERY_MODE PRE_TEST)
+    set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/hardware-tests.cmake)
 endif()

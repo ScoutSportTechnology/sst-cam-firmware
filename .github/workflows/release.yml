@@ -17,9 +17,18 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [development, 'release/**', main]
   workflow_dispatch:
     inputs:
+      to:
+        description: Release level to promote
+        type: choice
+        options: [publish, rc]
+        default: publish
+      bump:
+        description: Force alpha base bump
+        type: string
+        required: false
       version:
         description: "X.Y.Z to promote (overrides detection from the merge commit)"
         required: false
@@ -27,15 +36,76 @@ on:
 
 # Never run two promotions at once (they'd race on the stable tag/Release).
 concurrency:
-  group: promote
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
+  version:
+    if: ${{ (github.ref == 'refs/heads/development' || startsWith(github.ref, 'refs/heads/release/')) && inputs.to != 'rc' }}
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.ver.outputs.released }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: legacy
+        run: |
+          if [ "${GITHUB_REF}" = refs/heads/development ]; then
+            if [ -f .github/workflows/release-alpha.yml ]; then echo 'active=true' >> "$GITHUB_OUTPUT"; fi
+          elif [[ "${GITHUB_REF}" =~ ^refs/heads/release/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ -f .github/workflows/release-beta.yml ]; then echo 'active=true' >> "$GITHUB_OUTPUT"; fi
+          else
+            echo "::error::expected release/X.Y.Z branch, got ${GITHUB_REF}"
+            exit 1
+          fi
+      - id: ver
+        if: ${{ steps.legacy.outputs.active != 'true' }}
+        uses: ScoutSportTechnology/.github/actions/resolve-version@v1.1.0
+        with:
+          mode: ${{ github.ref == 'refs/heads/development' && 'alpha' || 'release' }}
+          version: ${{ inputs.version }}
+          bump: ${{ inputs.bump }}
+
+  publish:
+    needs: version
+    if: ${{ needs.version.outputs.tag != '' && needs.version.outputs.released == 'true' }}
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+      prerelease: true
+      notes: |
+        Prerelease for hardware sign-off.
+
+        ## Install on a JetPack 7.2 Jetson
+
+        ```bash
+        curl -fsSL https://raw.githubusercontent.com/ScoutSportTechnology/sst-cam-firmware/{tag}/deploy/install.sh | sudo bash -s -- --version {tag}
+        ```
+    secrets: inherit
+
+  promote-rc:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.to == 'rc' && startsWith(github.ref, 'refs/heads/release/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: legacy
+        run: |
+          if [ -f .github/workflows/promote-rc.yml ]; then echo 'active=true' >> "$GITHUB_OUTPUT"; fi
+      - if: ${{ steps.legacy.outputs.active != 'true' }}
+        uses: ScoutSportTechnology/.github/actions/promote@v1.1.0
+        with:
+          to: rc
+
   promote:
     name: tag stable + copy rc binary (no build)
+    if: ${{ github.ref == 'refs/heads/main' && inputs.to != 'rc' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

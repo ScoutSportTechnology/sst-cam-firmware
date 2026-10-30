@@ -149,7 +149,7 @@ main() {
   # Sourced via SCRIPT_DIR so it resolves regardless of cwd.
   # shellcheck source=../tidy-args.sh disable=SC1091
   source "${SCRIPT_DIR}/../tidy-args.sh"
-  printf '%s\n' "${final[@]}" | xargs clang-tidy -p build/test "${TIDY_EXTRA_ARGS[@]}"
+  printf '%s\n' "${final[@]}" | xargs -P "${TIDY_JOBS:-$(nproc)}" -n 1 clang-tidy -p build/test "${TIDY_EXTRA_ARGS[@]}"
 }
 
 # Run the build/lint pipeline only when executed, not when sourced (the self-test
