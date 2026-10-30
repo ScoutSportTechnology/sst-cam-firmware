@@ -11,8 +11,8 @@ namespace sst::network {
 // interface name itself. All fields are ground-truth IPv4 literals/CIDRs from the
 // live interface (the adapter re-validates before any `ip`/`nft` argv).
 struct UplinkRoutingConfig {
-    std::string uplink_address_cidr;  // the uplink's bound address WITH prefix, "192.168.9.30/24"
-    std::string uplink_gateway;       // the default gateway on the uplink, "192.168.9.1" (may be
+    std::string uplink_address_cidr;  // the uplink's bound address WITH prefix, "198.51.100.30/24"
+    std::string uplink_gateway;       // the default gateway on the uplink, "198.51.100.1" (may be
                                       // empty when unknown — then no default route is installed)
 
     auto operator==(const UplinkRoutingConfig&) const -> bool = default;

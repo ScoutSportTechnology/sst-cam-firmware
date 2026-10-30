@@ -56,7 +56,7 @@ auto CarrierUp(const std::string& iface) -> bool {
 }
 
 // The IPv4 address (CIDR) currently bound on `iface`, empty if none. Parses
-// `ip -o -4 addr show dev <iface>` → "... inet 10.10.1.30/24 ...".
+// `ip -o -4 addr show dev <iface>` → "... inet 198.51.100.30/24 ...".
 auto IfaceIpv4Cidr(const std::string& iface) -> std::string {
     if (iface.empty()) {
         return {};
@@ -73,7 +73,7 @@ auto IfaceIpv4Cidr(const std::string& iface) -> std::string {
 }
 
 // The default gateway reachable via `iface`, empty if none. Parses
-// `ip -o -4 route show default dev <iface>` → "default via 10.10.1.1 ...".
+// `ip -o -4 route show default dev <iface>` → "default via 198.51.100.1 ...".
 auto DefaultGatewayOn(const std::string& iface) -> std::string {
     if (iface.empty()) {
         return {};

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "adapters/control/network/policy-routing.hpp"
@@ -165,13 +166,33 @@ TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetDeniesUnsolicitedTrafficW
     EXPECT_EQ(script.find("tcp flags syn"), std::string::npos) << script;
 }
 
-TEST(PolicyRoutingCommandTest, FirewallAlwaysAllowsLanEthernetSshWithoutConntrack) {
-    for (const auto& script : {BuildStatelessFirewallRulesetScript("enP8p1s0"),
-                               BuildFirewallRulesetScript("enP8p1s0")}) {
-        EXPECT_NE(script.find("ip saddr 10.10.1.0/24 tcp dport 22 accept"), std::string::npos)
-            << script;
+TEST(PolicyRoutingCommandTest, FirewallAllowsOnlyTheCurrentWiredSubnetForSsh) {
+    for (const auto& [address, subnet, other] :
+         {std::tuple{"10.10.1.30/24", "10.10.1.0/24", "192.168.50.0/24"},
+          std::tuple{"192.168.50.7/24", "192.168.50.0/24", "10.10.1.0/24"}}) {
+        for (const auto& script : {BuildFirewallRulesetScript("enP8p1s0", address),
+                                   BuildStatelessFirewallRulesetScript("enP8p1s0", address)}) {
+            EXPECT_NE(script.find("iifname \"enP8p1s0\" ip saddr " + std::string(subnet) +
+                                  " tcp dport 22 accept"),
+                      std::string::npos)
+                << script;
+            EXPECT_EQ(script.find(other), std::string::npos) << script;
+        }
     }
-    EXPECT_EQ(BuildStatelessFirewallRulesetScript("enP8p1s0").find("ct state"), std::string::npos);
+}
+
+TEST(PolicyRoutingCommandTest, FirewallWithoutWiredAddressAllowsInterfaceSsh) {
+    for (const auto& script : {BuildFirewallRulesetScript("enP8p1s0", ""),
+                               BuildStatelessFirewallRulesetScript("enP8p1s0", "")}) {
+        EXPECT_NE(script.find("iifname \"enP8p1s0\" tcp dport 22 accept"), std::string::npos)
+            << script;
+        EXPECT_EQ(script.find("ip saddr"), std::string::npos) << script;
+    }
+}
+
+TEST(PolicyRoutingCommandTest, FirewallRefusesMalformedWiredAddress) {
+    EXPECT_TRUE(BuildFirewallRulesetScript("eth0", "10.0.0.1/24\nadd rule").empty());
+    EXPECT_TRUE(BuildStatelessFirewallRulesetScript("eth0", "10.0.0.1").empty());
 }
 
 TEST(PolicyRoutingCommandTest, StatelessFirewallRulesetRefusesUnsafeIface) {

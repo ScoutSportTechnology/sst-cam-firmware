@@ -53,7 +53,7 @@ auto ReadTrimmed(const std::string& path) -> std::string {
 auto DetectWiredIface() -> std::string {
     for (const auto& name : SortedNetNames()) {
         // l4tbr0 is the Tegra USB-gadget bridge: ARPHRD_ETHER but virtual, and it
-        // owns 192.168.55.1/24 — never the camera's LAN or uplink.
+        // is not the camera's physical LAN or uplink.
         static constexpr std::array<const char*, 10> kSkipPrefixes = {
             "lo", "docker", "veth", "br-", "virbr", "wl", "p2p", "rndis", "usb", "l4tbr"};
         bool skip = (name == "lo");

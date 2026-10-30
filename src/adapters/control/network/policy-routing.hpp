@@ -26,7 +26,7 @@ inline constexpr const char* kUplinkNftTable = "sst_uplink";
 // injection-safety rule).
 auto IsSafeIfaceName(const std::string& name) -> bool;
 
-// The network (subnet) CIDR of a host CIDR: "192.168.9.30/24" -> "192.168.9.0/24".
+// The network (subnet) CIDR of a host CIDR: "198.51.100.30/24" -> "198.51.100.0/24".
 // nullopt / empty on a malformed input. Used to install the uplink's connected
 // route in the dedicated table.
 auto NetworkCidrOf(const std::string& host_cidr) -> std::string;
@@ -75,14 +75,15 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string>;
 // nft applies the whole script as ONE atomic transaction, so a re-apply swaps the
 // ruleset with NO rule-less window — unlike the old flush-then-readd sequence of
 // separate invocations, which briefly let inbound through on the uplink. Empty on an
-// unsafe iface (never emit a script with an un-whitelisted token). The iface is the
-// only interpolated value and is IsSafeIfaceName-validated, so the quoted `iifname
-// "<iface>"` literal can carry no shell/nft metacharacters, newline, or directive.
-auto BuildFirewallRulesetScript(const std::string& iface) -> std::string;
+// unsafe iface or malformed address. The SSH source subnet is derived from the
+// wired address; before an address is available, allow SSH by interface alone.
+auto BuildFirewallRulesetScript(const std::string& iface,
+                                const std::string& address_cidr = {}) -> std::string;
 
 // Conntrack-free fallback denies all wired input except LAN SSH, including
 // return traffic for wired streaming. Empty on an unsafe iface.
-auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::string;
+auto BuildStatelessFirewallRulesetScript(const std::string& iface,
+                                         const std::string& address_cidr = {}) -> std::string;
 
 // The firmware-owned policy-routing adapter. Forks `ip`/`nft` (root) via the
 // bounded argv-vector subprocess helper (never a shell). Hardware-bound — verified

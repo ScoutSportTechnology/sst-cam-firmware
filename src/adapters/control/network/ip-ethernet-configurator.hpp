@@ -50,7 +50,7 @@ class IpEthernetConfigurator final : public sst::network::IEthernetController {
     // address on it may predate that ownership (NetworkManager, or an operator's
     // static management IP). Flushing such an address on any carrier blip or
     // de-selection strands the camera off the LAN with no route back — observed on
-    // metal, where a cable replug wiped a 10.10.1.30 the firmware never set and only
+    // metal, where a cable replug wiped a 198.51.100.30 the firmware never set and only
     // a BLE re-provision recovered it. "Only destroy what you created."
     std::string applied_address_;
 };

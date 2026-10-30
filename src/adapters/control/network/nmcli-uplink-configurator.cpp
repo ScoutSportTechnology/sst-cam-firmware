@@ -53,7 +53,7 @@ auto LastNumber(const std::string& text) -> std::string {
 }
 
 // The IPv4 address (no prefix length) currently on `iface`, empty if none.
-// Parses `ip -4 -o addr show dev <iface>` → "... inet 192.168.1.50/24 ...".
+// Parses `ip -4 -o addr show dev <iface>` → "... inet 198.51.100.50/24 ...".
 auto IfaceIpv4(const std::string& iface) -> std::string {
     if (iface.empty()) {
         return {};

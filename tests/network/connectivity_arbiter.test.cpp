@@ -768,6 +768,28 @@ TEST(ConnectivityArbiterTest, EthernetUplinkUnplugTearsDownPolicyRouting) {
     EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);  // STA unaffected
 }
 
+TEST(ConnectivityArbiterTest, EthernetAddressRenewalReappliesUplinkFirewallWithoutCarrierEdge) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.142"};
+    harness.uplink.probe_result = {.ok = true, .detail = "10.10.1.142"};
+    const auto sta = harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"),
+                                                   "10.10.1.0/24");
+    ASSERT_EQ(sta.path, LanPath::kWifiSta);
+    harness.arbiter.ConfirmLanPath(sta.confirm_id, LanPath::kWifiSta, true);
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.policy_routing.apply_calls, 1);
+
+    harness.ethernet.probe_address = "192.168.50.7/24";
+    harness.ethernet.apply_address = "192.168.50.7/24";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.policy_routing.apply_calls, 2);
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_address_cidr, "192.168.50.7/24");
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+}
+
 // AE7 / R19: candidate Ethernet, phone probe FAILS -> de-select, fall to STA; the
 // STA fallback is never suppressed prematurely (it is only brought up AFTER the
 // Ethernet probe fails).

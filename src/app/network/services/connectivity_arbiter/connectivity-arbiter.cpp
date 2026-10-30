@@ -37,7 +37,7 @@ struct Ipv4Subnet {
     int prefix{kIpv4Bits};
 };
 
-// The bare address of a CIDR ("10.10.1.30/24" -> "10.10.1.30"; a bare IP is
+// The bare address of a CIDR ("198.51.100.30/24" -> "198.51.100.30"; a bare IP is
 // returned unchanged).
 auto AddressOnly(const std::string& cidr) -> std::string {
     const auto slash = cidr.find('/');
@@ -229,6 +229,7 @@ auto ConnectivityArbiter::PrepareEthernetTransition(const sst::config::UplinkDat
 auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
                                           const PreparedEthernet& prepared) -> LanSelectionResult {
     ethernet_carrier_ = prepared.eth.carrier;
+    ethernet_address_cidr_ = prepared.eth.address;
     const auto& classification = prepared.classification;
 
     // F4: remember a DHCP-pending candidate so the carrier monitor re-polls the offer
@@ -764,27 +765,35 @@ auto ConnectivityArbiter::OnCarrierCheck() -> void {
 auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
     // Probe the carrier WITHOUT the lock (off the BLE dispatcher; this runs on the
     // monitor thread).
-    const bool carrier = ethernet_.ProbeEthernet().carrier;
+    const EthernetProbe observed = ethernet_.ProbeEthernet();
+    const bool carrier = observed.carrier;
     sst::config::UplinkData desired;
     std::string phone_subnet;
     std::string sta_ip;
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        // Re-arbitrate on an actual up/down EDGE (R20), OR — F4 — while a DHCP-pending
+        // Re-arbitrate on carrier or address change, OR — F4 — while a DHCP-pending
         // candidate is held (carrier still up), so a lease that lands with NO carrier
         // transition still promotes Ethernet. The common no-change tick is a cheap
         // early return that never holds the lock across a shell-out.
         const bool edge = carrier != ethernet_carrier_;
+        const bool address_changed = observed.address != ethernet_address_cidr_;
         const bool pending_repoll = carrier && dhcp_pending_;
-        if (!edge && !pending_repoll) {
+        if (!edge && !address_changed && !pending_repoll) {
             return;
+        }
+        const char* reason = "DHCP-pending re-poll";
+        if (edge) {
+            reason = "carrier edge";
+        } else if (address_changed) {
+            reason = "address change";
         }
         spdlog::info(
             "ConnectivityArbiter: Ethernet {} (carrier={} was={} dhcp_pending={}) — re-arbitrating "
             "(mode-independent monitor, R20/F4)",
-            edge ? "carrier edge" : "DHCP-pending re-poll", carrier, ethernet_carrier_,
-            dhcp_pending_);
+            reason, carrier, ethernet_carrier_, dhcp_pending_);
         ethernet_carrier_ = carrier;
+        ethernet_address_cidr_ = observed.address;
         desired = desired_uplink_;
         phone_subnet = phone_subnet_cidr_;
         sta_ip = preview_endpoint_;
@@ -799,6 +808,7 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
     // — if so this poll is stale and the newer event owns the re-arbitration.
     if (prepared.eth.carrier != carrier) {
         ethernet_carrier_ = prepared.eth.carrier;
+        ethernet_address_cidr_ = prepared.eth.address;
         return;
     }
     ArbitrateLocked(/*unsolicited=*/true, prepared);

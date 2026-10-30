@@ -58,7 +58,7 @@ auto MaskForPrefix(int prefix) -> std::uint32_t {
     return prefix == 0 ? 0U : (kFullMask << (kIpv4Bits - prefix));
 }
 
-// The bare address of a CIDR ("192.168.9.30/24" -> "192.168.9.30"; a bare IP is
+// The bare address of a CIDR ("198.51.100.30/24" -> "198.51.100.30"; a bare IP is
 // returned unchanged).
 auto AddressOnly(const std::string& cidr) -> std::string {
     const auto slash = cidr.find('/');
@@ -120,8 +120,25 @@ auto WriteAndApplyScript(const std::string& script, const char* what) -> bool {
     return false;
 }
 
+auto WiredIpv4Cidr(const std::string& iface) -> std::string {
+    const auto result =
+        CaptureBounded({"ip", "-o", "-4", "addr", "show", "dev", iface}, kQueryTimeout);
+    if (!result.ok) {
+        return {};
+    }
+    const auto inet = result.output.find("inet ");
+    if (inet == std::string::npos) {
+        return {};
+    }
+    const auto start = inet + 5;
+    const auto end = result.output.find_first_of(" \t\n", start);
+    const std::string cidr = result.output.substr(start, end - start);
+    return IsIpv4Cidr(cidr) ? cidr : std::string{};
+}
+
 auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
-    const std::string stateful = BuildFirewallRulesetScript(iface);
+    const std::string address = WiredIpv4Cidr(iface);
+    const std::string stateful = BuildFirewallRulesetScript(iface, address);
     if (stateful.empty()) {
         spdlog::warn("PolicyRouting: refusing firewall script for unsafe iface '{}'", iface);
         return false;
@@ -134,7 +151,7 @@ auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
     // If conntrack is unavailable, deny all unsolicited input on the wired
     // interface except LAN SSH. This blocks uplink return traffic too, so streaming
     // over this interface stays unavailable until the kernel supports stateful rules.
-    const std::string stateless = BuildStatelessFirewallRulesetScript(iface);
+    const std::string stateless = BuildStatelessFirewallRulesetScript(iface, address);
     if (!stateless.empty() && WriteAndApplyScript(stateless, "stateless firewall ruleset")) {
         spdlog::error(
             "PolicyRouting: conntrack unavailable on {} — denying inbound traffic except LAN "
@@ -253,12 +270,12 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string> {
     return {"nft", "delete", "table", "inet", kUplinkNftTable};
 }
 
-auto BuildFirewallRulesetScript(const std::string& iface) -> std::string {
-    // Fail closed: never emit a script that would interpolate an un-whitelisted iface
-    // into an `iifname "<iface>"` literal.
-    if (!IsSafeIfaceName(iface)) {
+auto BuildFirewallRulesetScript(const std::string& iface,
+                                const std::string& address_cidr) -> std::string {
+    if (!IsSafeIfaceName(iface) || (!address_cidr.empty() && !IsIpv4Cidr(address_cidr))) {
         return {};
     }
+    const std::string subnet = NetworkCidrOf(address_cidr);
     const std::string table = std::string("inet ") + kUplinkNftTable;
     // add + flush + chain + rules as ONE nft script => one atomic transaction (F7).
     // `policy accept` + iface-scoped matches => non-uplink (LAN) traffic is untouched;
@@ -269,18 +286,20 @@ auto BuildFirewallRulesetScript(const std::string& iface) -> std::string {
     script += "flush table " + table + "\n";
     script +=
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
-    script += "add rule " + table + " input iifname \"" + iface +
-              "\" ip saddr 10.10.1.0/24 tcp dport 22 accept\n";
+    script += "add rule " + table + " input iifname \"" + iface + "\" " +
+              (subnet.empty() ? "" : "ip saddr " + subnet + " ") + "tcp dport 22 accept\n";
     script += "add rule " + table + " input iifname \"" + iface +
               "\" ct state established,related accept\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
 }
 
-auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::string {
-    if (!IsSafeIfaceName(iface)) {
+auto BuildStatelessFirewallRulesetScript(const std::string& iface,
+                                         const std::string& address_cidr) -> std::string {
+    if (!IsSafeIfaceName(iface) || (!address_cidr.empty() && !IsIpv4Cidr(address_cidr))) {
         return {};
     }
+    const std::string subnet = NetworkCidrOf(address_cidr);
     const std::string table = std::string("inet ") + kUplinkNftTable;
     // Without conntrack, deny wired input except LAN SSH; do not present a
     // SYN-only filter as protection for UDP, IPv6 or non-SYN TCP packets.
@@ -289,8 +308,8 @@ auto BuildStatelessFirewallRulesetScript(const std::string& iface) -> std::strin
     script += "flush table " + table + "\n";
     script +=
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
-    script += "add rule " + table + " input iifname \"" + iface +
-              "\" ip saddr 10.10.1.0/24 tcp dport 22 accept\n";
+    script += "add rule " + table + " input iifname \"" + iface + "\" " +
+              (subnet.empty() ? "" : "ip saddr " + subnet + " ") + "tcp dport 22 accept\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
 }

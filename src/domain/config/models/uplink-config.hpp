@@ -23,7 +23,7 @@ namespace sst::config {
 
 // Static-vs-DHCP addressing shared by both uplink interfaces. `dhcp == true`
 // (or unset) means DHCP and the static fields are ignored; `dhcp == false`
-// means use `address`/`gateway`/`dns`. `address` is CIDR (e.g. 192.168.1.50/24).
+// means use `address`/`gateway`/`dns`. `address` is CIDR (e.g. 198.51.100.50/24).
 struct EthernetUplink {
     std::optional<bool> enabled{std::nullopt};
     std::optional<bool> dhcp{std::nullopt};

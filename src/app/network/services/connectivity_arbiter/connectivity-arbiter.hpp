@@ -210,9 +210,9 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     // not the committing/committed LAN path.
     std::string ethernet_endpoint_;
     std::string ethernet_credential_;
-    // Last observed Ethernet carrier, so OnEthernetCarrierPoll de-dupes and only
-    // re-arbitrates on a real up/down transition.
+    // Last observed Ethernet carrier and address; re-arbitrate when either changes.
     bool ethernet_carrier_{false};
+    std::string ethernet_address_cidr_;
     // U7: whether the different-subnet uplink policy routing + firewall APPLY last
     // reported full success. Reported to callers/logs; NOT the teardown gate (F6).
     bool uplink_routing_active_{false};
