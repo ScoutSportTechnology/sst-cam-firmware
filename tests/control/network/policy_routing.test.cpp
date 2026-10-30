@@ -26,17 +26,20 @@ using sst::adapters::control::BuildFirewallFlushTableArgv;
 using sst::adapters::control::BuildFirewallRulesetScript;
 using sst::adapters::control::BuildStatelessFirewallRulesetScript;
 using sst::adapters::control::BuildUplinkDefaultRouteArgv;
+using sst::adapters::control::BuildUplinkMainDefaultRouteArgv;
 using sst::adapters::control::BuildUplinkRouteFlushArgv;
 using sst::adapters::control::BuildUplinkRuleAddArgv;
 using sst::adapters::control::BuildUplinkRuleDelArgv;
 using sst::adapters::control::BuildUplinkSubnetRouteArgv;
 using sst::adapters::control::BuildXtFirewallRuleArgv;
 using sst::adapters::control::FirewallBackend;
+using sst::adapters::control::IsOwnedMainDefaultRoute;
 using sst::adapters::control::IsSafeIfaceName;
 using sst::adapters::control::kUplinkNftTable;
 using sst::adapters::control::kUplinkRouteTable;
 using sst::adapters::control::kUplinkRulePriority;
 using sst::adapters::control::NetworkCidrOf;
+using sst::adapters::control::OwnedMainDefaultGateway;
 using sst::adapters::control::SelectFirewallBackend;
 using Argv = std::vector<std::string>;
 
@@ -89,6 +92,30 @@ TEST(PolicyRoutingCommandTest, RuleDelIsByPriority) {
               (Argv{"ip", "rule", "del", "priority", kUplinkRulePriority}));
 }
 
+TEST(PolicyRoutingCommandTest, RecoverOnlyFirmwareOwnedGateway) {
+    EXPECT_EQ(OwnedMainDefaultGateway("default via 192.168.9.1 dev eth0 proto 186 metric 90\n"),
+              "192.168.9.1");
+    EXPECT_EQ(OwnedMainDefaultGateway("default via 192.168.9.1 dev eth0 metric 90\n"), "");
+    EXPECT_EQ(OwnedMainDefaultGateway("default via 192.168.9.1 dev eth0 proto 186 metric 100\n"),
+              "");
+}
+
+TEST(PolicyRoutingCommandTest, OnlyExactInstalledRouteIsOwnedForRecoveryAndTeardown) {
+    EXPECT_TRUE(IsOwnedMainDefaultRoute("default via 192.168.9.1 dev eth0 proto 186 metric 90\n",
+                                        "192.168.9.1"));
+    EXPECT_FALSE(IsOwnedMainDefaultRoute("", "192.168.9.1"));
+    EXPECT_FALSE(IsOwnedMainDefaultRoute("default via 192.168.9.1 dev eth0 proto boot metric 90\n",
+                                         "192.168.9.1"));
+    EXPECT_FALSE(IsOwnedMainDefaultRoute("default via 192.168.9.2 dev eth0 proto 186 metric 90\n",
+                                         "192.168.9.1"));
+    EXPECT_FALSE(IsOwnedMainDefaultRoute("default via 192.168.9.1 dev eth0 proto dhcp metric 100\n",
+                                         "192.168.9.1"));
+    EXPECT_FALSE(
+        IsOwnedMainDefaultRoute("default via 192.168.9.1 dev eth0 metric 100\n"
+                                "default via 192.168.9.2 dev eth0 proto 186 metric 90\n",
+                                "192.168.9.1"));
+}
+
 TEST(PolicyRoutingCommandTest, SubnetAndDefaultRouteGoIntoTheDedicatedTable) {
     EXPECT_EQ(BuildUplinkSubnetRouteArgv("192.168.9.0/24", "eth0"),
               (Argv{"ip", "route", "replace", "192.168.9.0/24", "dev", "eth0", "table",
@@ -96,6 +123,13 @@ TEST(PolicyRoutingCommandTest, SubnetAndDefaultRouteGoIntoTheDedicatedTable) {
     EXPECT_EQ(BuildUplinkDefaultRouteArgv("192.168.9.1", "eth0"),
               (Argv{"ip", "route", "replace", "default", "via", "192.168.9.1", "dev", "eth0",
                     "table", kUplinkRouteTable}));
+    EXPECT_EQ(BuildUplinkMainDefaultRouteArgv("192.168.9.1", "eth0", "replace"),
+              (Argv{"ip", "route", "replace", "default", "via", "192.168.9.1", "dev", "eth0",
+                    "proto", "186", "metric", "90"}));
+    EXPECT_EQ(BuildUplinkMainDefaultRouteArgv("192.168.9.1", "eth0", "del"),
+              (Argv{"ip", "route", "del", "default", "via", "192.168.9.1", "dev", "eth0", "proto",
+                    "186", "metric", "90"}));
+    EXPECT_TRUE(BuildUplinkMainDefaultRouteArgv("bogus", "eth0", "replace").empty());
     EXPECT_EQ(BuildUplinkRouteFlushArgv(),
               (Argv{"ip", "route", "flush", "table", kUplinkRouteTable}));
     // Guarded input.
@@ -244,6 +278,20 @@ TEST(PolicyRoutingCommandTest, SelectsStatefulXtBeforeStatelessFallback) {
     EXPECT_EQ(SelectFirewallBackend(true, true), FirewallBackend::kNft);
     EXPECT_EQ(SelectFirewallBackend(false, true), FirewallBackend::kXt);
     EXPECT_EQ(SelectFirewallBackend(false, false), FirewallBackend::kStateless);
+}
+
+TEST(PolicyRoutingCommandTest, DhcpRepliesAreAllowedBeforeWiredDrop) {
+    for (const auto& script : {BuildFirewallRulesetScript("enP8p1s0", "10.10.1.30/24"),
+                               BuildStatelessFirewallRulesetScript("enP8p1s0", "")}) {
+        const auto dhcp = script.find("iifname \"enP8p1s0\" udp sport 67 udp dport 68 accept");
+        const auto drop = script.find("iifname \"enP8p1s0\" drop");
+        ASSERT_NE(dhcp, std::string::npos) << script;
+        ASSERT_NE(drop, std::string::npos) << script;
+        EXPECT_LT(dhcp, drop);
+    }
+    EXPECT_EQ(BuildXtFirewallRuleArgv("enP8p1s0", "", "-A", "dhcp"),
+              (Argv{"iptables-nft", "-w", "-A", "SST_UPLINK", "-i", "enP8p1s0", "-p", "udp",
+                    "--sport", "67", "--dport", "68", "-j", "ACCEPT"}));
 }
 
 TEST(PolicyRoutingCommandTest, XtFirewallRulesKeepRepliesAndLanSsh) {

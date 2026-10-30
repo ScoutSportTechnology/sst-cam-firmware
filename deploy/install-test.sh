@@ -131,7 +131,7 @@ if [ -s "${STA_SCRIPT_SANDBOX}/install-sta" ]; then
   )
   STA_SCRIPT="${STA_SCRIPT_SANDBOX}/bin/sst-sta-dhclient-script"
   # shellcheck disable=SC2016
-  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\nif [ "$3" = change ] && [ ! -f "$SST_STA_ADDRESS" ]; then exit 2; fi\nif [ "$3" = add ] || [ "$3" = replace ]; then : >"$SST_STA_ADDRESS"; fi\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
   chmod +x "${STA_SCRIPT_SANDBOX}/bin/ip"
   printf 'ip -4 addr add 198.51.100.148/24 dev wlP1p1s0\nip -4 addr change 198.51.100.148/24 dev wlP1p1s0\nip -4 route add default via 198.51.100.1 dev wlP1p1s0\n' >"${STA_SCRIPT_SANDBOX}/stock"
   sed "s@/sbin/dhclient-script@${STA_SCRIPT_SANDBOX}/stock@" "$STA_SCRIPT" >"${STA_SCRIPT_SANDBOX}/sta"
@@ -140,15 +140,27 @@ if [ -s "${STA_SCRIPT_SANDBOX}/install-sta" ]; then
     : >"${STA_SCRIPT_SANDBOX}/ip.log"
     PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
       interface=wlP1p1s0 reason="$reason" new_ip_address=198.51.100.148 \
-      new_subnet_mask=24 sh "${STA_SCRIPT_SANDBOX}/sta" || true
+       new_subnet_mask=24 SST_STA_ADDRESS="${STA_SCRIPT_SANDBOX}/address" sh "${STA_SCRIPT_SANDBOX}/sta" || true
     if grep -q -- '-4 addr add 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
-       grep -q -- '-4 addr change 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
+       grep -q -- '-4 addr replace 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
        grep -q -- '-4 route add default via 198.51.100.1 dev wlP1p1s0' "${STA_SCRIPT_SANDBOX}/ip.log"; then
       ok
     else
       bad "STA $reason lease did not retain metric or default route"
     fi
   done
+  : >"${STA_SCRIPT_SANDBOX}/ip.log"
+  rm -f "${STA_SCRIPT_SANDBOX}/address"
+  PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
+    SST_STA_ADDRESS="${STA_SCRIPT_SANDBOX}/address" interface=wlP1p1s0 reason=RENEW \
+    old_ip_address=198.51.100.148 new_ip_address=198.51.100.148 \
+    new_subnet_mask=24 sh "${STA_SCRIPT_SANDBOX}/sta" || true
+  if [ -f "${STA_SCRIPT_SANDBOX}/address" ] && \
+     grep -q -- '-4 addr replace 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log"; then
+    ok
+  else
+    bad "STA RENEW after address flush must restore the address with metric 600"
+  fi
 else
   bad "STA DHCP metric script not found"
 fi

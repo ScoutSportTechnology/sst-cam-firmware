@@ -54,6 +54,7 @@ class IPolicyRouting {
     // is no longer a different-subnet uplink (unplug / became same-subnet LAN /
     // full revert).
     virtual auto TeardownUplinkRouting() -> void = 0;
+    virtual auto RefreshEgressFirewall() -> void = 0;
 };
 
 }  // namespace sst::network

@@ -216,7 +216,8 @@ class FakePolicyRouting final : public sst::network::IPolicyRouting {
         return apply_ok;
     }
     auto TeardownUplinkRouting() -> void override { ++teardown_calls; }
-
+    auto RefreshEgressFirewall() -> void override { ++refresh_calls; }
+    int refresh_calls{0};
     bool apply_ok{true};
     int apply_calls{0};
     int teardown_calls{0};
@@ -1212,6 +1213,142 @@ TEST(ConnectivityArbiterTest, F4LateDhcpLeasePromotesWithoutCarrierEdge) {
     EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);  // promoted
     EXPECT_EQ(harness.ethernet.apply_calls, 1);                       // Ethernet now bound
     EXPECT_GE(harness.ethernet.offer_calls, 2);  // the offer was re-polled after the pending hold
+}
+
+TEST(ConnectivityArbiterTest, AddressAppearingAfterBootRefreshesFirewallSubnet) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();
+    harness.ethernet.probe_address = "10.10.1.30/24";
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 1);
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 1);
+    harness.ethernet.probe_address = "10.20.2.30/24";
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 2);
+}
+
+TEST(ConnectivityArbiterTest, StaticEthernetWithoutGatewayDoesNotReapplyEveryPoll) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "10.10.1.30/24";
+    harness.arbiter.SelectLanPath(StaticEthernetConfig("10.10.1.30/24"), "10.10.1.0/24");
+    const int before = harness.ethernet.apply_calls;
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.ethernet.apply_calls, before);
+}
+
+TEST(ConnectivityArbiterTest, MissingGatewayWithUnchangedAddressIsRetried) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    auto cfg = BothEnabledConfig("192.168.9.30/24", "PhoneNet");
+    cfg.ethernet.dhcp = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    harness.ethernet.gateway.clear();
+    harness.monitor.Poll();
+    const int before = harness.ethernet.apply_calls;
+    harness.monitor.Poll();
+    EXPECT_GT(harness.ethernet.apply_calls, before);
+}
+
+TEST(ConnectivityArbiterTest, CarrierFlapRestoresDefaultFromLastObservedGateway) {
+    Harness harness;
+    auto cfg = BothEnabledConfig("192.168.9.30/24", "PhoneNet");
+    cfg.ethernet.dhcp = true;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    harness.ethernet.carrier = true;
+    harness.ethernet.gateway.clear();
+    harness.ethernet.probe_address = "192.168.9.31/24";
+    harness.ethernet.apply_address = "192.168.9.31/24";
+    harness.monitor.Poll();
+
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_gateway, "192.168.9.1");
+    EXPECT_GE(harness.policy_routing.apply_calls, 2);
+}
+
+TEST(ConnectivityArbiterTest, NMGatewayReturningAfterFlapReappliesRouting) {
+    Harness harness;
+    auto cfg = BothEnabledConfig("192.168.9.30/24", "PhoneNet");
+    cfg.ethernet.dhcp = true;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    harness.ethernet.carrier = true;
+    harness.ethernet.gateway.clear();
+    harness.monitor.Poll();
+    const int before = harness.policy_routing.apply_calls;
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+    EXPECT_GT(harness.policy_routing.apply_calls, before);
+}
+
+TEST(ConnectivityArbiterTest, NewEthernetSubnetDoesNotReusePreviousGateway) {
+    Harness harness;
+    auto cfg = BothEnabledConfig("192.168.9.30/24", "PhoneNet");
+    cfg.ethernet.dhcp = true;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "172.16.4.30/24";
+    harness.ethernet.gateway.clear();
+    harness.monitor.Poll();
+    EXPECT_TRUE(harness.policy_routing.last_cfg.uplink_gateway.empty());
+}
+
+TEST(ConnectivityArbiterTest, ExistingGatewayDoesNotInstallFallbackRoute) {
+    Harness harness;
+    auto cfg = BothEnabledConfig("192.168.9.30/24", "PhoneNet");
+    cfg.ethernet.dhcp = true;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_mode = sst::network::EthernetMode::kDhcp;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.arbiter.SelectLanPath(cfg, "10.10.1.0/24");
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_gateway, "192.168.9.1");
+}
+
+TEST(ConnectivityArbiterTest, GatewayLossAfterCarrierFlapReconcilesOnLaterPoll) {
+    Harness harness;
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "192.168.9.30/24";
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.arbiter.SelectLanPath(BothEnabledConfig("192.168.9.30/24", "PhoneNet"), "10.10.1.0/24");
+    ASSERT_EQ(harness.policy_routing.apply_calls, 1);
+
+    harness.ethernet.carrier = false;
+    harness.monitor.Poll();
+    harness.ethernet.carrier = true;
+    harness.ethernet.gateway.clear();
+    harness.monitor.Poll();
+    const int before = harness.policy_routing.apply_calls;
+    harness.ethernet.gateway = "192.168.9.1";
+    harness.monitor.Poll();
+    EXPECT_GT(harness.policy_routing.apply_calls, before);
+    EXPECT_EQ(harness.policy_routing.last_cfg.uplink_gateway, "192.168.9.1");
 }
 
 // F5: the R19 Ethernet->STA fallback — ConfirmLanPath(kEthernet, false) with a

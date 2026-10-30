@@ -26,11 +26,20 @@ using sst::adapters::control::BuildEthRouteReplaceArgv;
 using sst::adapters::control::BuildResolvConf;
 using sst::adapters::control::BuildStaDhclientArgv;
 using sst::adapters::control::DeriveEthernetMode;
+using sst::adapters::control::GatewayFromRoutes;
 using sst::adapters::control::IsIpv4Cidr;
 using sst::adapters::control::IsIpv4Literal;
 using sst::adapters::control::MaskToPrefix;
 using sst::adapters::control::ParseDhcpOfferCidr;
 using sst::network::EthernetMode;
+
+TEST(IpEthernetCommandTest, GatewayIgnoresFirmwareMetric90WhenNmHasNewLease) {
+    EXPECT_EQ(GatewayFromRoutes("default via 10.10.1.1 dev eth0 proto 186 metric 90\n"
+                                "default via 10.10.1.2 dev eth0 metric 100\n"),
+              "10.10.1.2");
+    EXPECT_EQ(GatewayFromRoutes("default via 10.10.1.1 dev eth0 proto 186 metric 90\n"), "");
+    EXPECT_EQ(GatewayFromRoutes("default via 10.10.1.1 dev eth0 metric 90\n"), "10.10.1.1");
+}
 
 TEST(IpEthernetCommandTest, StaDhcpUsesMetricScriptForEveryLease) {
     EXPECT_EQ(BuildStaDhclientArgv("wlP1p1s0"),

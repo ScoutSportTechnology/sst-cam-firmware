@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -98,6 +99,7 @@ constexpr const char* kFirewallScriptPath = "/run/sst-uplink-firewall.nft";
 constexpr const char* kXtChainA = "SST_UPLINK_A";
 constexpr const char* kXtChainB = "SST_UPLINK_B";
 std::optional<bool> nft_ct_supported;
+std::string owned_main_gateway;
 
 // F7: write the whole egress-only firewall ruleset to a temp file and apply it with a
 // SINGLE `nft -f`, so nft swaps the table contents in ONE atomic transaction — no
@@ -157,12 +159,15 @@ auto RemoveXtFirewall() -> void {
 
 auto PopulateXtChain(const char* tool, const char* target, const std::string& iface,
                      const std::string& address) -> bool {
-    if (!RunBounded({tool, "-w", "-N", target}, kApplyTimeout) &&
-        (!RunBounded({tool, "-w", "-S", target}, kApplyTimeout) ||
-         !RunBounded({tool, "-w", "-F", target}, kApplyTimeout))) {
-        return false;
+    if (!RunBounded({tool, "-w", "-N", target}, kApplyTimeout)) {
+        if (RunBounded({tool, "-w", "-S", target}, kApplyTimeout)) {
+            RunStep({tool, "-w", "-X", target}, "stale xt firewall delete");
+        }
+        if (!RunBounded({tool, "-w", "-N", target}, kApplyTimeout)) {
+            return false;
+        }
     }
-    for (const char* rule : {"established", "ssh", "drop"}) {
+    for (const char* rule : {"established", "dhcp", "ssh", "drop"}) {
         if (std::string(tool) == "ip6tables-nft" && std::string(rule) == "ssh" &&
             !address.empty()) {
             continue;
@@ -176,23 +181,42 @@ auto PopulateXtChain(const char* tool, const char* target, const std::string& if
     return true;
 }
 
+auto XtAttached(const std::string& rules, const char* chain) -> bool {
+    return ("\n" + rules).find(std::string("\n-A INPUT -j ") + chain + "\n") != std::string::npos;
+}
+
+auto DetachOldXtChain(const char* tool, const char* old) -> bool {
+    while (Xt(tool, "-C", old) &&
+           RunStep({tool, "-w", "-D", "INPUT", "-j", old}, "old xt firewall detach")) {
+    }
+    if (Xt(tool, "-C", old)) {
+        spdlog::error("PolicyRouting: old xt firewall jump still attached; refusing to flush");
+        return false;
+    }
+    return RunStep({tool, "-w", "-X", old}, "old xt firewall delete");
+}
+
 auto InstallXtFirewall(const std::string& iface, const std::string& address) -> bool {
     const auto ipv4 = CaptureBounded({"iptables-nft", "-w", "-S", "INPUT"}, kQueryTimeout);
     const auto ipv6 = CaptureBounded({"ip6tables-nft", "-w", "-S", "INPUT"}, kQueryTimeout);
     if (!ipv4.ok || !ipv6.ok) {
         return false;
     }
-    const std::string attachments = ipv4.output + ipv6.output;
-    const bool a_active = attachments.find("-A INPUT -j SST_UPLINK_A") != std::string::npos;
-    const bool b_active = attachments.find("-A INPUT -j SST_UPLINK_B") != std::string::npos;
-    if (a_active && b_active) {
+    const bool chain_a_ipv4 = XtAttached(ipv4.output, kXtChainA);
+    const bool chain_a_ipv6 = XtAttached(ipv6.output, kXtChainA);
+    const bool chain_b_ipv4 = XtAttached(ipv4.output, kXtChainB);
+    const bool chain_b_ipv6 = XtAttached(ipv6.output, kXtChainB);
+    const bool use_chain_a = chain_a_ipv4 || chain_a_ipv6;
+    const bool use_chain_b = chain_b_ipv4 || chain_b_ipv6;
+    if (use_chain_a && use_chain_b) {
         return false;
     }
-    const char* target = a_active ? kXtChainB : kXtChainA;
-    if (ipv4.output.find(std::string("-A INPUT -j ") + target) != std::string::npos ||
-        ipv6.output.find(std::string("-A INPUT -j ") + target) != std::string::npos) {
+    if (chain_a_ipv4 != chain_a_ipv6 || chain_b_ipv4 != chain_b_ipv6) {
+        spdlog::error("PolicyRouting: mismatched IPv4/IPv6 xt firewall jumps");
         return false;
     }
+    const char* target = use_chain_a ? kXtChainB : kXtChainA;
+    const char* old = use_chain_a ? kXtChainA : kXtChainB;
     if (!PopulateXtChain("iptables-nft", target, iface, address) ||
         !PopulateXtChain("ip6tables-nft", target, iface, address)) {
         return false;
@@ -205,14 +229,7 @@ auto InstallXtFirewall(const std::string& iface, const std::string& address) -> 
                 "unfinished xt firewall detach");
         return false;
     }
-    const char* old = std::string(target) == kXtChainA ? kXtChainB : kXtChainA;
-    for (const char* tool : {"iptables-nft", "ip6tables-nft"}) {
-        while (Xt(tool, "-C", old) &&
-               RunStep({tool, "-w", "-D", "INPUT", "-j", old}, "old xt firewall detach")) {
-        }
-        RunStep({tool, "-w", "-X", old}, "old xt firewall delete");
-    }
-    return true;
+    return DetachOldXtChain("iptables-nft", old) && DetachOldXtChain("ip6tables-nft", old);
 }
 
 auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
@@ -324,6 +341,37 @@ auto BuildUplinkDefaultRouteArgv(const std::string& gateway,
             gateway, "dev",   iface,     "table",   kUplinkRouteTable};
 }
 
+auto OwnedMainDefaultGateway(const std::string& routes) -> std::string {
+    std::istringstream lines(routes);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (!line.starts_with("default via ") || line.find("proto 186 ") == std::string::npos ||
+            line.find("metric 90") == std::string::npos) {
+            continue;
+        }
+        const auto start = std::string("default via ").size();
+        const std::string gateway = line.substr(start, line.find(' ', start) - start);
+        if (IsIpv4Literal(gateway)) {
+            return gateway;
+        }
+    }
+    return {};
+}
+
+auto IsOwnedMainDefaultRoute(const std::string& routes, const std::string& gateway) -> bool {
+    return IsIpv4Literal(gateway) && OwnedMainDefaultGateway(routes) == gateway;
+}
+
+auto BuildUplinkMainDefaultRouteArgv(const std::string& gateway, const std::string& iface,
+                                     const std::string& operation) -> std::vector<std::string> {
+    if (!IsIpv4Literal(gateway) || !IsSafeIfaceName(iface) ||
+        (operation != "replace" && operation != "del")) {
+        return {};
+    }
+    return {"ip",  "route", operation, "default", "via",    gateway,
+            "dev", iface,   "proto",   "186",     "metric", "90"};
+}
+
 auto BuildUplinkRouteFlushArgv() -> std::vector<std::string> {
     return {"ip", "route", "flush", "table", kUplinkRouteTable};
 }
@@ -384,6 +432,8 @@ auto BuildXtFirewallRuleArgv(const std::string& iface, const std::string& addres
     if (rule == "established") {
         argv.insert(argv.end(),
                     {"-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"});
+    } else if (rule == "dhcp") {
+        argv.insert(argv.end(), {"-p", "udp", "--sport", "67", "--dport", "68", "-j", "ACCEPT"});
     } else if (rule == "ssh") {
         const auto subnet = NetworkCidrOf(address_cidr);
         if (!subnet.empty()) {
@@ -418,6 +468,8 @@ auto BuildFirewallRulesetScript(const std::string& iface,
               (subnet.empty() ? "" : "ip saddr " + subnet + " ") + "tcp dport 22 accept\n";
     script += "add rule " + table + " input iifname \"" + iface +
               "\" ct state established,related accept\n";
+    script +=
+        "add rule " + table + " input iifname \"" + iface + "\" udp sport 67 udp dport 68 accept\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
 }
@@ -438,6 +490,8 @@ auto BuildStatelessFirewallRulesetScript(const std::string& iface,
         "add chain " + table + " input { type filter hook input priority 0; policy accept; }\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" " +
               (subnet.empty() ? "" : "ip saddr " + subnet + " ") + "tcp dport 22 accept\n";
+    script +=
+        "add rule " + table + " input iifname \"" + iface + "\" udp sport 67 udp dport 68 accept\n";
     script += "add rule " + table + " input iifname \"" + iface + "\" drop\n";
     return script;
 }
@@ -459,7 +513,10 @@ auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& 
     // Dedicated table: connected route (so `via` resolves) + default via the uplink
     // gateway. `ip route replace` is inherently idempotent.
     bool applied = RunStep(BuildUplinkSubnetRouteArgv(subnet, iface), "uplink connected route");
-    if (!cfg.uplink_gateway.empty()) {
+    if (cfg.uplink_gateway.empty()) {
+        RunStep({"ip", "route", "del", "default", "table", kUplinkRouteTable},
+                "uplink default route del");
+    } else {
         applied = RunStep(BuildUplinkDefaultRouteArgv(cfg.uplink_gateway, iface),
                           "uplink default route") &&
                   applied;
@@ -468,6 +525,26 @@ auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& 
     RunStep(BuildUplinkRuleDelArgv(), "uplink rule (pre-clear)");
     applied = RunStep(BuildUplinkRuleAddArgv(host), "uplink source rule") && applied;
 
+    const auto installed =
+        CaptureBounded({"ip", "-o", "-4", "route", "show", "default", "dev", iface, "metric", "90"},
+                       kQueryTimeout);
+    if (installed.ok) {
+        owned_main_gateway = OwnedMainDefaultGateway(installed.output);
+        bool slot_available = installed.output.empty();
+        if (!owned_main_gateway.empty() && owned_main_gateway != cfg.uplink_gateway &&
+            RunStep(BuildUplinkMainDefaultRouteArgv(owned_main_gateway, iface, "del"),
+                    "old uplink main default route")) {
+            owned_main_gateway.clear();
+            slot_available = true;
+        }
+        if (IsIpv4Literal(cfg.uplink_gateway) &&
+            (slot_available || owned_main_gateway == cfg.uplink_gateway) &&
+            RunStep(BuildUplinkMainDefaultRouteArgv(cfg.uplink_gateway, iface, "replace"),
+                    "uplink main default route")) {
+            owned_main_gateway = cfg.uplink_gateway;
+        }
+    }
+
     // Egress-only firewall as a SINGLE atomic nft transaction (F7): a re-apply
     // (idempotent self-heal / carrier flap) swaps the whole ruleset at once, with NO
     // rule-less window where inbound is accepted on the uplink. THIS is the security
@@ -475,6 +552,8 @@ auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& 
     applied = WriteAndApplyFirewallScript(iface) && applied;
     return applied;
 }
+
+auto PolicyRouting::RefreshEgressFirewall() -> void { ApplyEgressFirewall(); }
 
 auto PolicyRouting::ApplyEgressFirewall() -> void {
     const std::string iface = DetectWiredIface();
@@ -499,6 +578,20 @@ auto PolicyRouting::TeardownUplinkRouting() -> void {
                  kUplinkRouteTable);
     RunStep(BuildUplinkRuleDelArgv(), "uplink rule del");
     RunStep(BuildUplinkRouteFlushArgv(), "uplink route flush");
+    const std::string iface = DetectWiredIface();
+    const auto installed = IsSafeIfaceName(iface)
+                               ? CaptureBounded({"ip", "-o", "-4", "route", "show", "default",
+                                                 "dev", iface, "metric", "90"},
+                                                kQueryTimeout)
+                               : CaptureResult{};
+    if (installed.ok) {
+        owned_main_gateway = OwnedMainDefaultGateway(installed.output);
+    }
+    if (!owned_main_gateway.empty() && installed.ok &&
+        RunStep(BuildUplinkMainDefaultRouteArgv(owned_main_gateway, iface, "del"),
+                "uplink main default route del")) {
+        owned_main_gateway.clear();
+    }
     RunStep(BuildFirewallDeleteTableArgv(), "firewall delete table");
     RemoveXtFirewall();
 }
