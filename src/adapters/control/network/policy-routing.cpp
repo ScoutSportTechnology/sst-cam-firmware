@@ -193,7 +193,9 @@ auto DetachOldXtChain(const char* tool, const char* old) -> bool {
         spdlog::error("PolicyRouting: old xt firewall jump still attached; refusing to flush");
         return false;
     }
-    return RunStep({tool, "-w", "-X", old}, "old xt firewall delete");
+    RunStep({tool, "-w", "-F", old}, "old xt firewall flush");
+    RunStep({tool, "-w", "-X", old}, "old xt firewall delete");
+    return true;
 }
 
 auto InstallXtFirewall(const std::string& iface, const std::string& address) -> bool {
@@ -209,7 +211,13 @@ auto InstallXtFirewall(const std::string& iface, const std::string& address) -> 
     const bool use_chain_a = chain_a_ipv4 || chain_a_ipv6;
     const bool use_chain_b = chain_b_ipv4 || chain_b_ipv6;
     if (use_chain_a && use_chain_b) {
-        return false;
+        const bool ipv4_detached = DetachOldXtChain("iptables-nft", kXtChainA);
+        const bool ipv6_detached = DetachOldXtChain("ip6tables-nft", kXtChainA);
+        if (!ipv4_detached || !ipv6_detached) {
+            spdlog::error(
+                "PolicyRouting: old xt firewall chain remains; stateful chain B is active");
+        }
+        return true;
     }
     if (chain_a_ipv4 != chain_a_ipv6 || chain_b_ipv4 != chain_b_ipv6) {
         spdlog::error("PolicyRouting: mismatched IPv4/IPv6 xt firewall jumps");
@@ -229,7 +237,12 @@ auto InstallXtFirewall(const std::string& iface, const std::string& address) -> 
                 "unfinished xt firewall detach");
         return false;
     }
-    return DetachOldXtChain("iptables-nft", old) && DetachOldXtChain("ip6tables-nft", old);
+    const bool ipv4_detached = DetachOldXtChain("iptables-nft", old);
+    const bool ipv6_detached = DetachOldXtChain("ip6tables-nft", old);
+    if (!ipv4_detached || !ipv6_detached) {
+        spdlog::error("PolicyRouting: old xt firewall chain remains; new stateful chain is active");
+    }
+    return true;
 }
 
 auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
