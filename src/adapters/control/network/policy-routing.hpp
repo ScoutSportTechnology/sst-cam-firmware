@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,12 @@ auto BuildFirewallRulesetScript(const std::string& iface,
 // return traffic for wired streaming. Empty on an unsafe iface.
 auto BuildStatelessFirewallRulesetScript(const std::string& iface,
                                          const std::string& address_cidr = {}) -> std::string;
+
+enum class FirewallBackend : std::uint8_t { kNft, kXt, kStateless };
+auto SelectFirewallBackend(bool nft_ct, bool xt_conntrack) -> FirewallBackend;
+auto BuildXtFirewallRuleArgv(const std::string& iface, const std::string& address_cidr,
+                             const std::string& operation, const std::string& rule,
+                             const std::string& chain = "SST_UPLINK") -> std::vector<std::string>;
 
 // The firmware-owned policy-routing adapter. Forks `ip`/`nft` (root) via the
 // bounded argv-vector subprocess helper (never a shell). Hardware-bound — verified

@@ -95,6 +95,9 @@ auto RunStep(const std::vector<std::string>& argv, const char* what) -> bool {
 // The single-transaction firewall script path (root, /run — tmpfs). Fixed, not
 // interpolated, so no untrusted token reaches the filesystem path.
 constexpr const char* kFirewallScriptPath = "/run/sst-uplink-firewall.nft";
+constexpr const char* kXtChainA = "SST_UPLINK_A";
+constexpr const char* kXtChainB = "SST_UPLINK_B";
+std::optional<bool> nft_ct_supported;
 
 // F7: write the whole egress-only firewall ruleset to a temp file and apply it with a
 // SINGLE `nft -f`, so nft swaps the table contents in ONE atomic transaction — no
@@ -136,6 +139,82 @@ auto WiredIpv4Cidr(const std::string& iface) -> std::string {
     return IsIpv4Cidr(cidr) ? cidr : std::string{};
 }
 
+auto Xt(const char* tool, const std::string& operation, const std::string& chain) -> bool {
+    return RunBounded({tool, "-w", operation, "INPUT", "-j", chain}, kApplyTimeout);
+}
+
+auto RemoveXtFirewall() -> void {
+    for (const char* tool : {"iptables-nft", "ip6tables-nft"}) {
+        for (const char* chain : {kXtChainA, kXtChainB}) {
+            while (Xt(tool, "-C", chain) &&
+                   RunStep({tool, "-w", "-D", "INPUT", "-j", chain}, "xt firewall detach")) {
+            }
+            RunStep({tool, "-w", "-F", chain}, "xt firewall flush");
+            RunStep({tool, "-w", "-X", chain}, "xt firewall delete");
+        }
+    }
+}
+
+auto PopulateXtChain(const char* tool, const char* target, const std::string& iface,
+                     const std::string& address) -> bool {
+    if (!RunBounded({tool, "-w", "-N", target}, kApplyTimeout) &&
+        (!RunBounded({tool, "-w", "-S", target}, kApplyTimeout) ||
+         !RunBounded({tool, "-w", "-F", target}, kApplyTimeout))) {
+        return false;
+    }
+    for (const char* rule : {"established", "ssh", "drop"}) {
+        if (std::string(tool) == "ip6tables-nft" && std::string(rule) == "ssh" &&
+            !address.empty()) {
+            continue;
+        }
+        auto argv = BuildXtFirewallRuleArgv(iface, address, "-A", rule, target);
+        argv.front() = tool;
+        if (!RunBounded(argv, kApplyTimeout)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+auto InstallXtFirewall(const std::string& iface, const std::string& address) -> bool {
+    const auto ipv4 = CaptureBounded({"iptables-nft", "-w", "-S", "INPUT"}, kQueryTimeout);
+    const auto ipv6 = CaptureBounded({"ip6tables-nft", "-w", "-S", "INPUT"}, kQueryTimeout);
+    if (!ipv4.ok || !ipv6.ok) {
+        return false;
+    }
+    const std::string attachments = ipv4.output + ipv6.output;
+    const bool a_active = attachments.find("-A INPUT -j SST_UPLINK_A") != std::string::npos;
+    const bool b_active = attachments.find("-A INPUT -j SST_UPLINK_B") != std::string::npos;
+    if (a_active && b_active) {
+        return false;
+    }
+    const char* target = a_active ? kXtChainB : kXtChainA;
+    if (ipv4.output.find(std::string("-A INPUT -j ") + target) != std::string::npos ||
+        ipv6.output.find(std::string("-A INPUT -j ") + target) != std::string::npos) {
+        return false;
+    }
+    if (!PopulateXtChain("iptables-nft", target, iface, address) ||
+        !PopulateXtChain("ip6tables-nft", target, iface, address)) {
+        return false;
+    }
+    if (!RunBounded({"ip6tables-nft", "-w", "-I", "INPUT", "1", "-j", target}, kApplyTimeout)) {
+        return false;
+    }
+    if (!RunBounded({"iptables-nft", "-w", "-I", "INPUT", "1", "-j", target}, kApplyTimeout)) {
+        RunStep({"ip6tables-nft", "-w", "-D", "INPUT", "-j", target},
+                "unfinished xt firewall detach");
+        return false;
+    }
+    const char* old = std::string(target) == kXtChainA ? kXtChainB : kXtChainA;
+    for (const char* tool : {"iptables-nft", "ip6tables-nft"}) {
+        while (Xt(tool, "-C", old) &&
+               RunStep({tool, "-w", "-D", "INPUT", "-j", old}, "old xt firewall detach")) {
+        }
+        RunStep({tool, "-w", "-X", old}, "old xt firewall delete");
+    }
+    return true;
+}
+
 auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
     const std::string address = WiredIpv4Cidr(iface);
     const std::string stateful = BuildFirewallRulesetScript(iface, address);
@@ -143,9 +222,25 @@ auto WriteAndApplyFirewallScript(const std::string& iface) -> bool {
         spdlog::warn("PolicyRouting: refusing firewall script for unsafe iface '{}'", iface);
         return false;
     }
-    if (WriteAndApplyScript(stateful, "stateful firewall ruleset")) {
+    if (!nft_ct_supported.has_value()) {
+        nft_ct_supported = WriteAndApplyScript(stateful, "stateful firewall ruleset");
+    } else if (*nft_ct_supported && !WriteAndApplyScript(stateful, "stateful firewall ruleset")) {
+        nft_ct_supported = false;
+    }
+    if (*nft_ct_supported) {
+        RemoveXtFirewall();
         spdlog::info("PolicyRouting: egress-only firewall active on {} (stateful, ct state)",
                      iface);
+        return true;
+    }
+    const bool xt_ready = InstallXtFirewall(iface, address);
+    if (SelectFirewallBackend(*nft_ct_supported, xt_ready) == FirewallBackend::kXt) {
+        if (!RunBounded(BuildFirewallDeleteTableArgv(), kApplyTimeout) &&
+            RunBounded({"nft", "list", "table", "inet", kUplinkNftTable}, kQueryTimeout)) {
+            spdlog::error("PolicyRouting: obsolete nft firewall still active on {}", iface);
+            return false;
+        }
+        spdlog::info("PolicyRouting: egress-only firewall active on {} (xt_conntrack)", iface);
         return true;
     }
     // If conntrack is unavailable, deny all unsolicited input on the wired
@@ -270,6 +365,39 @@ auto BuildFirewallDeleteTableArgv() -> std::vector<std::string> {
     return {"nft", "delete", "table", "inet", kUplinkNftTable};
 }
 
+auto SelectFirewallBackend(bool nft_ct, bool xt_conntrack) -> FirewallBackend {
+    if (nft_ct) {
+        return FirewallBackend::kNft;
+    }
+    return xt_conntrack ? FirewallBackend::kXt : FirewallBackend::kStateless;
+}
+
+auto BuildXtFirewallRuleArgv(const std::string& iface, const std::string& address_cidr,
+                             const std::string& operation, const std::string& rule,
+                             const std::string& chain) -> std::vector<std::string> {
+    if (!IsSafeIfaceName(iface) || (!address_cidr.empty() && !IsIpv4Cidr(address_cidr)) ||
+        (operation != "-A" && operation != "-C") ||
+        (chain != "SST_UPLINK" && chain != "SST_UPLINK_A" && chain != "SST_UPLINK_B")) {
+        return {};
+    }
+    std::vector<std::string> argv{"iptables-nft", "-w", operation, chain, "-i", iface};
+    if (rule == "established") {
+        argv.insert(argv.end(),
+                    {"-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"});
+    } else if (rule == "ssh") {
+        const auto subnet = NetworkCidrOf(address_cidr);
+        if (!subnet.empty()) {
+            argv.insert(argv.end(), {"-s", subnet});
+        }
+        argv.insert(argv.end(), {"-p", "tcp", "--dport", "22", "-j", "ACCEPT"});
+    } else if (rule == "drop") {
+        argv.insert(argv.end(), {"-j", "DROP"});
+    } else {
+        return {};
+    }
+    return argv;
+}
+
 auto BuildFirewallRulesetScript(const std::string& iface,
                                 const std::string& address_cidr) -> std::string {
     if (!IsSafeIfaceName(iface) || (!address_cidr.empty() && !IsIpv4Cidr(address_cidr))) {
@@ -372,6 +500,7 @@ auto PolicyRouting::TeardownUplinkRouting() -> void {
     RunStep(BuildUplinkRuleDelArgv(), "uplink rule del");
     RunStep(BuildUplinkRouteFlushArgv(), "uplink route flush");
     RunStep(BuildFirewallDeleteTableArgv(), "firewall delete table");
+    RemoveXtFirewall();
 }
 
 }  // namespace sst::adapters::control
