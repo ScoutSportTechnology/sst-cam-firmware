@@ -30,11 +30,14 @@ using sst::adapters::control::BuildUplinkRouteFlushArgv;
 using sst::adapters::control::BuildUplinkRuleAddArgv;
 using sst::adapters::control::BuildUplinkRuleDelArgv;
 using sst::adapters::control::BuildUplinkSubnetRouteArgv;
+using sst::adapters::control::BuildXtFirewallRuleArgv;
+using sst::adapters::control::FirewallBackend;
 using sst::adapters::control::IsSafeIfaceName;
 using sst::adapters::control::kUplinkNftTable;
 using sst::adapters::control::kUplinkRouteTable;
 using sst::adapters::control::kUplinkRulePriority;
 using sst::adapters::control::NetworkCidrOf;
+using sst::adapters::control::SelectFirewallBackend;
 using Argv = std::vector<std::string>;
 
 auto Contains(const Argv& argv, const std::string& token) -> bool {
@@ -235,6 +238,25 @@ TEST(PolicyRoutingCommandTest, FirewallRulesetScriptRefusesUnsafeIface) {
     EXPECT_TRUE(BuildFirewallRulesetScript("eth0; nft flush ruleset").empty());
     EXPECT_TRUE(BuildFirewallRulesetScript("eth0\naccept").empty());
     EXPECT_TRUE(BuildFirewallRulesetScript("-eth0").empty());
+}
+
+TEST(PolicyRoutingCommandTest, SelectsStatefulXtBeforeStatelessFallback) {
+    EXPECT_EQ(SelectFirewallBackend(true, true), FirewallBackend::kNft);
+    EXPECT_EQ(SelectFirewallBackend(false, true), FirewallBackend::kXt);
+    EXPECT_EQ(SelectFirewallBackend(false, false), FirewallBackend::kStateless);
+}
+
+TEST(PolicyRoutingCommandTest, XtFirewallRulesKeepRepliesAndLanSsh) {
+    EXPECT_EQ(BuildXtFirewallRuleArgv("enP8p1s0", "10.10.1.30/24", "-A", "established"),
+              (Argv{"iptables-nft", "-w", "-A", "SST_UPLINK", "-i", "enP8p1s0", "-m", "conntrack",
+                    "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"}));
+    EXPECT_EQ(BuildXtFirewallRuleArgv("enP8p1s0", "10.10.1.30/24", "-A", "ssh"),
+              (Argv{"iptables-nft", "-w", "-A", "SST_UPLINK", "-i", "enP8p1s0", "-s",
+                    "10.10.1.0/24", "-p", "tcp", "--dport", "22", "-j", "ACCEPT"}));
+    EXPECT_EQ(BuildXtFirewallRuleArgv("enP8p1s0", "10.10.1.30/24", "-A", "drop"),
+              (Argv{"iptables-nft", "-w", "-A", "SST_UPLINK", "-i", "enP8p1s0", "-j", "DROP"}));
+    EXPECT_TRUE(BuildXtFirewallRuleArgv("eth0;bad", "", "-A", "drop").empty());
+    EXPECT_TRUE(BuildXtFirewallRuleArgv("eth0", "10.0.0.1/24\ninvalid", "-A", "ssh").empty());
 }
 
 // ---- adapter live surface (ON-DEVICE): bounded + never throws in the container ----
