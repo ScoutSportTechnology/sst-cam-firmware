@@ -32,8 +32,8 @@ shell:
 
 # --- build and test --------------------------------------------------------
 
-test:
-    @just _run "scripts/ci/recipes.sh test"
+test filter="":
+    @just _run "scripts/ci/recipes.sh test {{filter}}"
 
 test-device:
     @just _run 'ctest --preset test -L hardware -j "$(nproc)" --output-on-failure'
@@ -50,8 +50,8 @@ compile:
 build:
     @just _run "scripts/ci/recipes.sh build"
 
-ci:
-    @just _run "scripts/ci/recipes.sh ci"
+ci scope="":
+    @just _run "scripts/ci/recipes.sh ci {{scope}}"
 
 # --- local deploy loop ----------------------------------------------------
 
@@ -90,7 +90,11 @@ _run +cmd:
         git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
         docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
         test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
+        docker volume create sst-conan2 >/dev/null; \
+        docker volume create sst-ccache >/dev/null; \
+        docker volume create sst-apt-cache >/dev/null; \
         docker run --rm --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
+            -v sst-conan2:/root/.conan2 -v sst-ccache:/root/.ccache -v sst-apt-cache:/var/cache/apt/archives \
             -w "{{justfile_directory()}}" -e BASE="${BASE:-origin/development}" -e BASE_REF="${BASE_REF:-development}" -e SST_RELEASE_TAG="${SST_RELEASE_TAG:-}" "$image" \
-            bash -lc 'set -euo pipefail; if [[ "$1" == *"recipes.sh lint"* || "$1" == *"recipes.sh ci"* ]]; then apt-get update -qq; apt-get install -y -qq --no-install-recommends clang-tidy clang-format shellcheck >/dev/null; fi; exec bash -lc "$1"' _ "{{cmd}}"; \
+            bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends clang-tidy clang-format shellcheck ccache >/dev/null; exec bash -lc "$1"' _ "{{cmd}}"; \
     fi
