@@ -13,11 +13,15 @@ setup_ccache() {
     export CCACHE_DIR="${CCACHE_DIR:-/root/.ccache}"
     export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-20G}"
     export CCACHE_BASEDIR="${CCACHE_BASEDIR:-$(pwd)}"
+    export CCACHE_NOHASHDIR=1
+    export CCACHE_COMPILERCHECK=content
     export CMAKE_C_COMPILER_LAUNCHER=ccache
     export CMAKE_CXX_COMPILER_LAUNCHER=ccache
     ccache -M "$CCACHE_MAXSIZE" >/dev/null 2>&1 || true
     ccache -z >/dev/null 2>&1 || true
+    return 0
   fi
+  return 1
 }
 
 # Run cmake --preset with flock serialization on the shared Conan cache.
@@ -30,15 +34,25 @@ run_cmake_preset() {
   # Ensure the lock directory exists
   mkdir -p "$(dirname "$lock_file")"
 
+  # Prepare ccache args if available
+  local ccache_args=()
+  if command -v ccache >/dev/null 2>&1; then
+    ccache_args=(
+      -DCMAKE_C_COMPILER_LAUNCHER=ccache
+      -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    )
+  fi
+
   # Only serialize the first configure (which runs Conan); subsequent builds are parallel-safe.
   if [ ! -f "build/$preset/CMakeCache.txt" ]; then
     eval "exec $lock_fd>\"$lock_file\""
     flock "$lock_fd"
-    cmake --preset "$preset"
+    cmake --preset "$preset" "${ccache_args[@]}"
     flock -u "$lock_fd"
     eval "exec $lock_fd>&-"
   else
-    cmake --preset "$preset"
+    # Reconfigure with ccache args to ensure they're picked up (CMake caches these values)
+    cmake --preset "$preset" "${ccache_args[@]}"
   fi
 }
 
