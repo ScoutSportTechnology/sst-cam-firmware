@@ -96,5 +96,5 @@ _run +cmd:
         docker run --rm --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
             -v sst-conan2:/root/.conan2 -v sst-ccache:/root/.ccache -v sst-apt-cache:/var/cache/apt/archives \
             -w "{{justfile_directory()}}" -e BASE="${BASE:-origin/development}" -e BASE_REF="${BASE_REF:-development}" -e SST_RELEASE_TAG="${SST_RELEASE_TAG:-}" "$image" \
-            bash -lc 'set -euo pipefail; if [[ "$1" == *"recipes.sh lint"* || "$1" == *"recipes.sh ci"* ]]; then apt-get update -qq; apt-get install -y -qq --no-install-recommends clang-tidy clang-format shellcheck ccache >/dev/null; fi; exec bash -lc "$1"' _ "{{cmd}}"; \
+            bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends clang-tidy clang-format shellcheck ccache >/dev/null; exec bash -lc "$1"' _ "{{cmd}}"; \
     fi

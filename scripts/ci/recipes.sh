@@ -19,9 +19,7 @@ setup_ccache() {
     export CMAKE_CXX_COMPILER_LAUNCHER=ccache
     ccache -M "$CCACHE_MAXSIZE" >/dev/null 2>&1 || true
     ccache -z >/dev/null 2>&1 || true
-    return 0
   fi
-  return 1
 }
 
 # Run cmake --preset with flock serialization on the shared Conan cache.
