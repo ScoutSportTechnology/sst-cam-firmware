@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Fix for "fatal: detected dubious ownership in repository" when the checkout
+# is owned by a different UID than the container user (root).
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0='*'
+
 case "${1:-}" in
 lint)
   scope="${2:-full}"
@@ -8,22 +14,69 @@ lint)
     cmake --preset test
     cmake --build --preset test --target sst_proto
     source scripts/tidy-args.sh
-    files="$(git diff --name-only "${BASE:-origin/development}" -- src tests; git diff --name-only -- src tests; git ls-files --others --exclude-standard -- src tests)"
+
+    # Get changed files (excluding deleted)
+    changed_files="$(git diff --name-only --diff-filter=d "${BASE:-origin/development}" -- src tests; git diff --name-only --diff-filter=d -- src tests; git ls-files --others --exclude-standard -- src tests)"
+
+    # Build list of translation units to lint
+    tu_files=""
+
+    # Add changed .cpp/.cc files directly
+    tu_files="$(printf '%s\n' "$changed_files" | grep -E '\.(cpp|cc)$' || true)"
+
+    # For each changed header under src/ or tests/, find .cpp/.cc that include it
+    changed_headers="$(printf '%s\n' "$changed_files" | grep -E '\.(hpp|h)$' | grep -E '^(src|tests)/' || true)"
+    if [ -n "$changed_headers" ]; then
+      while IFS= read -r header; do
+        [ -n "$header" ] || continue
+        # Find includes by matching the include path
+        include_name="${header#src/}"
+        include_name="${include_name#tests/}"
+        # Find .cpp/.cc files that include this header
+        matching="$(grep -rl "#include.*${include_name}" src tests --include='*.cpp' --include='*.cc' 2>/dev/null || true)"
+        if [ -n "$matching" ]; then
+          tu_files+="$(printf '\n%s\n' "$matching")"
+        else
+          # Fallback: try matching by basename
+          basename_header="$(basename "$header")"
+          matching="$(grep -rl "#include.*${basename_header}" src tests --include='*.cpp' --include='*.cc' 2>/dev/null || true)"
+          if [ -n "$matching" ]; then
+            tu_files+="$(printf '\n%s\n' "$matching")"
+          fi
+        fi
+      done <<<"$changed_headers"
+    fi
+
+    # Deduplicate
+    tu_files="$(printf '%s\n' "$tu_files" | sort -u | sed '/^$/d')"
+
+    # Fall back to full tidy if too many TUs or config files changed
+    config_changed="$(printf '%s\n' "$changed_files" | grep -E '^(\.clang-tidy|scripts/tidy-args\.sh|scripts/ci/tidy-run\.sh|CMakeLists\.txt|cmake/.*|CMakePresets\.json|conanfile\.py)$' || true)"
+    tu_count="$(printf '%s\n' "$tu_files" | grep -c '^' || echo 0)"
+
+    if [ -n "$config_changed" ] || [ "$tu_count" -gt 150 ]; then
+      echo "lint: falling back to full tidy (config_changed=$config_changed, tu_count=$tu_count)"
+      scripts/ci/tidy-run.sh full
+    else
+      if [ -n "$tu_files" ]; then
+        printf '%s\n' "$tu_files" | xargs -r -P "$(nproc)" -n 1 clang-tidy -p build/test "${TIDY_EXTRA_ARGS[@]}"
+      fi
+    fi
   elif [ "$scope" = full ]; then
     files="$(find src tests \( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \) -not -path '*/_old/*')"
+    if [ -z "$files" ]; then exit 1; fi
+    scripts/ci/tidy-run.sh full
   else
     exit 2
   fi
-  if [ "$scope" = full ] && [ -z "$files" ]; then exit 1; fi
-  if printf '%s\n' "$files" | grep -Eq '\.(cpp|hpp|cc|h)$'; then
-    printf '%s\n' "$files" | grep -E '\.(cpp|hpp|cc|h)$' | xargs -r clang-format-18 --dry-run --Werror
-  fi
+
+  # Common checks for both scopes
   if [ "$scope" = changed ]; then
-    if printf '%s\n' "$files" | grep -Eq '\.(cpp|cc)$'; then
-      printf '%s\n' "$files" | grep -E '\.(cpp|cc)$' | xargs -r -P "$(nproc)" -n 1 clang-tidy -p build/test "${TIDY_EXTRA_ARGS[@]}"
+    if [ -n "$tu_files" ] && printf '%s\n' "$tu_files" | grep -Eq '\.(cpp|hpp|cc|h)$'; then
+      printf '%s\n' "$tu_files" | grep -E '\.(cpp|hpp|cc|h)$' | xargs -r clang-format-18 --dry-run --Werror
     fi
-  else
-    scripts/ci/tidy-run.sh full
+  elif printf '%s\n' "$files" | grep -Eq '\.(cpp|hpp|cc|h)$'; then
+    printf '%s\n' "$files" | grep -E '\.(cpp|hpp|cc|h)$' | xargs -r clang-format-18 --dry-run --Werror
   fi
   scripts/test-check-floor-nolints.sh
   scripts/check-floor-nolints.sh "${BASE:-origin/development}"

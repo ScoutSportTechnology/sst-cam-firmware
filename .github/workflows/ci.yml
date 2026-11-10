@@ -66,12 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
-      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
+      - run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -121,12 +118,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
-      - uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
+      - run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -149,7 +143,7 @@ jobs:
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just compile'
 
   test:
-    needs: [changes, image, lint]
+    needs: [changes, image]
     if: ${{ always() && (github.base_ref == 'main' || github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
     steps:
@@ -158,12 +152,9 @@ jobs:
       - if: ${{ github.base_ref != 'main' }}
         run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - if: ${{ github.base_ref != 'main' }}
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          df -h /
       - if: ${{ github.base_ref != 'main' }}
         uses: actions/checkout@v4
         with:
