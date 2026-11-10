@@ -220,11 +220,25 @@ auto PipelineOrchestrator::ConsumerLoop() -> void {
         if (cadence >= cameras_.size()) {
             cadence = 0;
         }
+
+        // Check if we need side-by-side (both cameras must be present for composite)
+        const bool want_side_by_side =
+            preview_layout_ != nullptr && compositor_ != nullptr && cameras_.size() >= 2 &&
+            preview_layout_->Get() == sst::streaming::PreviewLayout::kSideBySide;
+
         std::vector<std::optional<sst::processing::FrameBundle>> latest(cameras_.size());
         latest[cadence] = slots_[cadence]->Pop(config_.consumer_pop_timeout);
+
         for (std::size_t i = 0; i < cameras_.size(); ++i) {
             if (i != cadence) {
-                latest[i] = slots_[i]->TryPop();
+                // In SIDE_BY_SIDE mode with 2 cameras, we must wait for the other
+                // camera's frame to produce the composite. Use a bounded wait so we
+                // don't stall indefinitely if that camera stalls.
+                if (want_side_by_side && cameras_.size() == 2) {
+                    latest[i] = slots_[i]->Pop(config_.consumer_pop_timeout);
+                } else {
+                    latest[i] = slots_[i]->TryPop();
+                }
             }
         }
 
