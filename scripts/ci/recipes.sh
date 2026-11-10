@@ -7,11 +7,43 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0='*'
 
+# Detect ccache availability and set up launcher flags for CMake
+setup_ccache() {
+  if command -v ccache >/dev/null 2>&1; then
+    export CCACHE_DIR="${CCACHE_DIR:-/root/.ccache}"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-20G}"
+    export CCACHE_BASEDIR="${CCACHE_BASEDIR:-$(pwd)}"
+    export CMAKE_C_COMPILER_LAUNCHER=ccache
+    export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+    ccache -M "$CCACHE_MAXSIZE" >/dev/null 2>&1 || true
+    ccache -z >/dev/null 2>&1 || true
+  fi
+}
+
+# Run cmake --preset with flock serialization on the shared Conan cache.
+# This prevents concurrent Conan installs from multiple worktrees corrupting the cache.
+run_cmake_preset() {
+  local preset="$1"
+  local lock_file="/root/.conan2/.cmake_configure.lock"
+  local lock_fd=200
+
+  # Only serialize the first configure (which runs Conan); subsequent builds are parallel-safe.
+  if [ ! -f "build/$preset/CMakeCache.txt" ]; then
+    eval "exec $lock_fd>\"$lock_file\""
+    flock "$lock_fd"
+    cmake --preset "$preset"
+    flock -u "$lock_fd"
+    eval "exec $lock_fd>&-"
+  else
+    cmake --preset "$preset"
+  fi
+}
+
 case "${1:-}" in
 lint)
   scope="${2:-full}"
   if [ "$scope" = changed ]; then
-    cmake --preset test
+    run_cmake_preset test
     cmake --build --preset test --target sst_proto
     source scripts/tidy-args.sh
 
@@ -84,34 +116,60 @@ lint)
   scripts/ci/check-proto-pin.sh "${BASE_REF:-development}"
   ;;
 compile)
-  cmake --preset debug
+  setup_ccache
+  run_cmake_preset debug
   cmake --build --preset debug -j "$(nproc)"
   ;;
 test)
-  cmake --preset test
+  setup_ccache
+  run_cmake_preset test
   cmake --build --preset test -j "$(nproc)"
-  QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware --output-on-failure
+  test_filter="${2:-}"
+  if [ -n "$test_filter" ]; then
+    QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware -R "$test_filter" --output-on-failure
+  else
+    QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware --output-on-failure
+  fi
   scripts/ci/test-tidy-run.sh
   deploy/install-test.sh
   ;;
 build)
-  cmake --preset release
+  setup_ccache
+  run_cmake_preset release
   cmake --build --preset release -j "$(nproc)"
   mkdir -p dist
   cp build/release/bin/sst_cam_firmware dist/sst_cam_firmware-aarch64
   ;;
 ci)
-  cmake --preset test
-  cmake --preset debug
-  scripts/ci/recipes.sh lint & lint_pid=$!
-  scripts/ci/recipes.sh compile & compile_pid=$!
-  lint_status=0
-  compile_status=0
-  wait "$lint_pid" || lint_status=$?
-  wait "$compile_pid" || compile_status=$?
-  test "$lint_status" -eq 0
-  test "$compile_status" -eq 0
-  scripts/ci/recipes.sh test
+  # ci [changed]
+  scope="${2:-}"
+  if [ "$scope" = "changed" ]; then
+    # Changed scope: lint changed in parallel with compile, then test
+    run_cmake_preset test
+    run_cmake_preset debug
+    scripts/ci/recipes.sh lint changed & lint_pid=$!
+    scripts/ci/recipes.sh compile & compile_pid=$!
+    lint_status=0
+    compile_status=0
+    wait "$lint_pid" || lint_status=$?
+    wait "$compile_pid" || compile_status=$?
+    test "$lint_status" -eq 0
+    test "$compile_status" -eq 0
+    scripts/ci/recipes.sh test
+  else
+    # Full gate (unchanged behavior)
+    run_cmake_preset test
+    run_cmake_preset debug
+    scripts/ci/recipes.sh lint & lint_pid=$!
+    scripts/ci/recipes.sh compile & compile_pid=$!
+    lint_status=0
+    compile_status=0
+    wait "$lint_pid" || lint_status=$?
+    wait "$compile_pid" || compile_status=$?
+    test "$lint_status" -eq 0
+    test "$compile_status" -eq 0
+    scripts/ci/recipes.sh test
+  fi
   ;;
 *)
   exit 2

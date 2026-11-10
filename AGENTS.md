@@ -99,6 +99,25 @@ Tests must verify behaviour end-to-end at the **module** boundary: feed real inp
 
 Use `just up` to check the pinned compiler image, then `just lint` (full-tree formatting, clang-tidy, shellcheck, floor-NOLINT and proto pin), `just fmt` (auto-fix), `just compile` (incremental debug build), `just test` (parallel container-runnable tests), `just test-device` (on Jetson), and `just build` (release binary in `dist/`). `just ci` runs lint, compile and test; `just clean` and `just shell` remain available. Recipes run inside the compiler image when invoked from the host. Run `just ci` before opening a PR; `just lint changed` is a faster local iteration check, not the full gate.
 
+## Local fast loop (shared caches)
+
+The `_run` target mounts three named Docker volumes so repeated invocations are fast:
+
+| Volume | Mount point | Purpose |
+|---|---|---|
+| `sst-conan2` | `/root/.conan2` | Shared Conan 2 package cache — avoids rebuilding fmt, spdlog, gtest on every configure. |
+| `sst-ccache` | `/root/.ccache` | Shared ccache — compiler hits across worktrees. Enabled automatically when `ccache` is on `PATH` (installed at run time). |
+| `sst-apt-cache` | `/var/cache/apt/archives` | Cached `.deb` files — avoids `apt-get update` + re-download on every lint/CI run. |
+
+**Conan cache serialization:** the first `cmake --preset …` (which runs `cmake-conan`) is serialized with `flock` on `/root/.conan2/.cmake_configure.lock` so concurrent worktrees never corrupt the cache. Builds and tests remain fully parallel.
+
+**Recipes:**
+
+- `just test <filter>` — optional filter passed to `ctest -R <filter>`. Example: `just test NmcliCommandTest`. No filter = full suite.
+- `just ci changed` — fast gate for a one-file change: runs `lint changed` in parallel with `compile`, then `test`. The full gate is still `just ci` (no argument).
+
+**Clearing caches:** `docker volume rm sst-conan2 sst-ccache sst-apt-cache` (run on the host).
+
 ## Linting & formatting
 
 ```bash
