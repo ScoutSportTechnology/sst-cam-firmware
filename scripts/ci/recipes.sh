@@ -27,6 +27,9 @@ run_cmake_preset() {
   local lock_file="/root/.conan2/.cmake_configure.lock"
   local lock_fd=200
 
+  # Ensure the lock directory exists
+  mkdir -p "$(dirname "$lock_file")"
+
   # Only serialize the first configure (which runs Conan); subsequent builds are parallel-safe.
   if [ ! -f "build/$preset/CMakeCache.txt" ]; then
     eval "exec $lock_fd>\"$lock_file\""
