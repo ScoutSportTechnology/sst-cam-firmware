@@ -17,8 +17,9 @@ auto SystemClockSyncSource::IsSynced() const -> bool {
         // Both failed, assume not synced
         return false;
     }
-    // TIME_ERROR (0x0001) means the clock is not synchronized
-    return (timex_params.status & 0x0001) == 0;
+    // STA_UNSYNC (0x0040) means the clock is not synchronized (NTP)
+    constexpr int kStaUnsync = 0x0040;
+    return (timex_params.status & kStaUnsync) == 0;
 }
 
 ClockSyncMonitor::ClockSyncMonitor(std::unique_ptr<IClockSyncSource> source,

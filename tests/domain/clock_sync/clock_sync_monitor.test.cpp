@@ -126,4 +126,23 @@ TEST_F(ClockSyncMonitorTest, IsSyncedReturnsCurrentState) {
     EXPECT_TRUE(monitor.IsSynced());
 }
 
+TEST_F(ClockSyncMonitorTest, HardwareBootSequenceUnsyncedThenSynced) {
+    // Reproduces the hardware sequence observed:
+    // 1. At boot: clock is NOT synced (1969 timestamp, NTPSynchronized=no)
+    // 2. NTP sync occurs: clock becomes synced (NTPSynchronized=yes)
+    // Expected: exactly one "clock: synced=no" on first check, then one transition to synced
+    auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{false, true, true, true});
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
+
+    monitor.CheckAndLog();  // First call at boot: unsynced
+    monitor.CheckAndLog();  // Second call: now synced
+    monitor.CheckAndLog();  // Third call: still synced
+    monitor.CheckAndLog();  // Fourth call: still synced
+
+    ASSERT_EQ(logs_.size(), 2);
+    EXPECT_EQ(logs_[0], "clock: synced=no");
+    EXPECT_EQ(logs_[1], "clock: synced=yes (wall-clock jump detected)");
+}
+
 }  // namespace sst::domain::clock_sync

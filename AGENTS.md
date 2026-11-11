@@ -206,6 +206,27 @@ Default `GITHUB_TOKEN` only — no PAT/App. The "Release Tags" ruleset permits c
 - The compiler-image build is heavy (~35 min, ~7.6 GB of NVIDIA downloads) and can flake on hosted runners — re-run with `gh run rerun <id> --failed`.
 - Install/update on a Jetson: `deploy/install.sh` installs a **released** (stable, rc or beta) binary (see `deploy/README.md`).
 
+### Debugging on device
+
+**Read firmware logs across a reboot (persistent journald):**
+```bash
+# Previous boot (-1), short-monotonic time (works across wall-clock jumps)
+journalctl -b -1 -o short-monotonic -u sst-cam-firmware --no-pager
+
+# Current boot (-0), short-monotonic
+journalctl -b 0 -o short-monotonic -u sst-cam-firmware --no-pager
+
+# Live follow
+journalctl -f -u sst-cam-firmware -o short-monotonic
+```
+
+The `short-monotonic` format prints timestamps as seconds since boot, so they remain meaningful even when the wall clock jumps at NTP sync. The `-b -1` flag reads the previous boot's journal (requires persistent journald, configured by `deploy/install.sh`).
+
+**Check NTP sync state:**
+```bash
+timedatectl show -p NTPSynchronized
+```
+
 ## Release lifecycle
 
 ```
