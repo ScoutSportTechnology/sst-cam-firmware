@@ -1,13 +1,19 @@
 #include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -16,9 +22,11 @@
 #include "adapters/control/network/ip-ethernet-configurator.hpp"
 #include "adapters/control/network/ip-route-uplink-probe.hpp"
 #include "adapters/control/network/iw-station-rssi-probe.hpp"
+#include "adapters/control/network/net-iface.hpp"
 #include "adapters/control/network/nmcli-uplink-configurator.hpp"
 #include "adapters/control/network/policy-routing.hpp"
 #include "adapters/control/network/subprocess.hpp"
+#include "adapters/control/system/gpu-probe.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 #include "adapters/control/wifi/wpa_supplicant/ip-network-configurator.hpp"
@@ -65,6 +73,7 @@
 #include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/control/services/handlers/thumbnail.handler.hpp"
 #include "app/control/services/handlers/wifi-direct.handler.hpp"
+#include "app/control/services/startup-preflight.hpp"
 #include "app/control/services/telemetry_probe/telemetry-probe.hpp"
 #include "app/decision/services/manual_decision/manual-decision.hpp"
 #include "app/network/services/connectivity_arbiter/connectivity-arbiter.hpp"
@@ -141,6 +150,30 @@ auto NowEpochMs() -> std::uint64_t {
                                           .count());
 }
 
+auto NotifySystemd(const char* message) -> void {
+    const char* path = std::getenv("NOTIFY_SOCKET");
+    if (path == nullptr || *path == '\0') {
+        return;
+    }
+    const int socket_fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (socket_fd < 0) {
+        return;
+    }
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    const std::size_t length = std::strlen(path);
+    if (length > 0 && length < sizeof(addr.sun_path)) {
+        std::memcpy(addr.sun_path, path, length + 1);
+        if (path[0] == '@') {
+            addr.sun_path[0] = '\0';
+        }
+        (void)::sendto(socket_fd, message, std::strlen(message), MSG_NOSIGNAL,
+                       reinterpret_cast<const sockaddr*>(&addr),
+                       static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + length + 1));
+    }
+    ::close(socket_fd);
+}
+
 }  // namespace
 
 // App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
@@ -148,6 +181,7 @@ auto NowEpochMs() -> std::uint64_t {
 // transport -> proto dispatcher -> session SM + per-concern handlers) and runs
 // until terminated.
 namespace {
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 auto RunFirmware(const sigset_t& mask) -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
@@ -339,16 +373,17 @@ auto RunFirmware(const sigset_t& mask) -> int {
     sst::control::CommandDispatcher dispatcher;
 
     sst::pipeline::PipelineOrchestrator* live_pipeline = nullptr;
-    const auto camera_health =
-        [&live_pipeline](std::uint32_t index) -> std::optional<sst_cam::CameraHealth> {
-        return live_pipeline != nullptr ? live_pipeline->CameraHealth(index) : std::nullopt;
+    sst::control::StartupPreflight* live_startup = nullptr;
+    const auto camera_health = [&live_pipeline, &live_startup](
+                                   std::uint32_t index) -> std::optional<sst_cam::CameraHealth> {
+        if (live_pipeline == nullptr || live_startup == nullptr) {
+            return std::nullopt;
+        }
+        return live_pipeline->IsRunning() ? live_pipeline->CameraHealth(index)
+                                          : live_startup->CameraHealth(index);
     };
-    const auto components = [&disk_guard, &clock_monitor] {
-        sst_cam::DeviceComponents result;
-        result.set_clock_synced(clock_monitor.IsSynced());
-        result.set_storage(disk_guard.IsWritable() ? sst_cam::COMPONENT_STATUS_OK
-                                                   : sst_cam::COMPONENT_STATUS_MISSING);
-        return result;
+    const auto components = [&live_startup] {
+        return live_startup != nullptr ? live_startup->Components() : sst_cam::DeviceComponents{};
     };
     const auto required_health = [camera_health](std::uint32_t index) {
         return camera_health(index).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN);
@@ -559,20 +594,66 @@ auto RunFirmware(const sigset_t& mask) -> int {
     dispatcher.Register(
         std::make_shared<sst::control::ThumbnailHandler>(pipeline, jpeg_encoder, NowEpochMs));
 
-    if (!pipeline.Start()) {
-        spdlog::error("pipeline failed to start (camera unavailable?) — aborting");
-        return 1;
-    }
-    ble_transport.Start();
-    if (!ble_transport.IsRunning()) {
-        spdlog::error("BLE transport failed to start — aborting");
-        pipeline.Stop();
-        return 1;
-    }
-    if (!http_download_server.Start()) {
-        // Non-fatal: the camera still records/streams; only downloads are off.
-        spdlog::warn("HTTP download server failed to bind on :{} — downloads disabled",
-                     sst::runtime_defaults::kDownloadPort);
+    sst::control::StartupPreflight startup(
+        [&] {
+            const auto wifi = sst::adapters::control::DetectWifiStaIface();
+            const auto ethernet = sst::adapters::control::DetectWiredIface();
+            const auto gpu = sst::adapters::control::GpuAvailable();
+            const auto camera0 =
+                pipeline.IsRunning()
+                    ? pipeline.CameraHealth(0).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)
+                    : sst_cam::CAMERA_HEALTH_UNKNOWN;
+            const auto camera1 =
+                pipeline.IsRunning()
+                    ? pipeline.CameraHealth(1).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)
+                    : sst_cam::CAMERA_HEALTH_UNKNOWN;
+            return sst::control::StartupProbes{
+                .camera0 = camera0,
+                .camera1 = camera1,
+                .gpu = gpu ? sst_cam::COMPONENT_STATUS_OK : sst_cam::COMPONENT_STATUS_MISSING,
+                .wifi =
+                    wifi.empty() ? sst_cam::COMPONENT_STATUS_MISSING : sst_cam::COMPONENT_STATUS_OK,
+                .ethernet = ethernet.empty() ? sst_cam::COMPONENT_STATUS_MISSING
+                                             : sst_cam::COMPONENT_STATUS_OK,
+                .bluetooth = std::filesystem::exists("/sys/class/bluetooth/hci0")
+                                 ? sst_cam::COMPONENT_STATUS_OK
+                                 : sst_cam::COMPONENT_STATUS_MISSING,
+                .storage = disk_guard.IsWritable() ? sst_cam::COMPONENT_STATUS_OK
+                                                   : sst_cam::COMPONENT_STATUS_MISSING,
+                .clock_synced = clock_monitor.IsSynced()};
+        },
+        {.ble =
+             [&] {
+                 ble_transport.Start();
+                 return ble_transport.IsRunning();
+             },
+         .network = [] { return true; },
+         .http = [&] { return http_download_server.Start(); },
+         .pipeline = [&] { return pipeline.Start(); }});
+    live_startup = &startup;
+    startup.Poll();
+    auto log_components = [&] {
+        const auto status = startup.Components();
+        spdlog::info(
+            "preflight: camera0={} camera1={} gpu={} wifi={} ethernet={} bluetooth={} "
+            "storage={} clock_synced={} ble={} network={} http={} pipeline={}",
+            sst_cam::CameraHealth_Name(camera_health(0).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
+            sst_cam::CameraHealth_Name(camera_health(1).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
+            sst_cam::ComponentStatus_Name(status.gpu()),
+            sst_cam::ComponentStatus_Name(status.wifi()),
+            sst_cam::ComponentStatus_Name(status.ethernet()),
+            sst_cam::ComponentStatus_Name(status.bluetooth()),
+            sst_cam::ComponentStatus_Name(status.storage()), status.clock_synced(),
+            ble_transport.IsRunning(),
+            status.wifi() == sst_cam::COMPONENT_STATUS_OK ||
+                status.ethernet() == sst_cam::COMPONENT_STATUS_OK,
+            http_download_server.IsRunning(), pipeline.IsRunning());
+    };
+    log_components();
+    bool notified_ready = false;
+    if (startup.Ready()) {
+        NotifySystemd("READY=1");
+        notified_ready = true;
     }
 
     // Drive the display-only match clock at ~1 Hz (the app is still the timing
@@ -592,7 +673,27 @@ auto RunFirmware(const sigset_t& mask) -> int {
     spdlog::info("startup complete — advertising as {}", advertised_name);
 
     int signo = 0;
-    sigwait(&mask, &signo);
+    constexpr auto kRetryInterval = std::chrono::seconds{30};
+    constexpr auto kWatchdogInterval = std::chrono::seconds{5};
+    auto next_probe = std::chrono::steady_clock::now() + kRetryInterval;
+    while (true) {
+        timespec wait{.tv_sec = kWatchdogInterval.count(), .tv_nsec = 0};
+        signo = sigtimedwait(&mask, nullptr, &wait);
+        if (signo == SIGTERM || signo == SIGINT) {
+            break;
+        }
+        NotifySystemd("WATCHDOG=1");
+        if (std::chrono::steady_clock::now() >= next_probe) {
+            clock_monitor.CheckAndLog();
+            startup.Poll();
+            log_components();
+            if (!notified_ready && startup.Ready()) {
+                NotifySystemd("READY=1");
+                notified_ready = true;
+            }
+            next_probe = std::chrono::steady_clock::now() + kRetryInterval;
+        }
+    }
     spdlog::info("signal {} received — shutting down", signo);
 
     clock_running.store(false);
@@ -612,6 +713,9 @@ auto RunFirmware(const sigset_t& mask) -> int {
 // clean, instead of a silent std::terminate/abort that systemd merely restarts
 // (e.g. a malformed config file, or a subsystem that can't reach its hardware).
 auto main(int argc, char* argv[]) -> int {
+    if (argc == 2 && std::strcmp(argv[1], "--gpu-probe") == 0) {
+        return sst::adapters::control::RunGpuProbe();
+    }
     // Parse CLI arguments first, before any firmware initialization
     const std::string version = SST_FIRMWARE_VERSION;
     const std::string git_sha = SST_GIT_SHA;
