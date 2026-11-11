@@ -89,7 +89,7 @@ jobs:
           BASE_REF: ${{ github.base_ref || 'development' }}
           CHANGED: ${{ github.event_name == 'pull_request' && github.base_ref == 'development' }}
         run: |
-          docker run --rm --user root -v "$PWD":/workspace -w /workspace \
+          docker run --rm --network host --user root -v "$PWD":/workspace -w /workspace \
             -e BASE -e BASE_REF -e CHANGED \
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just clang-tidy clang-format shellcheck >/dev/null; just lint ${CHANGED:+changed}'
       - if: ${{ !env.ACT }}
@@ -146,7 +146,7 @@ jobs:
       - env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
-          docker run --rm --user root -v "$PWD":/workspace -w /workspace \
+          docker run --rm --network host --user root -v "$PWD":/workspace -w /workspace \
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just compile'
 
   test:
@@ -187,6 +187,6 @@ jobs:
         env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
-          docker run --rm --user root -v "$PWD":/workspace -w /workspace \
+          docker run --rm --network host --user root -v "$PWD":/workspace -w /workspace \
             -e QEMU_LD_PREFIX=/l4t/targetfs \
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just test'
