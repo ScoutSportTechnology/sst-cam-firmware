@@ -44,6 +44,9 @@ XORG_UNIT_PATH="/etc/systemd/system/xorg-headless.service"
 NVARGUS_DROPIN_DIR="/etc/systemd/system/nvargus-daemon.service.d"
 # polkit rule granting SERVICE_USER the logind reboot action (firmware Reboot cmd).
 POLKIT_RULE_PATH="/etc/polkit-1/rules.d/49-sst-cam-reboot.rules"
+# Journald drop-in for persistent logs with short sync interval.
+JOURNALD_DROPIN_DIR="/etc/systemd/journald.conf.d"
+JOURNALD_DROPIN_PATH="${JOURNALD_DROPIN_DIR}/90-sst-cam.conf"
 # Config dir the firmware reads on boot. MUST match the compiled-in path in
 # src/main.cpp (kConfigDir). The service runs as the non-root SERVICE_USER and
 # self-writes default JSON here on first boot for files it does not find, so the
@@ -207,6 +210,35 @@ api_get() {  # <url>
     -H "Accept: application/vnd.github+json" \
     -H "$API_VERSION_HEADER" \
     "$1"
+}
+
+# Journald drop-in for persistent logs with short sync interval.
+embedded_journald_dropin() {
+  cat <<'DROPIN'
+[Journal]
+Storage=persistent
+SyncIntervalSec=10
+SystemMaxUse=500M
+DROPIN
+}
+
+ensure_journald_dropin() {
+  local changed="no"
+  if [ ! -d "$JOURNALD_DROPIN_DIR" ]; then
+    log "Journald: creating drop-in directory ${JOURNALD_DROPIN_DIR} ..."
+    mkdir -p "$JOURNALD_DROPIN_DIR"
+    changed="yes"
+  fi
+  if [ ! -f "$JOURNALD_DROPIN_PATH" ] || ! embedded_journald_dropin | cmp -s - "$JOURNALD_DROPIN_PATH"; then
+    log "Journald: installing drop-in -> ${JOURNALD_DROPIN_PATH} ..."
+    embedded_journald_dropin > "$JOURNALD_DROPIN_PATH"
+    changed="yes"
+  fi
+  if [ "$changed" = "yes" ]; then
+    log "Journald: applying configuration ..."
+    systemd-tmpfiles --create --prefix /var/log/journal >/dev/null 2>&1 || true
+    systemctl restart systemd-journald || log "warning: systemd-journald restart failed"
+  fi
 }
 
 # --- One-time setup (idempotent) ---------------------------------------------
@@ -446,6 +478,9 @@ ensure_setup() {
   else
     log "Setup: WARNING /etc/polkit-1/rules.d absent — Reboot command will be denied until a polkit grant exists."
   fi
+
+  # Journald drop-in for persistent logs
+  ensure_journald_dropin
 
   if [ "$changed" = "yes" ]; then
     log "Setup complete."

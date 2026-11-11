@@ -208,7 +208,21 @@ if grep -q 'SST_CAMERA_OVERLAY' "$INSTALL_SH"; then ok; else bad "install.sh mus
 #     (the no-op and success paths both exit 0 early) via the EXIT trap.
 if grep -q 'trap print_pending_actions EXIT' "$INSTALL_SH"; then ok; else bad "install.sh must announce the pending reboot on every exit path"; fi
 
-# 11. Device-identity provisioning: install.sh must give each unit a UNIQUE BLE
+# 11. Journald drop-in for persistent logs: install.sh must install a drop-in
+#     at /etc/systemd/journald.conf.d/90-sst-cam.conf with Storage=persistent,
+#     SyncIntervalSec=10, SystemMaxUse=500M, and apply it via systemd-tmpfiles
+#     + systemctl restart systemd-journald.
+if grep -q 'JOURNALD_DROPIN_PATH' "$INSTALL_SH"; then ok; else bad "install.sh must define JOURNALD_DROPIN_PATH"; fi
+if grep -q 'embedded_journald_dropin()' "$INSTALL_SH"; then ok; else bad "install.sh must define embedded_journald_dropin"; fi
+if grep -q 'ensure_journald_dropin()' "$INSTALL_SH"; then ok; else bad "install.sh must define ensure_journald_dropin"; fi
+if grep -q 'Storage=persistent' "$INSTALL_SH"; then ok; else bad "journald drop-in must set Storage=persistent"; fi
+if grep -q 'SyncIntervalSec=10' "$INSTALL_SH"; then ok; else bad "journald drop-in must set SyncIntervalSec=10"; fi
+if grep -q 'SystemMaxUse=500M' "$INSTALL_SH"; then ok; else bad "journald drop-in must set SystemMaxUse=500M"; fi
+if grep -q 'systemd-tmpfiles --create --prefix /var/log/journal' "$INSTALL_SH"; then ok; else bad "install.sh must run systemd-tmpfiles for /var/log/journal"; fi
+if grep -q 'systemctl restart systemd-journald' "$INSTALL_SH"; then ok; else bad "install.sh must restart systemd-journald"; fi
+if grep -qE '^[[:space:]]*ensure_journald_dropin$' "$INSTALL_SH"; then ok; else bad "install.sh must call ensure_journald_dropin during setup"; fi
+
+# 12. Device-identity provisioning: install.sh must give each unit a UNIQUE BLE
 #     name. The firmware renders `sst-cam-NNNN` from device.json's serial_number;
 #     its built-in default is the placeholder "00000000", so every un-provisioned
 #     unit collides on `sst-cam-0000`. install.sh writes device.json with a unique
@@ -331,7 +345,7 @@ else
   bad "placeholder serial '00000000' was not replaced (still '$serial_replaced'); booted units stay sst-cam-0000"
 fi
 
-# 12. Local-binary install path (the local validation loop): install.sh must
+# 13. Local-binary install path (the local validation loop): install.sh must
 #     accept --binary, install a local file WITHOUT touching GitHub, and still
 #     run the shared aarch64-ELF guard so a host build can't be installed.
 if grep -q -- '--binary' "$INSTALL_SH"; then ok; else bad "install.sh must expose --binary for the local install loop"; fi
