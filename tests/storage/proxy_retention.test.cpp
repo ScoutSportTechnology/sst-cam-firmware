@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "adapters/raw_capture/proxy-retention.hpp"
 #include "domain/raw_capture/models/raw-capture-identity.hpp"
@@ -21,9 +22,15 @@ namespace naming = sst::raw_capture::raw_capture_naming;
 class TempDir {
    public:
     TempDir() {
-        path_ = fs::temp_directory_path() /
-                ("sst-retention-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
-        fs::create_directories(path_);
+        std::string tmpl = (fs::temp_directory_path() / "sst-retention-XXXXXX").string();
+        // mkdtemp modifies the buffer in place; we need a mutable char array.
+        std::vector<char> buf(tmpl.begin(), tmpl.end());
+        buf.push_back('\0');
+        if (mkdtemp(buf.data()) == nullptr) {
+            throw std::system_error(errno, std::generic_category(),
+                                    "mkdtemp failed for test temp directory");
+        }
+        path_ = buf.data();
     }
     ~TempDir() {
         std::error_code err;
