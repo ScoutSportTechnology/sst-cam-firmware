@@ -13,7 +13,7 @@ The **only supported build method is cross-compilation from the Dev Container.**
 1. Install the **Dev Containers** extension (`ms-vscode-remote.remote-containers`).
 2. Open this repo → **"Reopen in Container"** (or `Dev Containers: Reopen in Container`).
    VSCode pulls the **compiler image** (see below; ~5.2 GB download, ~10.7 GB on disk)
-   and adds a thin editor layer on top (clangd, clang-format, clang-tidy, sudo) — a
+   and adds a thin editor layer on top (clangd, sudo) — a
    couple of minutes, no local sysroot build. Running the aarch64 tests (`ctest`) needs
    **qemu-aarch64 binfmt** on the host: Docker Desktop registers it automatically; on a
    plain Linux Docker host, register it once with
@@ -38,7 +38,8 @@ Everything needed to cross-build and test lives in one published image,
 `ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:<tag>`: the JetPack 7.2 /
 L4T r39.2 aarch64 sysroot at `/l4t/targetfs` (BSP sample rootfs + noble `-dev` debs +
 CUDA 13.2 / cuDNN 9.20 / TensorRT 10.16 / VPI 4.1), Ubuntu's gcc-13 aarch64 cross
-toolchain, cmake, ninja, conan, host protoc and qemu-user-static. Its recipe is
+toolchain, cmake, ninja, conan, host protoc, qemu-user-static, just, clang-tidy,
+clang-format, shellcheck and ccache. Its recipe is
 [compiler-image/](compiler-image/) (Dockerfile + `sysroot/` scripts) and its tag is
 [compiler-image/VERSION](compiler-image/VERSION):
 `jetpack_<JetPack>-jetson_r<L4T>-v<n>` (e.g. `jetpack_7.2-jetson_r39.2-v1`), also
@@ -101,13 +102,12 @@ Use `just up` to check the pinned compiler image, then `just lint` (full-tree fo
 
 ## Local fast loop (shared caches)
 
-The `_run` target mounts three named Docker volumes so repeated invocations are fast:
+The `_run` target mounts two named Docker volumes so repeated invocations are fast:
 
 | Volume | Mount point | Purpose |
 |---|---|---|
 | `sst-conan2` | `/root/.conan2` | Shared Conan 2 package cache — avoids rebuilding fmt, spdlog, gtest on every configure. |
-| `sst-ccache` | `/root/.ccache` | Shared ccache — compiler hits across worktrees. Enabled automatically when `ccache` is on `PATH` (installed at run time). |
-| `sst-apt-cache` | `/var/cache/apt/archives` | Cached `.deb` files — avoids `apt-get update` + re-download on every lint/CI run. |
+| `sst-ccache` | `/root/.ccache` | Shared ccache — compiler hits across worktrees. Enabled automatically because `ccache` is baked into the image. |
 
 **Conan cache serialization:** the first `cmake --preset …` (which runs `cmake-conan`) is serialized with `flock` on `/root/.conan2/.cmake_configure.lock` so concurrent worktrees never corrupt the cache. Builds and tests remain fully parallel.
 
@@ -116,7 +116,7 @@ The `_run` target mounts three named Docker volumes so repeated invocations are 
 - `just test <filter>` — optional filter passed to `ctest -R <filter>`. Example: `just test NmcliCommandTest`. No filter = full suite.
 - `just ci changed` — fast gate for a one-file change: runs `lint changed` in parallel with `compile`, then `test`. The full gate is still `just ci` (no argument).
 
-**Clearing caches:** `docker volume rm sst-conan2 sst-ccache sst-apt-cache` (run on the host).
+**Clearing caches:** `docker volume rm sst-conan2 sst-ccache` (run on the host).
 
 ## Linting & formatting
 
