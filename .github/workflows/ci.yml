@@ -66,7 +66,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
-      - run: |
+      - if: ${{ !env.ACT }}
+        run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
           df -h /
       - uses: actions/checkout@v4
@@ -86,10 +87,15 @@ jobs:
           TAG: ${{ needs.image.outputs.tag }}
           BASE: ${{ github.event.pull_request.base.sha || 'origin/development' }}
           BASE_REF: ${{ github.base_ref || 'development' }}
+          CHANGED: ${{ github.event_name == 'pull_request' && github.base_ref == 'development' }}
         run: |
           docker run --rm --user root -v "$PWD":/workspace -w /workspace \
-            -e BASE -e BASE_REF \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just clang-tidy clang-format shellcheck >/dev/null; just lint'
+            -e BASE -e BASE_REF -e CHANGED \
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just clang-tidy clang-format shellcheck >/dev/null; just lint ${CHANGED:+changed}'
+      - if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          df -h /
 
   format:
     if: ${{ always() && github.base_ref == 'main' }}
@@ -118,7 +124,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
-      - run: |
+      - if: ${{ !env.ACT }}
+        run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
           df -h /
       - uses: actions/checkout@v4
@@ -152,6 +159,8 @@ jobs:
       - if: ${{ github.base_ref != 'main' }}
         run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - if: ${{ github.base_ref != 'main' }}
+        run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
+      - if: ${{ github.base_ref != 'main' && !env.ACT }}
         run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
           df -h /

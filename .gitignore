@@ -78,6 +78,12 @@ dist/
 *.db-shm
 *.db-wal
 *.db
+
+# ------------------------------------------------------------
+# CTest artifacts
+# ------------------------------------------------------------
+Testing/
+
 # Agent tooling / local devcontainer lock (not part of the firmware)
 # Agent harness folders: per-user, machine-specific state, never committed.
 # Shared agent rules live in AGENTS.md and shared skills in .agents/ (tracked).
