@@ -18,6 +18,7 @@ class FilesystemDiskGuard final : public sst::storage::IDiskGuard {
 
     [[nodiscard]] auto HasEnoughFreeSpace() const -> bool override;
     [[nodiscard]] auto FreeBytes() const -> std::uint64_t override;
+    [[nodiscard]] auto IsWritable() const -> bool;
 
    private:
     [[nodiscard]] auto ResolveExistingPath() const -> std::filesystem::path;

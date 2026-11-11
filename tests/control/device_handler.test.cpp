@@ -82,6 +82,27 @@ auto TelemetryCommand() -> sst_cam::Command {
 // A flat sequence of EXPECT_* assertions; the cognitive-complexity score is
 // inflated by gtest macro expansion, and splitting the spec-style assertion list
 // into helpers would hurt readability — hence the suppression on the next line.
+TEST(DeviceHandlerTest, FinalizingSuppressesRecordingWhileComponentsRemainVisible) {
+    FakeStats stats;
+    DeviceHandler handler(MakeDevice(), stats,
+                          {.is_recording = [] { return true; },
+                           .session_phase = [] { return sst::session::SessionPhase::kFinalizing; },
+                           .components =
+                               [] {
+                                   sst_cam::DeviceComponents value;
+                                   value.set_storage(sst_cam::COMPONENT_STATUS_OK);
+                                   value.set_clock_synced(false);
+                                   return value;
+                               }});
+    const auto telemetry = handler.Handle(TelemetryCommand()).telemetry();
+    EXPECT_TRUE(telemetry.is_finalizing());
+    EXPECT_FALSE(telemetry.is_recording());
+    ASSERT_TRUE(telemetry.has_components());
+    EXPECT_EQ(telemetry.components().storage(), sst_cam::COMPONENT_STATUS_OK);
+    EXPECT_FALSE(telemetry.components().clock_synced());
+    EXPECT_FALSE(telemetry.components().has_gpu());
+}
+
 TEST(DeviceHandlerTest,  // NOLINT(readability-function-cognitive-complexity)
      DeviceInfoReturnsIdentityAndProtocolVersion) {
     FakeStats stats;

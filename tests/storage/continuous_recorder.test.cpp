@@ -2,6 +2,7 @@
 // Pure — fake recorder + thumbnail writer + disk guard. The real NVENC encode
 // is covered by a hardware-bound test.
 
+#include <gst/gst.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
 #include "app/storage/ports/continuous-recorder.hpp"
 #include "app/storage/ports/disk-guard.hpp"
 #include "app/storage/ports/thumbnail-writer.hpp"
@@ -24,6 +26,37 @@ namespace {
 using sst::storage::RecordingService;
 using sst::storage::RecordingState;
 
+TEST(ContinuousRecorderTest, GStreamerBusEosFinalizesMp4) {
+    using sst::adapters::storage::GstContinuousRecorder;
+    gst_init(nullptr, nullptr);
+    GstBus* bus = gst_bus_new();
+    ASSERT_TRUE(gst_bus_post(bus, gst_message_new_eos(GST_OBJECT(bus))));
+    EXPECT_TRUE(GstContinuousRecorder::WaitForFinalizedMp4(bus, 0));
+    gst_object_unref(bus);
+}
+
+TEST(ContinuousRecorderTest, GStreamerBusTimeoutDoesNotFinalizeMp4) {
+    using sst::adapters::storage::GstContinuousRecorder;
+    gst_init(nullptr, nullptr);
+    GstBus* bus = gst_bus_new();
+    EXPECT_FALSE(GstContinuousRecorder::WaitForFinalizedMp4(bus, 0));
+    gst_object_unref(bus);
+}
+
+TEST(ContinuousRecorderTest, GStreamerBusErrorDoesNotFinalizeMp4) {
+    using sst::adapters::storage::GstContinuousRecorder;
+    gst_init(nullptr, nullptr);
+    GstBus* bus = gst_bus_new();
+    GstObject* source = GST_OBJECT(gst_object_ref(bus));
+    GstMessage* error = gst_message_new_error(
+        source, g_error_new_literal(GST_CORE_ERROR, GST_CORE_ERROR_FAILED, "mux failed"), nullptr);
+    ASSERT_TRUE(gst_bus_post(bus, error));
+    const bool valid = GstContinuousRecorder::WaitForFinalizedMp4(bus, 0);
+    EXPECT_FALSE(valid);
+    gst_object_unref(source);
+    gst_object_unref(bus);
+}
+
 class FakeRecorder final : public sst::storage::IContinuousRecorder {
    public:
     auto Start(const fs::path& output, const sst::common::VideoQuality& quality) -> bool override {
@@ -38,12 +71,13 @@ class FakeRecorder final : public sst::storage::IContinuousRecorder {
     auto Stop() -> bool override {
         running = false;
         ++stops;
-        return true;
+        return stop_ok;
     }
     [[nodiscard]] auto IsRunning() const -> bool override { return running; }
     auto Push(const sst::capture::Frame& /*frame*/) -> void override { ++pushes; }
 
     bool start_ok{true};
+    bool stop_ok{true};
     bool running{false};
     bool paused{false};
     int starts{0};
@@ -192,6 +226,13 @@ TEST(ContinuousRecorderTest, RecordQualityForwardedToRecorder) {
 }
 
 // Stop while idle is a harmless no-op (idempotent cleanup path).
+TEST(ContinuousRecorderTest, FailedRecorderStopReturnsInvalidResult) {
+    Svc harness;
+    ASSERT_TRUE(harness.service->StartRecording(kVideo, kThumb, {}));
+    harness.recorder->stop_ok = false;
+    EXPECT_FALSE(harness.service->Stop().success);
+}
+
 TEST(ContinuousRecorderTest, StopWhenIdleIsNoop) {
     Svc harness;
     auto result = harness.service->Stop();

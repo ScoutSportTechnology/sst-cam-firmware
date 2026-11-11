@@ -2,7 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace sst::domain::clock_sync {
@@ -123,6 +125,31 @@ TEST_F(ClockSyncMonitorTest, IsSyncedReturnsCurrentState) {
     EXPECT_FALSE(monitor.IsSynced());
 
     monitor.CheckAndLog();  // Second call: synced
+    EXPECT_TRUE(monitor.IsSynced());
+}
+
+TEST_F(ClockSyncMonitorTest, ConcurrentPollingObservesLastSyncTransition) {
+    std::atomic<bool> synced{false};
+    class ConcurrentSource final : public IClockSyncSource {
+       public:
+        explicit ConcurrentSource(std::atomic<bool>& value) : value_(value) {}
+        [[nodiscard]] auto IsSynced() const -> bool override { return value_.load(); }
+
+       private:
+        std::atomic<bool>& value_;
+    };
+    ClockSyncMonitor monitor(std::make_unique<ConcurrentSource>(synced),
+                             [this](const std::string& msg) { LogCallback(msg); });
+    monitor.CheckAndLog();
+    constexpr int kPollCount = 10000;
+    std::thread reader([&] {
+        for (int i = 0; i < kPollCount; ++i) {
+            (void)monitor.IsSynced();
+        }
+    });
+    synced = true;
+    monitor.CheckAndLog();
+    reader.join();
     EXPECT_TRUE(monitor.IsSynced());
 }
 

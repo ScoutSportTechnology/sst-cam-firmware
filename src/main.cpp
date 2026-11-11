@@ -148,7 +148,7 @@ auto NowEpochMs() -> std::uint64_t {
 // transport -> proto dispatcher -> session SM + per-concern handlers) and runs
 // until terminated.
 namespace {
-auto RunFirmware() -> int {
+auto RunFirmware(const sigset_t& mask) -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
@@ -343,6 +343,13 @@ auto RunFirmware() -> int {
         [&live_pipeline](std::uint32_t index) -> std::optional<sst_cam::CameraHealth> {
         return live_pipeline != nullptr ? live_pipeline->CameraHealth(index) : std::nullopt;
     };
+    const auto components = [&disk_guard, &clock_monitor] {
+        sst_cam::DeviceComponents result;
+        result.set_clock_synced(clock_monitor.IsSynced());
+        result.set_storage(disk_guard.IsWritable() ? sst_cam::COMPONENT_STATUS_OK
+                                                   : sst_cam::COMPONENT_STATUS_MISSING);
+        return result;
+    };
     const auto required_health = [camera_health](std::uint32_t index) {
         return camera_health(index).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN);
     };
@@ -363,7 +370,9 @@ auto RunFirmware() -> int {
             .internet_reachable =
                 [&telemetry_probe] { return telemetry_probe.InternetReachable(); },
             .wifi_signal_dbm = [&telemetry_probe] { return telemetry_probe.WifiSignalDbm(); },
-            .camera_health = camera_health},
+            .camera_health = camera_health,
+            .session_phase = [&session_manager] { return session_manager.Phase(); },
+            .components = components},
         [](std::uint64_t epoch_ms) {
             timespec time{
                 static_cast<time_t>(epoch_ms / sst::runtime_defaults::kMillisecondsPerSecond),
@@ -380,7 +389,7 @@ auto RunFirmware() -> int {
                     ? sst_cam::PREVIEW_LAYOUT_SIDE_BY_SIDE
                     : sst_cam::PREVIEW_LAYOUT_SINGLE);
         },
-        camera_health));
+        camera_health, components));
     auto wifi_direct_handler = std::make_shared<sst::control::WifiDirectHandler>(
         session_manager, wifi_manager, network_configurator, dhcp_server, streaming_service,
         sst::control::PreviewPort{sst::runtime_defaults::kPreviewPort},
@@ -582,20 +591,6 @@ auto RunFirmware() -> int {
 
     spdlog::info("startup complete — advertising as {}", advertised_name);
 
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGTERM);
-    if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) {
-        spdlog::error("sigprocmask failed — cannot guarantee clean shutdown; aborting");
-        clock_running.store(false);
-        clock_thread.join();
-        http_download_server.Stop();
-        ble_transport.Stop();
-        session_manager.EndSession(sst::session::SessionEndReason::kReboot);
-        pipeline.Stop();
-        return 1;
-    }
     int signo = 0;
     sigwait(&mask, &signo);
     spdlog::info("signal {} received — shutting down", signo);
@@ -605,7 +600,9 @@ auto RunFirmware() -> int {
     telemetry_probe.Stop();
     http_download_server.Stop();
     ble_transport.Stop();
-    session_manager.EndSession(sst::session::SessionEndReason::kReboot);
+    session_manager.EndSession(signo == SIGTERM ? sst::session::SessionEndReason::kShutdown
+                                                : sst::session::SessionEndReason::kReboot);
+    session_manager.WaitForFinalization();
     pipeline.Stop();
     return 0;
 }
@@ -635,9 +632,16 @@ auto main(int argc, char* argv[]) -> int {
         return cli_result.exit_code;
     }
 
-    // kRunFirmware - normal behavior
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    if (sigprocmask(SIG_BLOCK, &mask, nullptr) != 0) {
+        std::fprintf(stderr, "cannot block termination signals before startup\n");
+        return 1;
+    }
     try {
-        return RunFirmware();
+        return RunFirmware(mask);
     } catch (const std::exception& e) {
         spdlog::critical("sst-cam-firmware: fatal error: {}", e.what());
         return 1;

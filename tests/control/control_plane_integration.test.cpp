@@ -208,6 +208,7 @@ TEST(ControlPlaneIntegrationTest, SnapshotReportsCameraFailureAfterSessionFinali
     ASSERT_TRUE(manager.OnRecordingStart());
     health = sst_cam::CAMERA_HEALTH_DOWN;
     ASSERT_TRUE(manager.EndSession(session::SessionEndReason::kCameraFailure));
+    manager.WaitForFinalization();
     sst_cam::Command query;
     query.mutable_get_session_snapshot();
     const auto snapshot = dispatcher.Dispatch(query).session_snapshot();
@@ -350,6 +351,7 @@ TEST(ControlPlaneIntegrationTest, ExplicitTimeoutValueRearmsWhileRecording) {
     EXPECT_EQ(manager.Phase(), session::SessionPhase::kRecording);
     now += std::chrono::minutes(1);
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_EQ(manager.Phase(), session::SessionPhase::kIdle);
 }
 
@@ -374,6 +376,7 @@ TEST(ControlPlaneIntegrationTest, IdleSummaryMapsAutoStopAndIsAbsentWhenConfigur
     manager.OnDisconnect();
     now += std::chrono::minutes(session::kDefaultAutoStopMinutes);
     manager.Tick();
+    manager.WaitForFinalization();
     sst_cam::Command query;
     query.mutable_get_session_snapshot();
     auto snapshot = handler.Handle(query).session_snapshot();
@@ -409,10 +412,73 @@ TEST(ControlPlaneIntegrationTest, SnapshotReportsFinalizingDuringCleanup) {
     cleanup.on_finalize = [&] {
         const auto snapshot = handler.Handle(query).session_snapshot();
         EXPECT_EQ(snapshot.session_phase(), sst_cam::SESSION_FINALIZING);
+        EXPECT_TRUE(snapshot.is_finalizing());
+        EXPECT_FALSE(snapshot.is_recording());
         EXPECT_FALSE(snapshot.has_last_session());
     };
     EXPECT_TRUE(manager.EndSession(session::SessionEndReason::kAppStop));
+    manager.WaitForFinalization();
     EXPECT_EQ(handler.Handle(query).session_snapshot().session_phase(), sst_cam::SESSION_IDLE);
+}
+
+TEST(ControlPlaneIntegrationTest, SnapshotComponentsAndFinalizingReflectBlockedCleanup) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::SessionHandler handler(manager, controller, {}, {}, {}, [] {
+        sst_cam::DeviceComponents value;
+        value.set_storage(sst_cam::COMPONENT_STATUS_MISSING);
+        value.set_clock_synced(true);
+        return value;
+    });
+    ASSERT_TRUE(manager.OnConnect());
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-42");
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    cleanup.on_finalize = [&] {
+        const auto response = handler.Handle(query).session_snapshot();
+        EXPECT_TRUE(response.is_finalizing());
+        EXPECT_FALSE(response.is_recording());
+        EXPECT_EQ(response.components().storage(), sst_cam::COMPONENT_STATUS_MISSING);
+        EXPECT_TRUE(response.components().clock_synced());
+        EXPECT_FALSE(response.components().has_gpu());
+    };
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    EXPECT_FALSE(handler.Handle(query).session_snapshot().is_finalizing());
+}
+
+TEST(ControlPlaneIntegrationTest, ShutdownSummaryMapsToWireReason) {
+    FakeCleanup cleanup;
+    session::SessionManager manager(cleanup);
+    FakeRenderer renderer;
+    FakeSink sink;
+    overlay::OverlayController controller(renderer, sink,
+                                          sst::common::OutputSize{kCanvasEdge, kCanvasEdge});
+    control::SessionHandler handler(manager, controller);
+    ASSERT_TRUE(manager.OnConnect());
+    ASSERT_TRUE(manager.OnWifiReady());
+    sst_cam::Command config;
+    config.mutable_push_session_config()->set_match_uuid("match-shutdown");
+    ASSERT_EQ(handler.Handle(config).status(), sst_cam::OK);
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_TRUE(manager.EndSession(session::SessionEndReason::kShutdown));
+    manager.WaitForFinalization();
+    sst_cam::Command query;
+    query.mutable_get_session_snapshot();
+    const auto snapshot = handler.Handle(query).session_snapshot();
+    ASSERT_TRUE(snapshot.has_last_session());
+    EXPECT_EQ(snapshot.last_session().end_reason(), sst_cam::SESSION_END_SHUTDOWN);
+    EXPECT_TRUE(snapshot.last_session().file_valid());
 }
 
 TEST(ControlPlaneIntegrationTest, RoutesFullLifecycleToReady) {

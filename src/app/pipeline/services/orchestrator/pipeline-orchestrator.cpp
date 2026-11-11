@@ -234,7 +234,8 @@ auto PipelineOrchestrator::ConsumerLoop() -> void {
                 // In SIDE_BY_SIDE mode with 2 cameras, we must wait for the other
                 // camera's frame to produce the composite. Use a bounded wait so we
                 // don't stall indefinitely if that camera stalls.
-                if (want_side_by_side && cameras_.size() == 2) {
+                if (want_side_by_side && cameras_.size() == 2 &&
+                    CameraHealth(i) == sst_cam::CAMERA_HEALTH_OK) {
                     latest[i] = slots_[i]->Pop(config_.consumer_pop_timeout);
                 } else {
                     latest[i] = slots_[i]->TryPop();

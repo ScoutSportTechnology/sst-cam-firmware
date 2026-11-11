@@ -95,7 +95,14 @@ auto DeviceHandler::HandleTelemetry() -> sst_cam::CommandResponse {
     telemetry->set_cpu_used_pct(stats.cpu_used_pct);
     telemetry->set_uptime_seconds(stats.uptime_seconds);
     telemetry->set_battery_level_pct(stats.battery_level_pct);
-    telemetry->set_is_recording(providers_.is_recording && providers_.is_recording());
+    const auto phase =
+        providers_.session_phase ? providers_.session_phase() : sst::session::SessionPhase::kIdle;
+    telemetry->set_is_recording(phase != sst::session::SessionPhase::kFinalizing &&
+                                providers_.is_recording && providers_.is_recording());
+    telemetry->set_is_finalizing(phase == sst::session::SessionPhase::kFinalizing);
+    if (providers_.components) {
+        *telemetry->mutable_components() = providers_.components();
+    }
     telemetry->set_is_streaming(providers_.is_streaming && providers_.is_streaming());
     if (providers_.camera_health) {
         if (const auto health = providers_.camera_health(0)) {

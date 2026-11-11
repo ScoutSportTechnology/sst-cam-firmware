@@ -24,6 +24,7 @@ WorkingDirectory=/opt/sst-cam
 ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target

@@ -41,6 +41,7 @@ class GstContinuousRecorder final : public sst::storage::IContinuousRecorder {
     auto Pause() -> void override;
     auto Resume() -> void override;
     auto Stop() -> bool override;
+    static auto WaitForFinalizedMp4(GstBus* bus, GstClockTime timeout) -> bool;
     [[nodiscard]] auto IsRunning() const -> bool override;
     auto Push(const sst::capture::Frame& frame) -> void override;
 
