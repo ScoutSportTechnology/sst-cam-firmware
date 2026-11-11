@@ -1,6 +1,5 @@
 #include <spdlog/spdlog.h>
 #include <unistd.h>
-#include <sys/timex.h>
 
 #include <atomic>
 #include <chrono>
@@ -76,6 +75,7 @@
 #include "app/session/services/session_manager/session-manager.hpp"
 #include "app/storage/services/recording_service/recording-service.hpp"
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
+#include "domain/clock_sync/clock_sync_monitor.hpp"
 #include "domain/capture/models/camera-config.hpp"
 #include "domain/control/utils/advertised-name.hpp"
 #include "domain/decision/models/manual-camera-state.hpp"
@@ -140,43 +140,6 @@ auto NowEpochMs() -> std::uint64_t {
                                           .count());
 }
 
-// Check if the system clock is synchronized using adjtimex/ntp_adjtime.
-// TIME_ERROR flag in the status means the clock is not synchronized.
-// Returns true if synced, false otherwise.
-auto IsClockSynced() -> bool {
-    struct timex timex_params{};
-    timex_params.modes = 0;  // Just read the status
-    int result = ntp_adjtime(&timex_params);
-    if (result == -1) {
-        // Fallback to adjtimex if ntp_adjtime is not available
-        result = adjtimex(&timex_params);
-    }
-    if (result == -1) {
-        // Both failed, assume not synced
-        return false;
-    }
-    // TIME_ERROR (0x0001) means the clock is not synchronized
-    return (timex_params.status & 0x0001) == 0;
-}
-
-// Log the clock synchronization state at startup and when it changes.
-// Called once at startup, and can be called later to detect transitions.
-void LogClockSyncState(bool& was_synced) {
-    bool synced = IsClockSynced();
-    if (synced != was_synced) {
-        if (synced) {
-            spdlog::info("clock: synced=yes (wall-clock jump detected)");
-        } else {
-            spdlog::info("clock: synced=no");
-        }
-        was_synced = synced;
-    } else if (!was_synced) {
-        // First call at startup - log the initial state
-        spdlog::info("clock: synced={}", synced ? "yes" : "no");
-        was_synced = synced;
-    }
-}
-
 }  // namespace
 
 // App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
@@ -188,9 +151,11 @@ auto RunFirmware() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
 
-    // Log initial clock synchronization state
-    bool clock_was_synced = false;
-    LogClockSyncState(clock_was_synced);
+    // Clock sync monitor - logs initial state and transitions
+    sst::domain::clock_sync::ClockSyncMonitor clock_monitor(
+        std::make_unique<sst::domain::clock_sync::SystemClockSyncSource>(),
+        [](const std::string& msg) { spdlog::info("{}", msg); });
+    clock_monitor.CheckAndLog();
 
     // ── Config (device identity + lens calibration — the only persistent state) ─
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
@@ -604,14 +569,13 @@ auto RunFirmware() -> int {
     // authority; this only advances the on-screen clock between app events).
     // Also poll for clock synchronization state changes.
     std::atomic<bool> clock_running{true};
-    std::thread clock_thread([&match_handler, &session_manager, &clock_running] {
-        bool was_synced = false;
-        LogClockSyncState(was_synced);  // Initial log
+    std::thread clock_thread([&match_handler, &session_manager, &clock_running, &clock_monitor] {
+        clock_monitor.CheckAndLog();  // Initial log
         while (clock_running.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             match_handler->TickClock();
             session_manager.Tick();
-            LogClockSyncState(was_synced);  // Check for sync state changes
+            clock_monitor.CheckAndLog();  // Check for sync state changes
         }
     });
 
