@@ -91,7 +91,7 @@ jobs:
         run: |
           docker run --rm --user root -v "$PWD":/workspace -w /workspace \
             -e BASE -e BASE_REF -e CHANGED \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just clang-tidy clang-format shellcheck >/dev/null; just lint ${CHANGED:+changed}'
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just lint ${CHANGED:+changed}'
       - if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
@@ -147,7 +147,7 @@ jobs:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
           docker run --rm --user root -v "$PWD":/workspace -w /workspace \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just compile'
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just compile'
 
   test:
     needs: [changes, image]
@@ -189,4 +189,4 @@ jobs:
         run: |
           docker run --rm --user root -v "$PWD":/workspace -w /workspace \
             -e QEMU_LD_PREFIX=/l4t/targetfs \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just test'
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just test'

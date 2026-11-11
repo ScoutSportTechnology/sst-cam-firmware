@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 
+#include "../support/temp-dir.hpp"
 #include "app/export/services/export-job-manager.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "app/overlay/ports/overlay-burner.hpp"
@@ -20,6 +21,8 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+using sst::test::TempDir;
 
 constexpr int kMaxPolls = 200;
 constexpr int kPollSleepMs = 5;
@@ -90,10 +93,8 @@ TEST(ExportJobManagerTest, ReadyWithTokenOnSuccess) {
 }
 
 TEST(ExportJobManagerTest, BurnedRecordingIsCatalogedAndSurvivesJobEviction) {
-    const fs::path root =
-        fs::temp_directory_path() /
-        ("sst-export-persistent-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    TempDir temp("export-persistent");
+    const fs::path& root = temp.path();
     const fs::path match_dir = root / "user" / "match-a";
     fs::create_directories(match_dir);
     std::ofstream(match_dir / "match-a.mp4") << "clean";
@@ -154,15 +155,11 @@ TEST(ExportJobManagerTest, BurnedRecordingIsCatalogedAndSurvivesJobEviction) {
         EXPECT_EQ(reused.state, sst::exportjob::ExportState::kReady);
         EXPECT_EQ(restarted_burner.calls.load(), 0);
     }
-    fs::remove_all(root);
 }
 
 TEST(ExportJobManagerTest, RepeatedReadyRequestRenewsExpiredTokenWithoutReburn) {
-    const fs::path root =
-        fs::temp_directory_path() /
-        ("sst-export-renew-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(root);
+    TempDir temp("export-renew");
+    const fs::path& root = temp.path();
     std::ofstream(root / "match.mp4") << "clean";
     FakeBurner burner;
     burner.write_file = true;
@@ -189,7 +186,6 @@ TEST(ExportJobManagerTest, RepeatedReadyRequestRenewsExpiredTokenWithoutReburn) 
         EXPECT_EQ(renewed.token->expires_at_unix, kStartTime + 2 * kTokenTtl);
     }
     EXPECT_EQ(burner.calls.load(), 1);
-    fs::remove_all(root);
 }
 
 TEST(ExportJobManagerTest, OverlayInputIsRejectedBeforeAnotherBurn) {
@@ -204,11 +200,8 @@ TEST(ExportJobManagerTest, OverlayInputIsRejectedBeforeAnotherBurn) {
 }
 
 TEST(ExportJobManagerTest, RefusesSymlinkAtStableExportPath) {
-    const fs::path root =
-        fs::temp_directory_path() /
-        ("sst-export-symlink-" +
-         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(root);
+    TempDir temp("export-symlink");
+    const fs::path& root = temp.path();
     std::ofstream(root / "match.mp4") << "clean";
     std::ofstream(root / "other.mp4") << "other";
     fs::create_symlink(root / "other.mp4", root / "match_overlay.mp4");
@@ -227,7 +220,6 @@ TEST(ExportJobManagerTest, RefusesSymlinkAtStableExportPath) {
     const auto view = WaitForTerminal(manager, manager.RequestExport("match"));
     EXPECT_EQ(view.state, sst::exportjob::ExportState::kFailed);
     EXPECT_EQ(burner.calls.load(), 0);
-    fs::remove_all(root);
 }
 
 TEST(ExportJobManagerTest, FailsWhenRecordingNotFound) {

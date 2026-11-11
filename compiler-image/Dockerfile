@@ -5,8 +5,7 @@
 #   - Ubuntu's gcc-13 aarch64 cross toolchain, cmake, ninja, conan,
 #   - host protoc (proto codegen) and qemu-user-static (ctest runs the aarch64
 #     test binaries under qemu).
-# Editor/agent tooling (clangd, clang-format, clang-tidy, sudo) lives in the
-# devcontainer (.devcontainer/Dockerfile), which builds FROM this image.
+# Editor-only tooling (clangd, sudo) lives in the devcontainer.
 #
 # Published by .github/workflows/compiler-image.yml as
 #   ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:<VERSION> (+ :latest)
@@ -58,6 +57,11 @@ COPY --from=l4t /l4t /l4t
 # the host compiler. noble ships cmake 3.28 (>= 3.24).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
+        just \
+        clang-tidy \
+        clang-format \
+        shellcheck \
+        ccache \
         cmake \
         ninja-build \
         build-essential \

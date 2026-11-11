@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 
+#include "../support/temp-dir.hpp"
 #include "app/control/services/handlers/recording.handler.hpp"
 #include "app/overlay/ports/overlay-timeline-recorder.hpp"
 #include "app/raw_capture/ports/proxy-owners.hpp"
@@ -30,6 +31,7 @@ using sst::control::RecordingHandler;
 using sst::session::SessionConfig;
 using sst::session::SessionManager;
 using sst::session::SessionPhase;
+using sst::test::TempDir;
 
 class FakeRecorder final : public sst::storage::IRecordingService {
    public:
@@ -251,11 +253,11 @@ TEST(RecordingHandlerTest, RecordingStartsProxyInItsMatchFolderAndStopsIt) {
     RecordingHandler handler(session_mgr, recorder, timeline, owners, ZeroClock);
     ASSERT_TRUE(session_mgr.OnConnect());
     ASSERT_TRUE(session_mgr.OnWifiReady());
+    TempDir temp_dir("recording");
     auto config = EmptyPathConfig();
     config.match_uuid = kMatchUuid;
     config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4"))
-            .string();
+        (temp_dir.path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4")).string();
     ASSERT_TRUE(session_mgr.ApplySessionConfig(config));
     ASSERT_TRUE(session_mgr.OnOverlayConfigured());
     ASSERT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::OK);
@@ -268,7 +270,6 @@ TEST(RecordingHandlerTest, RecordingStartsProxyInItsMatchFolderAndStopsIt) {
     EXPECT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_STOP)).status(), sst_cam::OK);
     session_mgr.WaitForFinalization();
     EXPECT_EQ(proxy.stops, 1);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(RecordingHandlerTest, ConcurrentSessionEndDuringRecorderStartDoesNotLeakProxy) {
@@ -287,11 +288,11 @@ TEST(RecordingHandlerTest, ConcurrentSessionEndDuringRecorderStartDoesNotLeakPro
     RecordingHandler handler(session_mgr, recorder, timeline, owners, ZeroClock);
     ASSERT_TRUE(session_mgr.OnConnect());
     ASSERT_TRUE(session_mgr.OnWifiReady());
+    TempDir temp_dir("recording");
     auto config = EmptyPathConfig();
     config.match_uuid = kMatchUuid;
     config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4"))
-            .string();
+        (temp_dir.path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4")).string();
     ASSERT_TRUE(session_mgr.ApplySessionConfig(config));
     ASSERT_TRUE(session_mgr.OnOverlayConfigured());
     recorder.on_start = [&] {
@@ -301,7 +302,6 @@ TEST(RecordingHandlerTest, ConcurrentSessionEndDuringRecorderStartDoesNotLeakPro
     session_mgr.WaitForFinalization();
     EXPECT_EQ(proxy.starts, 0);
     EXPECT_EQ(session_mgr.Phase(), SessionPhase::kIdle);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(RecordingHandlerTest, ProxyStartFailureDoesNotLoseFinalRecordingOrTimeline) {
@@ -321,11 +321,11 @@ TEST(RecordingHandlerTest, ProxyStartFailureDoesNotLoseFinalRecordingOrTimeline)
     RecordingHandler handler(session_mgr, recorder, timeline, owners, ZeroClock);
     ASSERT_TRUE(session_mgr.OnConnect());
     ASSERT_TRUE(session_mgr.OnWifiReady());
+    TempDir temp_dir("recording");
     auto config = EmptyPathConfig();
     config.match_uuid = kMatchUuid;
     config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4"))
-            .string();
+        (temp_dir.path() / kMatchUuid / (std::string(kMatchUuid) + ".mp4")).string();
     ASSERT_TRUE(session_mgr.ApplySessionConfig(config));
     ASSERT_TRUE(session_mgr.OnOverlayConfigured());
     EXPECT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::OK);
@@ -336,7 +336,6 @@ TEST(RecordingHandlerTest, ProxyStartFailureDoesNotLoseFinalRecordingOrTimeline)
     EXPECT_EQ(recorder.stop_calls, 1);
     EXPECT_EQ(timeline.stop_calls, 1);
     EXPECT_EQ(proxy.stops, 0);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(RecordingHandlerTest, StartBeforeReadyRejectedWithoutTouchingRecorder) {

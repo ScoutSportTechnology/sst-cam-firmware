@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "../support/temp-dir.hpp"
 #include "app/control/services/handlers/streaming.handler.hpp"
 #include "app/raw_capture/ports/proxy-owners.hpp"
 #include "app/session/ports/session-cleanup.hpp"
@@ -200,8 +201,8 @@ TEST(StreamingHandlerTest, StreamOnlyStartsProxyAndSurvivesReconnect) {
     ASSERT_TRUE(session.OnWifiReady());
     sst::session::SessionConfig config;
     config.match_uuid = kMatch;
-    config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatch / (std::string(kMatch) + ".mp4")).string();
+    const sst::test::TempDir dir("streaming");
+    config.video_output_path = (dir.path() / kMatch / (std::string(kMatch) + ".mp4")).string();
     ASSERT_TRUE(session.ApplySessionConfig(config));
     ProxySink sink;
     sst::raw_capture::ProxyOwners owners(sink);
@@ -217,7 +218,6 @@ TEST(StreamingHandlerTest, StreamOnlyStartsProxyAndSurvivesReconnect) {
     EXPECT_EQ(sink.stops, 0);
     EXPECT_EQ(handler.Handle(StopCmd()).status(), sst_cam::OK);
     EXPECT_EQ(sink.stops, 1);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
@@ -228,8 +228,8 @@ TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
     ASSERT_TRUE(session.OnWifiReady());
     sst::session::SessionConfig config;
     config.match_uuid = kMatch;
-    config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatch / (std::string(kMatch) + ".mp4")).string();
+    const sst::test::TempDir dir("streaming");
+    config.video_output_path = (dir.path() / kMatch / (std::string(kMatch) + ".mp4")).string();
     ASSERT_TRUE(session.ApplySessionConfig(config));
     ProxySink sink;
     sst::raw_capture::ProxyOwners owners(sink);
@@ -243,7 +243,6 @@ TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
     EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
     EXPECT_FALSE(streaming.active);
     EXPECT_EQ(sink.starts, 0);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(StreamingHandlerTest, NewMatchDuringStreamStartDoesNotClaimItsProxy) {
@@ -255,15 +254,12 @@ TEST(StreamingHandlerTest, NewMatchDuringStreamStartDoesNotClaimItsProxy) {
     ASSERT_TRUE(session.OnWifiReady());
     sst::session::SessionConfig match_a;
     match_a.match_uuid = kMatchA;
-    match_a.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchA / (std::string(kMatchA) + ".mp4"))
-            .string();
+    const sst::test::TempDir dir("streaming");
+    match_a.video_output_path = (dir.path() / kMatchA / (std::string(kMatchA) + ".mp4")).string();
     ASSERT_TRUE(session.ApplySessionConfig(match_a));
     sst::session::SessionConfig match_b;
     match_b.match_uuid = kMatchB;
-    match_b.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchB / (std::string(kMatchB) + ".mp4"))
-            .string();
+    match_b.video_output_path = (dir.path() / kMatchB / (std::string(kMatchB) + ".mp4")).string();
     ProxySink sink;
     sst::raw_capture::ProxyOwners owners(sink);
     FakeStreaming streaming;
@@ -282,8 +278,6 @@ TEST(StreamingHandlerTest, NewMatchDuringStreamStartDoesNotClaimItsProxy) {
     const auto state = session.Snapshot();
     EXPECT_EQ(state.config ? state.config->match_uuid : "", kMatchB);
     EXPECT_FALSE(state.is_streaming);
-    std::filesystem::remove_all(std::filesystem::path(match_a.video_output_path).parent_path());
-    std::filesystem::remove_all(std::filesystem::path(match_b.video_output_path).parent_path());
 }
 
 TEST(StreamingHandlerTest, NewMatchDuringProxyClaimRollsBackWithoutChangingNewMatch) {
@@ -295,15 +289,12 @@ TEST(StreamingHandlerTest, NewMatchDuringProxyClaimRollsBackWithoutChangingNewMa
     ASSERT_TRUE(session.OnWifiReady());
     sst::session::SessionConfig match_a;
     match_a.match_uuid = kMatchA;
-    match_a.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchA / (std::string(kMatchA) + ".mp4"))
-            .string();
+    const sst::test::TempDir dir("streaming");
+    match_a.video_output_path = (dir.path() / kMatchA / (std::string(kMatchA) + ".mp4")).string();
     ASSERT_TRUE(session.ApplySessionConfig(match_a));
     sst::session::SessionConfig match_b;
     match_b.match_uuid = kMatchB;
-    match_b.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatchB / (std::string(kMatchB) + ".mp4"))
-            .string();
+    match_b.video_output_path = (dir.path() / kMatchB / (std::string(kMatchB) + ".mp4")).string();
     ProxySink sink;
     sst::raw_capture::ProxyOwners owners(sink);
     FakeStreaming streaming;
@@ -323,8 +314,6 @@ TEST(StreamingHandlerTest, NewMatchDuringProxyClaimRollsBackWithoutChangingNewMa
     const auto state = session.Snapshot();
     EXPECT_EQ(state.config ? state.config->match_uuid : "", kMatchB);
     EXPECT_FALSE(state.is_streaming);
-    std::filesystem::remove_all(std::filesystem::path(match_a.video_output_path).parent_path());
-    std::filesystem::remove_all(std::filesystem::path(match_b.video_output_path).parent_path());
 }
 
 TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
@@ -336,8 +325,8 @@ TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
     ASSERT_TRUE(session.OnWifiReady());
     sst::session::SessionConfig config;
     config.match_uuid = kMatch;
-    config.video_output_path =
-        (std::filesystem::temp_directory_path() / kMatch / (std::string(kMatch) + ".mp4")).string();
+    const sst::test::TempDir dir("streaming");
+    config.video_output_path = (dir.path() / kMatch / (std::string(kMatch) + ".mp4")).string();
     ASSERT_TRUE(session.ApplySessionConfig(config));
     session.OnDisconnect();
     ProxySink sink;
@@ -355,7 +344,6 @@ TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
     EXPECT_FALSE(streaming.active);
     EXPECT_EQ(sink.starts, 1);
     EXPECT_EQ(sink.stops, 1);
-    std::filesystem::remove_all(std::filesystem::path(config.video_output_path).parent_path());
 }
 
 TEST(StreamingHandlerTest, StreamWithoutMatchConfigCannotStart) {

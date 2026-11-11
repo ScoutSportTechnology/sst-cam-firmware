@@ -3,6 +3,7 @@
 
 #include <filesystem>
 
+#include "../../support/temp-dir.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "domain/config/models/config-data.hpp"
 #include "domain/config/models/formatter/_fmt.hpp"  // IWYU pragma: keep
@@ -63,9 +64,8 @@ TEST(ConfigLoaderTest, LoadsUplinkConfig) {
 // ConfigLoader must write built-in default config files and return them rather
 // than throwing, so the firmware (and its systemd service) starts out-of-box.
 TEST(ConfigLoaderTest, WritesDefaultsWhenFilesMissing) {
-    const fs::path root = fs::path{::testing::TempDir()} / "sst-cfg-defaults-first-run";
-    fs::remove_all(root);  // start empty (isolated per run)
-    fs::create_directories(root);
+    sst::test::TempDir dir("config-defaults");
+    const fs::path& root = dir.path();
 
     sst::config::app::ConfigLoader loader(root.string(), "json");
     sst::config::ConfigData cfg;
@@ -92,6 +92,4 @@ TEST(ConfigLoaderTest, WritesDefaultsWhenFilesMissing) {
     sst::config::ConfigData cfg2;
     ASSERT_NO_THROW(cfg2 = loader2.get());
     EXPECT_EQ(cfg2.device.name, cfg.device.name);
-
-    fs::remove_all(root);
 }
