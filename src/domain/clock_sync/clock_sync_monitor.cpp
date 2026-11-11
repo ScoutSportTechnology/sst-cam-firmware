@@ -5,7 +5,7 @@
 
 namespace sst::domain::clock_sync {
 
-bool SystemClockSyncSource::IsSynced() const {
+auto SystemClockSyncSource::IsSynced() const -> bool {
     struct timex timex_params{};
     timex_params.modes = 0;  // Just read the status
     int result = ntp_adjtime(&timex_params);
@@ -45,7 +45,7 @@ void ClockSyncMonitor::CheckAndLog() {
     }
 }
 
-bool ClockSyncMonitor::IsSynced() const {
+auto ClockSyncMonitor::IsSynced() const -> bool {
     return was_synced_;
 }
 

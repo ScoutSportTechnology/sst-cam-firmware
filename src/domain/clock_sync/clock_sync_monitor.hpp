@@ -11,13 +11,13 @@ class IClockSyncSource {
 public:
     virtual ~IClockSyncSource() = default;
     // Returns true if the system clock is synchronized, false otherwise.
-    virtual bool IsSynced() const = 0;
+    [[nodiscard]] virtual auto IsSynced() const -> bool = 0;
 };
 
 // Default implementation using ntp_adjtime/adjtimex.
 class SystemClockSyncSource final : public IClockSyncSource {
 public:
-    bool IsSynced() const override;
+    [[nodiscard]] auto IsSynced() const -> bool override;
 };
 
 // Monitors clock synchronization state and logs changes.
@@ -36,7 +36,7 @@ public:
     void CheckAndLog();
 
     // Returns the last known sync state (from the most recent CheckAndLog call).
-    bool IsSynced() const;
+    [[nodiscard]] auto IsSynced() const -> bool;
 
 private:
     std::unique_ptr<IClockSyncSource> source_;
