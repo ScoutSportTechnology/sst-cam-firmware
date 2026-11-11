@@ -146,6 +146,9 @@ jobs:
       - env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
+          getent hosts archive.ubuntu.com || true
+          cat /etc/resolv.conf
+          docker run --rm --network host --user root "${IMAGE}:${TAG}" bash -lc 'cat /etc/resolv.conf; getent hosts archive.ubuntu.com || true'
           docker run --rm --network host --user root -v "$PWD":/workspace -w /workspace \
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; apt-get update -qq; apt-get install -y -qq --no-install-recommends just >/dev/null; just compile'
 
