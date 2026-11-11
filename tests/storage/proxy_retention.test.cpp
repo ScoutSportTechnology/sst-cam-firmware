@@ -7,8 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <vector>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/raw_capture/proxy-retention.hpp"
 #include "domain/raw_capture/models/raw-capture-identity.hpp"
 #include "domain/raw_capture/services/raw-capture-naming.hpp"
@@ -19,28 +19,7 @@ namespace fs = std::filesystem;
 using sst::adapters::raw_capture::ProxyRetention;
 namespace naming = sst::raw_capture::raw_capture_naming;
 
-class TempDir {
-   public:
-    TempDir() {
-        std::string tmpl = (fs::temp_directory_path() / "sst-retention-XXXXXX").string();
-        // mkdtemp modifies the buffer in place; we need a mutable char array.
-        std::vector<char> buf(tmpl.begin(), tmpl.end());
-        buf.push_back('\0');
-        if (mkdtemp(buf.data()) == nullptr) {
-            throw std::system_error(errno, std::generic_category(),
-                                    "mkdtemp failed for test temp directory");
-        }
-        path_ = buf.data();
-    }
-    ~TempDir() {
-        std::error_code err;
-        fs::remove_all(path_, err);
-    }
-    [[nodiscard]] auto path() const -> const fs::path& { return path_; }
-
-   private:
-    fs::path path_;
-};
+using sst::test::TempDir;
 
 // Write both camera files of a proxy group, each `bytes` big, with a mtime
 // `age_seconds` in the past (so the write-grace doesn't protect old groups).
@@ -61,7 +40,7 @@ auto GroupExists(const fs::path& dir, const std::string& group) -> bool {
 constexpr std::size_t kPerFile = 100;  // 200 bytes per 2-camera group
 
 TEST(ProxyRetentionTest, EvictsOldestOverCapKeepsNewestAndRecent) {
-    TempDir dir;
+    TempDir dir("retention");
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds
     MakeGroup(dir.path(), "old", kPerFile, /*age_seconds=*/300);
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds
@@ -80,7 +59,7 @@ TEST(ProxyRetentionTest, EvictsOldestOverCapKeepsNewestAndRecent) {
 }
 
 TEST(ProxyRetentionTest, NeverEvictsGraceProtectedActiveGroup) {
-    TempDir dir;
+    TempDir dir("retention");
     MakeGroup(dir.path(), "recent", kPerFile, /*age_seconds=*/0);  // actively writing
 
     // Way over a tiny cap, but the only group is within the write-grace.
@@ -91,7 +70,7 @@ TEST(ProxyRetentionTest, NeverEvictsGraceProtectedActiveGroup) {
 }
 
 TEST(ProxyRetentionTest, SkipsGroupsWithALiveDownloadToken) {
-    TempDir dir;
+    TempDir dir("retention");
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds
     MakeGroup(dir.path(), "tokened", kPerFile, /*age_seconds=*/300);
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds
@@ -110,7 +89,7 @@ TEST(ProxyRetentionTest, SkipsGroupsWithALiveDownloadToken) {
 }
 
 TEST(ProxyRetentionTest, EvictsProxyInsideMatchDirectoryWithoutTokens) {
-    TempDir dir;
+    TempDir dir("retention");
     const auto match_dir = dir.path() / "user" / "match";
     fs::create_directories(match_dir);
     constexpr int kOldAgeSeconds = 300;
@@ -124,7 +103,7 @@ TEST(ProxyRetentionTest, EvictsProxyInsideMatchDirectoryWithoutTokens) {
 }
 
 TEST(ProxyRetentionTest, DisabledWhenCapIsZero) {
-    TempDir dir;
+    TempDir dir("retention");
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident age in seconds
     MakeGroup(dir.path(), "old", kPerFile, /*age_seconds=*/300);
     ProxyRetention retention(dir.path(), /*max_total_bytes=*/0);

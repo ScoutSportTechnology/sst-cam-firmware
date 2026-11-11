@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/storage/gstreamer/gst-continuous-recorder.hpp"
 #include "domain/capture/models/frame.hpp"
 
@@ -16,8 +17,8 @@ namespace fs = std::filesystem;
 namespace {
 
 TEST(GstContinuousE2E, EncodesSinglePlayableMp4) {
-    const fs::path out = fs::temp_directory_path() / "sst_e2e_continuous.mp4";
-    fs::remove(out);
+    sst::test::TempDir dir("gst_e2e");
+    const fs::path out = dir.path() / "continuous.mp4";
 
     // Force the software scale/convert path: VIC (nvvidconv) is the on-device
     // default (U2) but does not resolve in the qemu container, so this encode/mux
@@ -45,7 +46,6 @@ TEST(GstContinuousE2E, EncodesSinglePlayableMp4) {
     EXPECT_TRUE(recorder.Stop());
     EXPECT_TRUE(fs::exists(out));
     EXPECT_GT(fs::file_size(out), 0U);
-    fs::remove(out);
 }
 
 }  // namespace
