@@ -1,15 +1,15 @@
 #include "domain/clock_sync/clock_sync_monitor.hpp"
 
 #include <gtest/gtest.h>
+
 #include <string>
 #include <vector>
 
 namespace sst::domain::clock_sync {
 
 class FakeClockSyncSource final : public IClockSyncSource {
-public:
-    explicit FakeClockSyncSource(std::vector<bool> states)
-        : states_(std::move(states)) {}
+   public:
+    explicit FakeClockSyncSource(std::vector<bool> states) : states_(std::move(states)) {}
 
     [[nodiscard]] auto IsSynced() const -> bool override {
         if (index_ < states_.size()) {
@@ -19,27 +19,24 @@ public:
         return states_.empty() ? false : states_.back();
     }
 
-private:
+   private:
     std::vector<bool> states_;
     mutable size_t index_ = 0;
 };
 
 class ClockSyncMonitorTest : public ::testing::Test {
-protected:
-    void SetUp() override {
-        logs_.clear();
-    }
+   protected:
+    void SetUp() override { logs_.clear(); }
 
-    void LogCallback(const std::string& msg) {
-        logs_.push_back(msg);
-    }
+    void LogCallback(const std::string& msg) { logs_.push_back(msg); }
 
     std::vector<std::string> logs_;
 };
 
 TEST_F(ClockSyncMonitorTest, StartsUnsyncedLogsNo) {
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{false});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();
 
@@ -49,7 +46,8 @@ TEST_F(ClockSyncMonitorTest, StartsUnsyncedLogsNo) {
 
 TEST_F(ClockSyncMonitorTest, StartsSyncedLogsYes) {
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{true});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();
 
@@ -60,7 +58,8 @@ TEST_F(ClockSyncMonitorTest, StartsSyncedLogsYes) {
 TEST_F(ClockSyncMonitorTest, TransitionsFromUnsyncedToSyncedLogsJump) {
     // Start unsynced, then synced
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{false, true});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();  // First call: unsynced
     monitor.CheckAndLog();  // Second call: now synced
@@ -73,7 +72,8 @@ TEST_F(ClockSyncMonitorTest, TransitionsFromUnsyncedToSyncedLogsJump) {
 TEST_F(ClockSyncMonitorTest, TransitionsFromSyncedToUnsyncedLogsNo) {
     // Start synced, then unsynced
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{true, false});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();  // First call: synced
     monitor.CheckAndLog();  // Second call: now unsynced
@@ -86,7 +86,8 @@ TEST_F(ClockSyncMonitorTest, TransitionsFromSyncedToUnsyncedLogsNo) {
 TEST_F(ClockSyncMonitorTest, AlreadySyncedAtStartNoDuplicateLog) {
     // Stays synced across multiple checks
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{true, true, true});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();  // First call: synced
     monitor.CheckAndLog();  // Second call: still synced
@@ -99,7 +100,8 @@ TEST_F(ClockSyncMonitorTest, AlreadySyncedAtStartNoDuplicateLog) {
 TEST_F(ClockSyncMonitorTest, AlreadyUnsyncedAtStartNoDuplicateLog) {
     // Stays unsynced across multiple checks
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{false, false, false});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     monitor.CheckAndLog();  // First call: unsynced
     monitor.CheckAndLog();  // Second call: still unsynced
@@ -111,7 +113,8 @@ TEST_F(ClockSyncMonitorTest, AlreadyUnsyncedAtStartNoDuplicateLog) {
 
 TEST_F(ClockSyncMonitorTest, IsSyncedReturnsCurrentState) {
     auto source = std::make_unique<FakeClockSyncSource>(std::vector<bool>{false, true});
-    ClockSyncMonitor monitor(std::move(source), [this](const std::string& msg) { LogCallback(msg); });
+    ClockSyncMonitor monitor(std::move(source),
+                             [this](const std::string& msg) { LogCallback(msg); });
 
     // Before any CheckAndLog call, IsSynced returns false (initial state)
     EXPECT_FALSE(monitor.IsSynced());

@@ -6,7 +6,7 @@
 namespace sst::domain::clock_sync {
 
 auto SystemClockSyncSource::IsSynced() const -> bool {
-    struct timex timex_params{};
+    struct timex timex_params {};
     timex_params.modes = 0;  // Just read the status
     int result = ntp_adjtime(&timex_params);
     if (result == -1) {
@@ -21,11 +21,9 @@ auto SystemClockSyncSource::IsSynced() const -> bool {
     return (timex_params.status & 0x0001) == 0;
 }
 
-ClockSyncMonitor::ClockSyncMonitor(
-    std::unique_ptr<IClockSyncSource> source,
-    LogCallback log_callback)
-    : source_(std::move(source))
-    , log_callback_(std::move(log_callback)) {}
+ClockSyncMonitor::ClockSyncMonitor(std::unique_ptr<IClockSyncSource> source,
+                                   LogCallback log_callback)
+    : source_(std::move(source)), log_callback_(std::move(log_callback)) {}
 
 void ClockSyncMonitor::CheckAndLog() {
     bool synced = source_->IsSynced();
@@ -45,8 +43,6 @@ void ClockSyncMonitor::CheckAndLog() {
     }
 }
 
-auto ClockSyncMonitor::IsSynced() const -> bool {
-    return was_synced_;
-}
+auto ClockSyncMonitor::IsSynced() const -> bool { return was_synced_; }
 
 }  // namespace sst::domain::clock_sync
