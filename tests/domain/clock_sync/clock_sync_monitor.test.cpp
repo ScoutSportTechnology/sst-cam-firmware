@@ -9,10 +9,9 @@ namespace sst::domain::clock_sync {
 class FakeClockSyncSource final : public IClockSyncSource {
 public:
     explicit FakeClockSyncSource(std::vector<bool> states)
-        : states_(std::move(states))
-        , index_(0) {}
+        : states_(std::move(states)) {}
 
-    bool IsSynced() const override {
+    [[nodiscard]] auto IsSynced() const -> bool override {
         if (index_ < states_.size()) {
             return states_[index_++];
         }
@@ -22,7 +21,7 @@ public:
 
 private:
     std::vector<bool> states_;
-    mutable size_t index_;
+    mutable size_t index_ = 0;
 };
 
 class ClockSyncMonitorTest : public ::testing::Test {
