@@ -3,18 +3,20 @@
 #include <filesystem>
 #include <fstream>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/network/json/json-uplink-store.hpp"
 #include "domain/config/models/uplink-config.hpp"
 
 namespace {
 
 namespace fs = std::filesystem;
+using sst::test::TempDir;
 
 // Persisting a config writes the file and restricts it to owner rw (0600), so
 // the WiFi passphrase it contains is not world-readable.
 TEST(JsonUplinkStoreTest, PersistsWithOwnerOnlyPermissions) {
-    const fs::path path = fs::path{::testing::TempDir()} / "uplink-store-perms-test.json";
-    fs::remove(path);
+    TempDir dir("uplink-perms");
+    const fs::path path = dir.path() / "uplink-store-perms-test.json";
 
     sst::config::UplinkData data;
     data.wifi.enabled = true;
@@ -31,13 +33,12 @@ TEST(JsonUplinkStoreTest, PersistsWithOwnerOnlyPermissions) {
     EXPECT_EQ(mode & fs::perms::owner_write, fs::perms::owner_write);
     EXPECT_EQ(mode & fs::perms::group_all, fs::perms::none);
     EXPECT_EQ(mode & fs::perms::others_all, fs::perms::none);
-
-    fs::remove(path);
 }
 
 // A pre-existing world-readable file is tightened, not left at 0644.
 TEST(JsonUplinkStoreTest, TightensPreexistingWorldReadableFile) {
-    const fs::path path = fs::path{::testing::TempDir()} / "uplink-store-pre-test.json";
+    TempDir dir("uplink-pre");
+    const fs::path path = dir.path() / "uplink-store-pre-test.json";
     {
         std::ofstream seed(path, std::ios::trunc);
         seed << "{}";
@@ -53,8 +54,6 @@ TEST(JsonUplinkStoreTest, TightensPreexistingWorldReadableFile) {
     const fs::perms mode = fs::status(path).permissions();
     EXPECT_EQ(mode & fs::perms::group_all, fs::perms::none);
     EXPECT_EQ(mode & fs::perms::others_all, fs::perms::none);
-
-    fs::remove(path);
 }
 
 }  // namespace

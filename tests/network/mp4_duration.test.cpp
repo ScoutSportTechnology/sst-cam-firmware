@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "../support/temp-dir.hpp"
 #include "app/network/services/download_server/mp4-duration.hpp"
 
 namespace fs = std::filesystem;
@@ -64,8 +65,9 @@ auto FtypBox() -> std::vector<std::uint8_t> {
     return BoxAround("ftyp", body);
 }
 
-auto WriteTemp(const std::string& name, const std::vector<std::uint8_t>& bytes) -> fs::path {
-    const fs::path path = fs::temp_directory_path() / name;
+auto WriteTemp(const fs::path& root, const std::string& name,
+               const std::vector<std::uint8_t>& bytes) -> fs::path {
+    const fs::path path = root / name;
     std::ofstream file(path, std::ios::binary);
     file.write(reinterpret_cast<const char*>(bytes.data()),
                static_cast<std::streamsize>(bytes.size()));
@@ -79,9 +81,9 @@ TEST(Mp4DurationTest, ParsesMvhdDuration) {
     std::vector<std::uint8_t> file = FtypBox();
     const auto moov = BoxAround("moov", MakeMvhd(/*timescale=*/600, /*duration=*/2400));
     file.insert(file.end(), moov.begin(), moov.end());
-    const auto path = WriteTemp("sst-mvhd-front.mp4", file);
+    sst::test::TempDir temp("mvhd-front");
+    const auto path = WriteTemp(temp.path(), "sst-mvhd-front.mp4", file);
     EXPECT_EQ(ProbeMp4DurationSeconds(path), 4U);
-    fs::remove(path);
 }
 
 TEST(Mp4DurationTest, FindsMoovAfterMdat) {
@@ -94,17 +96,18 @@ TEST(Mp4DurationTest, FindsMoovAfterMdat) {
     file.insert(file.end(), mdat.begin(), mdat.end());
     const auto moov = BoxAround("moov", MakeMvhd(/*timescale=*/1000, /*duration=*/9000));
     file.insert(file.end(), moov.begin(), moov.end());
-    const auto path = WriteTemp("sst-mvhd-back.mp4", file);
+    sst::test::TempDir temp("mvhd-back");
+    const auto path = WriteTemp(temp.path(), "sst-mvhd-back.mp4", file);
     EXPECT_EQ(ProbeMp4DurationSeconds(path), 9U);
-    fs::remove(path);
 }
 
 TEST(Mp4DurationTest, ReturnsZeroWhenNoMoov) {
-    const auto path = WriteTemp("sst-no-moov.mp4", FtypBox());
+    sst::test::TempDir temp("no-moov");
+    const auto path = WriteTemp(temp.path(), "sst-no-moov.mp4", FtypBox());
     EXPECT_EQ(ProbeMp4DurationSeconds(path), 0U);
-    fs::remove(path);
 }
 
 TEST(Mp4DurationTest, ReturnsZeroForMissingFile) {
-    EXPECT_EQ(ProbeMp4DurationSeconds(fs::temp_directory_path() / "sst-does-not-exist.mp4"), 0U);
+    sst::test::TempDir temp("missing-mp4");
+    EXPECT_EQ(ProbeMp4DurationSeconds(temp.path() / "sst-does-not-exist.mp4"), 0U);
 }

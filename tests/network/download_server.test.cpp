@@ -10,7 +10,6 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -18,6 +17,7 @@
 #include <string>
 #include <thread>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/network/http/http-download-server.hpp"
 #include "app/network/services/download_server/download-server.hpp"
 #include "domain/raw_capture/models/raw-capture-identity.hpp"
@@ -29,6 +29,7 @@ namespace fs = std::filesystem;
 namespace {
 
 using sst::network::DownloadServer;
+using sst::test::TempDir;
 
 constexpr std::uint64_t kTokenTtlSeconds = 60;
 constexpr std::uint64_t kLongTokenTtlSeconds = 3600;
@@ -38,15 +39,6 @@ constexpr std::uint64_t kStubClockNow = 100;
 // Loopback accept-loop probe budget: kProbeAttempts × kProbeIntervalMs.
 constexpr int kProbeAttempts = 100;
 constexpr int kProbeIntervalMs = 20;
-
-auto MakeRoot() -> fs::path {
-    static std::atomic<int> counter{0};
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    fs::path root = fs::temp_directory_path() / ("sst_dl_" + std::to_string(stamp) + "_" +
-                                                 std::to_string(counter.fetch_add(1)));
-    fs::create_directories(root);
-    return root;
-}
 
 // Identifies a recording to write: the match name (used as the directory and
 // file stem) and its file body. A struct keeps the two same-typed strings from
@@ -85,7 +77,8 @@ auto WriteThumbnail(const fs::path& thumb_root, const RecordingFile& thumb) -> v
 
 // Enumeration finds MP4s on disk with their sizes.
 TEST(DownloadServerTest, EnumeratesRecordings) {
-    const fs::path root = MakeRoot();
+    TempDir temp("dl");
+    const fs::path& root = temp.path();
     WriteRecording(root, {.match = "match-a", .body = "aaaa"});
     WriteRecording(root, {.match = "match-b", .body = "bbbbbb"});
     DownloadServer server(root, root, [] { return kStubClockNow; });
@@ -98,11 +91,11 @@ TEST(DownloadServerTest, EnumeratesRecordings) {
         EXPECT_EQ(rec.thumbnail_id, rec.recording_id);
     }
     EXPECT_EQ(total, 10U);
-    fs::remove_all(root);
 }
 
 TEST(DownloadServerTest, ProxyFilesAreAbsentFromCatalogAndDeniedByEveryTokenPath) {
-    const fs::path root = MakeRoot();
+    TempDir temp("dl");
+    const fs::path& root = temp.path();
     const fs::path match_dir = root / "user" / "match-final";
     WriteRecording(root, {.match = "match-final", .body = "final-bytes"});
     WriteRawFile(match_dir, "grp-9", 0, "cam0-raw-bytes");
@@ -129,15 +122,16 @@ TEST(DownloadServerTest, ProxyFilesAreAbsentFromCatalogAndDeniedByEveryTokenPath
     EXPECT_FALSE(server.MintTokenForFile(match_dir / "raw__grp-9__cam0.mp4", "match-final",
                                          kTokenTtlSeconds));
     EXPECT_TRUE(server.MintToken("match-final", kTokenTtlSeconds));
-    fs::remove_all(root);
 }
 
 // ResolveThumbnailPath finds <id>.jpg under the thumbnail root by stem, and
 // returns nullopt for an unknown id or an empty id. Pure filesystem logic —
 // container-runnable (unlike the loopback HTTP test).
 TEST(DownloadServerTest, ResolvesThumbnailByStem) {
-    const fs::path video_root = MakeRoot();
-    const fs::path thumb_root = MakeRoot();
+    TempDir video_temp("dl");
+    TempDir thumb_temp("dl");
+    const fs::path& video_root = video_temp.path();
+    const fs::path& thumb_root = thumb_temp.path();
     WriteThumbnail(thumb_root, {.match = "match-a", .body = "jpeg"});
     DownloadServer server(video_root, thumb_root, [] { return kStubClockNow; });
 
@@ -149,14 +143,12 @@ TEST(DownloadServerTest, ResolvesThumbnailByStem) {
     EXPECT_EQ(path->filename().string(), "match-a.jpg");
     EXPECT_FALSE(server.ResolveThumbnailPath("ghost").has_value());
     EXPECT_FALSE(server.ResolveThumbnailPath("").has_value());
-
-    fs::remove_all(video_root);
-    fs::remove_all(thumb_root);
 }
 
 // A token validates until it expires; an unknown token never validates.
 TEST(DownloadServerTest, TokenMintValidateExpire) {
-    const fs::path root = MakeRoot();
+    TempDir temp("dl");
+    const fs::path& root = temp.path();
     WriteRecording(root, {.match = "match-a", .body = "data"});
     std::uint64_t now = kFixedNow;
     DownloadServer server(root, root, [&now] { return now; });
@@ -176,7 +168,6 @@ TEST(DownloadServerTest, TokenMintValidateExpire) {
 
     // A token for a non-existent recording is not minted.
     EXPECT_FALSE(server.MintToken("ghost", kTokenTtlSeconds).has_value());
-    fs::remove_all(root);
 }
 
 // End-to-end over loopback: a minted token authorizes a full + ranged GET;
@@ -186,8 +177,10 @@ TEST(DownloadServerTest, TokenMintValidateExpire) {
 // linear arrange/act/assert, so the metric is suppressed here.
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
-    const fs::path root = MakeRoot();
-    const fs::path thumb_root = MakeRoot();
+    TempDir temp("dl");
+    const fs::path& root = temp.path();
+    TempDir thumb_temp("dl");
+    const fs::path& thumb_root = thumb_temp.path();
     const std::string body = "0123456789ABCDEF";
     const std::string thumb_body = "\xFF\xD8\xFFjpeg-bytes";
     WriteRecording(root, {.match = "match-a", .body = body});
@@ -269,8 +262,6 @@ TEST(DownloadServerTest, HttpServesByteRangeWithBearerToken) {
     }
 
     http.Stop();
-    fs::remove_all(root);
-    fs::remove_all(thumb_root);
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 

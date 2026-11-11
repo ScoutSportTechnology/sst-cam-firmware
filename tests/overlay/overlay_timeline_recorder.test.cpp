@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/overlay/timeline/filesystem-overlay-timeline-recorder.hpp"
 #include "adapters/overlay/timeline/serde/render-scene-serde.hpp"
 #include "domain/overlay/models/overlay-enums.hpp"
@@ -76,22 +77,16 @@ TEST(RenderSceneSerdeTest, RoundTripsAllFields) {
 class OverlayTimelineRecorderTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        dir_ = fs::temp_directory_path() /
-               ("sst-tl-" +
-                std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
-        fs::create_directories(dir_);
-        timeline_ = dir_ / (dir_.filename().string() + ".timeline.json");
-        fs::remove(timeline_);
+        timeline_ = dir_.path() / (dir_.path().filename().string() + ".timeline.json");
     }
-    void TearDown() override { fs::remove_all(dir_); }
 
-    fs::path dir_;
+    sst::test::TempDir dir_{"overlay"};
     fs::path timeline_;
 };
 
 TEST_F(OverlayTimelineRecorderTest, WritesAnchorAndScenesOnStop) {
     sst::adapters::overlay::FilesystemOverlayTimelineRecorder recorder;
-    recorder.Start(dir_, kAnchorMs);
+    recorder.Start(dir_.path(), kAnchorMs);
     recorder.OnScene(kAnchorMs, MakeScene("0 - 0"));
     recorder.OnScene(kAnchorMs + kTickMs, MakeScene("1 - 0"));
     recorder.Stop();
@@ -116,7 +111,7 @@ TEST_F(OverlayTimelineRecorderTest, OnSceneBeforeStartIsNoOp) {
 
 TEST_F(OverlayTimelineRecorderTest, StopWithNoScenesWritesNothing) {
     sst::adapters::overlay::FilesystemOverlayTimelineRecorder recorder;
-    recorder.Start(dir_, kAnchorMs);
+    recorder.Start(dir_.path(), kAnchorMs);
     recorder.Stop();
     EXPECT_FALSE(fs::exists(timeline_));
 }

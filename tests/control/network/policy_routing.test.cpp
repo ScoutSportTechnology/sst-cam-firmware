@@ -17,6 +17,7 @@
 #include <tuple>
 #include <vector>
 
+#include "../../support/temp-dir.hpp"
 #include "adapters/control/network/policy-routing.hpp"
 
 namespace {
@@ -45,6 +46,7 @@ using sst::adapters::control::kUplinkRulePriority;
 using sst::adapters::control::NetworkCidrOf;
 using sst::adapters::control::OwnedMainDefaultGateway;
 using sst::adapters::control::SelectFirewallBackend;
+using sst::test::TempDir;
 using Argv = std::vector<std::string>;
 
 auto Contains(const Argv& argv, const std::string& token) -> bool {
@@ -330,8 +332,8 @@ TEST(PolicyRoutingTest, ApplyAndTeardownAreBoundedAndDoNotThrow) {
 // wired iface / `nft` so it is a logged no-op, on-device it installs the firewall.
 TEST(PolicyRoutingTest, XtSwapKeepsStatefulChainWhenOldChainDeletionFails) {
     namespace fs = std::filesystem;
-    const fs::path sandbox = fs::temp_directory_path() / "sst-xt-swap-test";
-    fs::create_directories(sandbox);
+    TempDir temp_dir("xt-swap");
+    const fs::path& sandbox = temp_dir.path();
     const fs::path tools = sandbox / "bin";
     fs::create_directories(tools);
     const fs::path state = sandbox / "state";
@@ -415,7 +417,6 @@ TEST(PolicyRoutingTest, XtSwapKeepsStatefulChainWhenOldChainDeletionFails) {
     setenv("PATH", original.c_str(), 1);
     unsetenv("SST_XT_LOG");
     unsetenv("SST_XT_STATE");
-    fs::remove_all(sandbox);
 }
 
 TEST(PolicyRoutingTest, ApplyEgressFirewallIsBoundedAndDoesNotThrow) {

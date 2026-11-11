@@ -13,11 +13,13 @@
 #include <filesystem>
 #include <string>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
 
 namespace {
 
 using sst::adapters::control::ResolveWifiInterface;
+using sst::test::TempDir;
 
 namespace fs = std::filesystem;
 
@@ -33,39 +35,19 @@ auto MakeSocketFile(const fs::path& path) -> int {
     return sock_fd;
 }
 
-// A unique temp dir for one test, removed on destruction.
-class TempDir {
-   public:
-    TempDir() {
-        const auto* name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
-        path_ = fs::temp_directory_path() / (std::string("sst-wifi-") + name);
-        fs::remove_all(path_);
-        fs::create_directories(path_);
-    }
-    ~TempDir() { fs::remove_all(path_); }
-    TempDir(const TempDir&) = delete;
-    auto operator=(const TempDir&) -> TempDir& = delete;
-    TempDir(TempDir&&) = delete;
-    auto operator=(TempDir&&) -> TempDir& = delete;
-    [[nodiscard]] auto path() const -> const fs::path& { return path_; }
-
-   private:
-    fs::path path_;
-};
-
 TEST(ResolveWifiInterfaceTest, ReturnsExplicitNameUnchanged) {
     EXPECT_EQ(ResolveWifiInterface("wlan5", "/nonexistent", "/nonexistent"), "wlan5");
 }
 
 TEST(ResolveWifiInterfaceTest, DetectsWifiSocketInCtrlDir) {
-    TempDir ctrl;
+    TempDir ctrl("wifi");
     const int sock_fd = MakeSocketFile(ctrl.path() / "wlP1p1s0");
     EXPECT_EQ(ResolveWifiInterface("auto", ctrl.path().string(), "/nonexistent"), "wlP1p1s0");
     ::close(sock_fd);
 }
 
 TEST(ResolveWifiInterfaceTest, PrefersWifiSocketOverOtherSockets) {
-    TempDir ctrl;
+    TempDir ctrl("wifi");
     const int sock_a = MakeSocketFile(ctrl.path() / "p2p-dev-wlP1p1s0");
     const int sock_b = MakeSocketFile(ctrl.path() / "wlP1p1s0");
     const auto got = ResolveWifiInterface("auto", ctrl.path().string(), "/nonexistent");
@@ -75,8 +57,8 @@ TEST(ResolveWifiInterfaceTest, PrefersWifiSocketOverOtherSockets) {
 }
 
 TEST(ResolveWifiInterfaceTest, FallsBackToSysfsWhenNoCtrlSocket) {
-    TempDir ctrl;  // empty ctrl dir
-    TempDir sysfs;
+    TempDir ctrl("wifi");  // empty ctrl dir
+    TempDir sysfs("wifi-sysfs");
     fs::create_directories(sysfs.path() / "eth0");
     fs::create_directories(sysfs.path() / "wlP1p1s0" / "phy80211");
     EXPECT_EQ(ResolveWifiInterface("auto", ctrl.path().string(), sysfs.path().string()),

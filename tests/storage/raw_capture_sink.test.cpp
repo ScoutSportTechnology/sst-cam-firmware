@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/raw_capture/filesystem-raw-capture-sink.hpp"
 #include "app/raw_capture/ports/raw-capture-sink.hpp"
 #include "domain/capture/models/frame.hpp"
@@ -27,6 +28,7 @@ namespace {
 
 using sst::adapters::raw_capture::FilesystemRawCaptureSink;
 using sst::capture::Frame;
+using sst::test::TempDir;
 
 // R17: the raw dual-recording is NOT quality-controllable — record/stream
 // quality must never reach it. The sink's Start takes only a capture_group_id;
@@ -36,25 +38,6 @@ static_assert(std::is_same_v<decltype(&sst::raw_capture::IRawCaptureSink::Start)
                              bool (sst::raw_capture::IRawCaptureSink::*)(
                                  const std::string&, const std::filesystem::path&)>,
               "raw capture Start takes a group id + output dir, no quality knob (R17)");
-
-// A unique temp directory per test, removed on destruction.
-class TempDir {
-   public:
-    explicit TempDir(const std::string& tag) {
-        path_ =
-            std::filesystem::temp_directory_path() /
-            ("sst-rawcap-" + tag + "-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
-        std::filesystem::create_directories(path_);
-    }
-    ~TempDir() {
-        std::error_code err;
-        std::filesystem::remove_all(path_, err);
-    }
-    [[nodiscard]] auto path() const -> const std::filesystem::path& { return path_; }
-
-   private:
-    std::filesystem::path path_;
-};
 
 // A valid NV12 frame the encoder can consume: size == width*height*3/2 so the
 // appsrc caps (set from geometry) match the buffer the sink fills.
@@ -92,14 +75,14 @@ TEST(RawCaptureSinkTest, Nv12TwoPlanePayloadContainsLumaAndChroma) {
 }
 
 TEST(RawCaptureSinkTest, EmptyGroupIdRejected) {
-    TempDir dir("empty");
+    TempDir dir("rawcap-empty");
     FilesystemRawCaptureSink sink(dir.path(), 2);
     EXPECT_FALSE(sink.Start("", dir.path()));  // rejected before any GStreamer work
     EXPECT_FALSE(sink.IsCapturing());
 }
 
 TEST(RawCaptureSinkTest, PushWhenNotCapturingIsNoOp) {
-    TempDir dir("idle");
+    TempDir dir("rawcap-idle");
     FilesystemRawCaptureSink sink(dir.path(), 2);
     constexpr std::uint32_t kOutOfRangeCamera = 5;
     // NOLINTNEXTLINE(readability-magic-numbers) — self-evident NV12 fill byte
@@ -113,7 +96,7 @@ TEST(RawCaptureSinkTest, PushWhenNotCapturingIsNoOp) {
 // is refused (rather than truncate-overwriting a prior, maybe-undownloaded group).
 // The guard runs before any pipeline is built, so this is container-safe.
 TEST(RawCaptureSinkTest, StartRejectsReusedGroupWithExistingFiles) {
-    TempDir dir("collide");
+    TempDir dir("rawcap-collide");
     FilesystemRawCaptureSink sink(dir.path(), 2);
     { std::ofstream(ProxyPath(dir.path(), 0)) << 'x'; }  // pre-existing cam-0 proxy
     EXPECT_FALSE(sink.Start("grp-1", dir.path()));
@@ -126,7 +109,7 @@ TEST(RawCaptureSinkE2E, StartPushStopWritesBothProxyFiles) {
     constexpr std::uint32_t kCameraCount = 2;
     constexpr int kFramesPerCamera = 10;
 
-    TempDir dir("both");
+    TempDir dir("rawcap-both");
     FilesystemRawCaptureSink sink(dir.path(), kCameraCount);
 
     ASSERT_TRUE(sink.Start("grp-1", dir.path()));
@@ -148,7 +131,7 @@ TEST(RawCaptureSinkE2E, StartPushStopWritesBothProxyFiles) {
 }
 
 TEST(RawCaptureSinkE2E, StartWhileCapturingIsRejected) {
-    TempDir dir("twice");
+    TempDir dir("rawcap-twice");
     FilesystemRawCaptureSink sink(dir.path(), 2);
     ASSERT_TRUE(sink.Start("g", dir.path()));
     EXPECT_FALSE(sink.Start("g2", dir.path()));  // already capturing
@@ -156,7 +139,7 @@ TEST(RawCaptureSinkE2E, StartWhileCapturingIsRejected) {
 }
 
 TEST(RawCaptureSinkE2E, StopIsIdempotentlySafe) {
-    TempDir dir("stop2");
+    TempDir dir("rawcap-stop2");
     FilesystemRawCaptureSink sink(dir.path(), 2);
     ASSERT_TRUE(sink.Start("g", dir.path()));
     EXPECT_TRUE(sink.Stop());

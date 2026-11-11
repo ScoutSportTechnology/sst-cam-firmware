@@ -7,7 +7,6 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -15,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "../support/temp-dir.hpp"
 #include "app/session/ports/session-cleanup.hpp"
 #include "app/session/services/session_manager/session-manager.hpp"
 #include "domain/session/models/session-config.hpp"
@@ -52,15 +52,6 @@ class FakeCleanup final : public sst::session::ISessionCleanup {
     bool reset_selections{false};
 };
 
-// Unique temp root per test to keep filesystem state isolated (no shared dirs).
-auto MakeTempRoot() -> fs::path {
-    static std::atomic<int> counter{0};
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    fs::path root = fs::temp_directory_path() / ("sst_session_" + std::to_string(stamp) + "_" +
-                                                 std::to_string(counter.fetch_add(1)));
-    return root;
-}
-
 auto MakeConfig(const fs::path& root) -> SessionConfig {
     // A regulation soccer half is 45 minutes; period_length_seconds is in seconds.
     constexpr std::uint32_t kHalfLengthSeconds = 45U * 60U;
@@ -91,7 +82,8 @@ auto AdvanceToReady(SessionManager& manager, const SessionConfig& cfg) {
 TEST(SessionManagerTest, OrderedTransitionsAndDirCreation) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
@@ -108,15 +100,14 @@ TEST(SessionManagerTest, OrderedTransitionsAndDirCreation) {
 
     EXPECT_TRUE(fs::exists(fs::path{cfg.video_output_path}.parent_path()));
     EXPECT_TRUE(fs::exists(fs::path{cfg.thumbnail_output_path}.parent_path()));
-
-    fs::remove_all(root);
 }
 
 // Out-of-order: overlay/config before its prerequisite is rejected (no-op).
 TEST(SessionManagerTest, OutOfOrderTransitionsRejected) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     // Overlay before any session config.
@@ -133,8 +124,6 @@ TEST(SessionManagerTest, OutOfOrderTransitionsRejected) {
     ASSERT_TRUE(manager.ApplySessionConfig(cfg));
     EXPECT_FALSE(manager.OnRecordingStart());  // still Configured, not Ready
     EXPECT_EQ(manager.Phase(), SessionPhase::kConfigured);
-
-    fs::remove_all(root);
 }
 
 // U8 / R8 / contract §11: session config is accepted only after the WiFi-Direct
@@ -144,7 +133,8 @@ TEST(SessionManagerTest, OutOfOrderTransitionsRejected) {
 TEST(SessionManagerTest, SessionConfigGatedOnWifiDirectPerSection11) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     ASSERT_TRUE(manager.OnConnect());
@@ -157,8 +147,6 @@ TEST(SessionManagerTest, SessionConfigGatedOnWifiDirectPerSection11) {
     ASSERT_TRUE(manager.OnWifiReady());
     EXPECT_TRUE(manager.ApplySessionConfig(cfg));
     EXPECT_EQ(manager.Phase(), SessionPhase::kConfigured);
-
-    fs::remove_all(root);
 }
 
 // U8: the only ordering constraint is the documented §11 one — there is no
@@ -168,7 +156,8 @@ TEST(SessionManagerTest, SessionConfigGatedOnWifiDirectPerSection11) {
 TEST(SessionManagerTest, NoUndocumentedOrderingConstraints) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     // Overlay before any session config: rejected (documented prerequisite).
@@ -184,14 +173,13 @@ TEST(SessionManagerTest, NoUndocumentedOrderingConstraints) {
     EXPECT_EQ(manager.Phase(), SessionPhase::kReady);
     EXPECT_TRUE(manager.ApplySessionConfig(cfg));
     EXPECT_EQ(manager.Phase(), SessionPhase::kReady);
-
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, DifferentMatchConfigRejectedWhileRecording) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     AdvanceToReady(manager, cfg);
@@ -202,15 +190,14 @@ TEST(SessionManagerTest, DifferentMatchConfigRejectedWhileRecording) {
     other.match_uuid = "other-match";
     EXPECT_FALSE(manager.ApplySessionConfig(other));
     EXPECT_EQ(manager.Phase(), SessionPhase::kRecording);
-
-    fs::remove_all(root);
 }
 
 // R11: session memory (config, scores, clock, period) is cleared on session end.
 TEST(SessionManagerTest, SameMatchReconfigKeepsActiveRecordingPath) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto config = MakeConfig(root);
     AdvanceToReady(manager, config);
     ASSERT_TRUE(manager.OnRecordingStart());
@@ -221,14 +208,14 @@ TEST(SessionManagerTest, SameMatchReconfigKeepsActiveRecordingPath) {
     const auto active = manager.Snapshot().config.value_or(SessionConfig{});
     EXPECT_EQ(active.video_output_path, config.video_output_path);
     EXPECT_EQ(active.auto_stop_minutes, kCustomStopMinutes);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, StreamingOnlyReconfigKeepsIdentityAndChangesTimeout) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     auto config = MakeConfig(root);
     AdvanceToReady(manager, config);
     manager.OnStreamingChanged(true);
@@ -243,13 +230,13 @@ TEST(SessionManagerTest, StreamingOnlyReconfigKeepsIdentityAndChangesTimeout) {
     now += std::chrono::minutes(1);
     manager.Tick();
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     AdvanceToReady(manager, cfg);
@@ -281,8 +268,6 @@ TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     // A live-match query after the session ended reflects no session.
     EXPECT_FALSE(
         manager.ApplyMatchUpdate([](sst::session::LiveMatch& match) { match.score_a = 9; }));
-
-    fs::remove_all(root);
 }
 
 // #6 stale-overlay fix: a config for a NEW match resets the scoreboard to zero,
@@ -290,7 +275,8 @@ TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
 TEST(SessionManagerTest, NewMatchConfigResetsScoreSameMatchKeeps) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     AdvanceToReady(manager, cfg);
@@ -321,14 +307,13 @@ TEST(SessionManagerTest, NewMatchConfigResetsScoreSameMatchKeeps) {
     ASSERT_TRUE(after.config.has_value());
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access) // floor-ok: ASSERT_TRUE guards
     EXPECT_EQ(after.config->match_uuid, "match-uuid-2");
-
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, DisconnectWhileRecordingPreservesSessionAndCapture) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     AdvanceToReady(manager, cfg);
@@ -345,8 +330,6 @@ TEST(SessionManagerTest, DisconnectWhileRecordingPreservesSessionAndCapture) {
     const auto state = manager.Snapshot();
     ASSERT_TRUE(state.config.has_value());
     EXPECT_EQ(state.config.value_or(SessionConfig{}).match_uuid, "match-uuid");
-
-    fs::remove_all(root);
 }
 
 // Disconnect from Idle is a no-op (no cleanup fan-out).
@@ -385,7 +368,8 @@ class ThrowingFinalizeCleanup final : public sst::session::ISessionCleanup {
 TEST(SessionManagerTest, DisconnectCleanupIsExceptionSafe) {
     ThrowingFinalizeCleanup cleanup;
     SessionManager manager(cleanup);
-    const fs::path root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
 
     AdvanceToReady(manager, cfg);
@@ -399,15 +383,14 @@ TEST(SessionManagerTest, DisconnectCleanupIsExceptionSafe) {
     EXPECT_TRUE(cleanup.teardown_wifi);               // ran despite the earlier throw
     EXPECT_TRUE(cleanup.reset_selections);            // ran despite the earlier throw
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);  // session still reset
-
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, ReconnectCancelsDefaultDeadlineAndKeepsIdentity) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     AdvanceToReady(manager, MakeConfig(root));
     ASSERT_TRUE(manager.OnRecordingStart());
     manager.OnDisconnect();
@@ -420,14 +403,14 @@ TEST(SessionManagerTest, ReconnectCancelsDefaultDeadlineAndKeepsIdentity) {
     ASSERT_TRUE(manager.Snapshot().config.has_value());
     EXPECT_EQ(manager.Snapshot().config.value_or(SessionConfig{}).match_uuid, "match-uuid");
     EXPECT_FALSE(cleanup.finalize_recording);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, CustomTimeoutRearmsFromConfigAndFinalizesOnce) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     auto config = MakeConfig(root);
     config.auto_stop_minutes = kCustomStopMinutes;
     AdvanceToReady(manager, config);
@@ -443,14 +426,14 @@ TEST(SessionManagerTest, CustomTimeoutRearmsFromConfigAndFinalizesOnce) {
     ASSERT_TRUE(manager.Snapshot().last_session.has_value());
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kAutoStop);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, StreamingOnlySurvivesDisconnectThenAutoStops) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     AdvanceToReady(manager, MakeConfig(root));
     manager.OnStreamingChanged(true);
     manager.OnDisconnect();
@@ -463,7 +446,6 @@ TEST(SessionManagerTest, StreamingOnlySurvivesDisconnectThenAutoStops) {
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kAutoStop);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, RepeatedDisconnectDoesNotExtendDeadline) {
@@ -498,7 +480,8 @@ TEST(SessionManagerTest, StaleExpiryCannotFinalizeReconnectedSession) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     AdvanceToReady(manager, MakeConfig(root));
     manager.OnDisconnect();
     now += kDefaultStop;
@@ -506,12 +489,12 @@ TEST(SessionManagerTest, StaleExpiryCannotFinalizeReconnectedSession) {
     manager.Tick();
     EXPECT_EQ(manager.Phase(), SessionPhase::kReady);
     EXPECT_FALSE(cleanup.teardown_wifi);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, BootOrphanReportsRebootAndInvalidFile) {
     FakeCleanup cleanup;
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     auto cfg = MakeConfig(root);
     cfg.video_output_path = (root / "video/user-uuid/match-uuid/clip-001.mp4").string();
     {
@@ -526,13 +509,13 @@ TEST(SessionManagerTest, BootOrphanReportsRebootAndInvalidFile) {
     EXPECT_EQ(rebooted.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kReboot);
     EXPECT_FALSE(rebooted.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     FakeCleanup cleanup;
     cleanup.finalize_ok = false;
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
     SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
     AdvanceToReady(manager, cfg);
@@ -543,12 +526,12 @@ TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     SessionManager rebooted(cleanup, std::chrono::steady_clock::now, root / "video");
     EXPECT_EQ(rebooted.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kReboot);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, ExplicitStopWithFailedEosKeepsOrphanMarker) {
     FakeCleanup cleanup;
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     const auto cfg = MakeConfig(root);
     const auto marker = fs::path(cfg.video_output_path).replace_extension(".session-active");
     SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
@@ -558,27 +541,27 @@ TEST(SessionManagerTest, ExplicitStopWithFailedEosKeepsOrphanMarker) {
     ASSERT_TRUE(manager.OnRecordingStop(false));
     EXPECT_TRUE(fs::exists(marker));
     EXPECT_FALSE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, CameraFailureFinalizesWithReason) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     AdvanceToReady(manager, MakeConfig(root));
     ASSERT_TRUE(manager.OnRecordingStart());
     EXPECT_TRUE(manager.EndSession(sst::session::SessionEndReason::kCameraFailure));
     EXPECT_TRUE(cleanup.finalize_recording);
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kCameraFailure);
-    fs::remove_all(root);
 }
 
 TEST(SessionManagerTest, FinalizingIsVisibleAndPreservesClockAndValidity) {
     FakeCleanup cleanup;
     std::chrono::steady_clock::time_point now{};
     SessionManager manager(cleanup, [&] { return now; });
-    const auto root = MakeTempRoot();
+    const sst::test::TempDir dir("session");
+    const auto& root = dir.path();
     AdvanceToReady(manager, MakeConfig(root));
     ASSERT_TRUE(manager.OnRecordingStart());
     ASSERT_TRUE(
@@ -592,7 +575,6 @@ TEST(SessionManagerTest, FinalizingIsVisibleAndPreservesClockAndValidity) {
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).clock_seconds,
               47U);
     EXPECT_TRUE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
-    fs::remove_all(root);
 }
 
 }  // namespace
