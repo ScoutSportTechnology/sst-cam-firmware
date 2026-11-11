@@ -26,7 +26,8 @@ class SessionHandler final : public ICommandHandler {
                    sst::overlay::OverlayController& controller,
                    std::function<std::optional<std::uint32_t>()> camera = {},
                    std::function<std::optional<sst_cam::PreviewLayout>()> layout = {},
-                   std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> health = {});
+                   std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> health = {},
+                   std::function<sst_cam::DeviceComponents()> components = {});
 
     [[nodiscard]] auto HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> override;
     auto Handle(const sst_cam::Command& cmd) -> sst_cam::CommandResponse override;
@@ -37,6 +38,7 @@ class SessionHandler final : public ICommandHandler {
     std::function<std::optional<std::uint32_t>()> camera_;
     std::function<std::optional<sst_cam::PreviewLayout>()> layout_;
     std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> health_;
+    std::function<sst_cam::DeviceComponents()> components_;
     [[nodiscard]] auto SnapshotResponse() const -> sst_cam::CommandResponse;
 };
 

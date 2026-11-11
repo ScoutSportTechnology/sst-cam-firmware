@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 
 #include "domain/session/models/live-match.hpp"
@@ -9,6 +10,8 @@
 
 namespace sst::session {
 
+enum class RecordingStopResult : std::uint8_t { kIdle, kStarted, kAlreadyStopping };
+
 class ISessionManager {
    public:
     virtual ~ISessionManager() = default;
@@ -16,15 +19,15 @@ class ISessionManager {
     [[nodiscard]] virtual auto Phase() const -> SessionPhase = 0;
     [[nodiscard]] virtual auto Snapshot() const -> SessionState = 0;
 
-    // Lifecycle transitions. Each returns true if the transition was allowed in
-    // the current phase, false (and a no-op) otherwise.
+    // Lifecycle transitions.
     virtual auto OnConnect() -> bool = 0;
     virtual auto OnWifiReady() -> bool = 0;
     virtual auto OnWifiStopped() -> bool = 0;
     virtual auto ApplySessionConfig(const SessionConfig& config) -> bool = 0;
     virtual auto OnOverlayConfigured() -> bool = 0;
     virtual auto OnRecordingStart() -> bool = 0;
-    virtual auto OnRecordingStop(bool file_valid) -> bool = 0;
+    virtual auto OnRecordingStopRequested() -> RecordingStopResult = 0;
+    virtual auto WaitForFinalization() -> void = 0;
 
     virtual auto OnDisconnect() -> void = 0;
     virtual auto Tick() -> void = 0;

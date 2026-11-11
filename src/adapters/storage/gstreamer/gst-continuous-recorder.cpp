@@ -138,21 +138,34 @@ auto GstContinuousRecorder::Stop() -> bool {
     }
     // Wait for EOS (or error) so mp4mux writes the moov atom and the file is
     // playable.
+    bool finalized = false;
     if (pipeline_ != nullptr) {
         GstBus* bus = gst_element_get_bus(pipeline_);
         if (bus != nullptr) {
-            GstMessage* msg = gst_bus_timed_pop_filtered(
-                bus, kFinalizeTimeoutSeconds * GST_SECOND,
-                static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
-            if (msg != nullptr) {
-                gst_message_unref(msg);
-            }
+            finalized = WaitForFinalizedMp4(bus, kFinalizeTimeoutSeconds * GST_SECOND);
             gst_object_unref(bus);
         }
     }
     Teardown();
-    spdlog::info("GstContinuousRecorder: stopped + finalized");
-    return true;
+    if (finalized) {
+        spdlog::info("GstContinuousRecorder: stopped + finalized");
+    } else {
+        spdlog::error("GstContinuousRecorder: stopped without valid MP4 finalization");
+    }
+    return finalized;
+}
+
+auto GstContinuousRecorder::WaitForFinalizedMp4(GstBus* bus, GstClockTime timeout) -> bool {
+    if (bus == nullptr) {
+        return false;
+    }
+    GstMessage* msg = gst_bus_timed_pop_filtered(
+        bus, timeout, static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR));
+    const bool finalized = msg != nullptr && GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS;
+    if (msg != nullptr) {
+        gst_message_unref(msg);
+    }
+    return finalized;
 }
 
 auto GstContinuousRecorder::IsRunning() const -> bool { return running_; }

@@ -1,7 +1,11 @@
 #include "adapters/storage/filesystem/filesystem-disk-guard.hpp"
 
 #include <spdlog/spdlog.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
 
+#include <cstdlib>
+#include <string>
 #include <system_error>
 #include <utility>
 
@@ -24,6 +28,24 @@ auto FilesystemDiskGuard::HasEnoughFreeSpace() const -> bool {
             free, *min_free_bytes_, root_.string());
     }
     return has_space;
+}
+
+auto FilesystemDiskGuard::IsWritable() const -> bool {
+    struct statvfs info {};
+    if (statvfs(root_.c_str(), &info) != 0 || (info.f_flag & ST_RDONLY) != 0 ||
+        info.f_bavail == 0) {
+        return false;
+    }
+    const auto template_path = (root_ / ".sst-write-probe-XXXXXX").string();
+    std::string path = template_path;
+    const int probe_fd = mkstemp(path.data());
+    bool writable = probe_fd >= 0;
+    if (writable) {
+        const int close_result = close(probe_fd);
+        const int unlink_result = unlink(path.c_str());
+        writable = close_result == 0 && unlink_result == 0;
+    }
+    return writable;
 }
 
 auto FilesystemDiskGuard::FreeBytes() const -> std::uint64_t {

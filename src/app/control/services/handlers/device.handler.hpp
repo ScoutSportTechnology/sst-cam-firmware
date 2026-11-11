@@ -10,6 +10,7 @@
 #include "app/control/ports/wifi-manager.hpp"
 #include "bluetooth.pb.h"
 #include "domain/config/models/device.hpp"
+#include "domain/session/models/session-phase.hpp"
 
 namespace sst::control {
 
@@ -41,6 +42,8 @@ class DeviceHandler final : public ICommandHandler {
         // Connected peer RSSI in dBm; nullopt when no peer / unavailable.
         SignalProvider wifi_signal_dbm;
         std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> camera_health;
+        std::function<sst::session::SessionPhase()> session_phase;
+        std::function<sst_cam::DeviceComponents()> components;
     };
 
     using TimeSetter = std::function<bool(std::uint64_t)>;

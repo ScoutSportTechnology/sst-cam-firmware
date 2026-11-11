@@ -237,6 +237,7 @@ TEST(StreamingHandlerTest, SessionEndDuringStreamStartDoesNotLeakProxy) {
     StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
     streaming.on_start = [&] {
         EXPECT_TRUE(session.EndSession(sst::session::SessionEndReason::kAppStop));
+        session.WaitForFinalization();
     };
 
     EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);
@@ -269,6 +270,7 @@ TEST(StreamingHandlerTest, NewMatchDuringStreamStartDoesNotClaimItsProxy) {
     StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
     streaming.on_start = [&] {
         EXPECT_TRUE(session.EndSession(sst::session::SessionEndReason::kAppStop));
+        session.WaitForFinalization();
         EXPECT_TRUE(session.OnConnect());
         EXPECT_TRUE(session.OnWifiReady());
         EXPECT_TRUE(session.ApplySessionConfig(match_b));
@@ -308,6 +310,7 @@ TEST(StreamingHandlerTest, NewMatchDuringProxyClaimRollsBackWithoutChangingNewMa
     StreamingHandler handler(streaming, nullptr, &session, {}, &owners);
     sink.on_start = [&] {
         EXPECT_TRUE(session.EndSession(sst::session::SessionEndReason::kAppStop));
+        session.WaitForFinalization();
         EXPECT_TRUE(session.OnConnect());
         EXPECT_TRUE(session.OnWifiReady());
         EXPECT_TRUE(session.ApplySessionConfig(match_b));
@@ -345,6 +348,7 @@ TEST(StreamingHandlerTest, TimeoutDuringProxyStartRollsBackStreamAndProxy) {
     sink.on_start = [&] {
         now += kDisconnectTimeout;
         session.Tick();
+        session.WaitForFinalization();
     };
 
     EXPECT_EQ(handler.Handle(StartCmd("rtmp://ingest/live/key")).status(), sst_cam::ERROR);

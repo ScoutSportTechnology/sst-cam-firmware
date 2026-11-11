@@ -10,7 +10,13 @@
 
 namespace sst::session {
 
-enum class SessionEndReason : std::uint8_t { kAppStop, kAutoStop, kCameraFailure, kReboot };
+enum class SessionEndReason : std::uint8_t {
+    kAppStop,
+    kAutoStop,
+    kCameraFailure,
+    kReboot,
+    kShutdown
+};
 
 struct LastSession {
     std::string match_uuid;

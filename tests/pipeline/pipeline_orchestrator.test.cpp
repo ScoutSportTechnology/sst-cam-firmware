@@ -847,6 +847,97 @@ TEST(PipelineOrchestratorTest, DestructorStopsRunningPipeline) {
 // #6 F6d: with SIDE_BY_SIDE selected, the consumer postprocesses BOTH cameras
 // and routes the composite to the stream sink, while the recorder still gets the
 // clean single (cam0) frame.
+TEST(PipelineOrchestratorTest, SideBySideDoesNotWaitForUnhealthyCameraOne) {
+    FakeCompositor compositor;
+    sst::streaming::PreviewLayoutState layout;
+    layout.Set(sst::streaming::PreviewLayout::kSideBySide);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    constexpr auto kSlowPop = std::chrono::milliseconds(200);
+    constexpr auto kPoll = std::chrono::milliseconds(10);
+    config.consumer_pop_timeout = kSlowPop;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(kCam0Dims), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(kCam1Dims, true),
+                   std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<StaticDecision>(), record_sink,
+        sink, config, nullptr, nullptr, &compositor, &layout);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline && std::get<0>(sink.Snapshot()) < 3) {
+        std::this_thread::sleep_for(kPoll);
+    }
+    orchestrator.Stop();
+    EXPECT_GE(std::get<0>(sink.Snapshot()), 3);
+    EXPECT_NE(orchestrator.CameraHealth(1), sst_cam::CAMERA_HEALTH_OK);
+}
+
+TEST(PipelineOrchestratorTest, SideBySideSelectedCameraOneStallDoesNotDelayCameraZeroSelection) {
+    FakeCompositor compositor;
+    sst::streaming::PreviewLayoutState layout;
+    layout.Set(sst::streaming::PreviewLayout::kSideBySide);
+    ManualCameraState selected;
+    selected.Set(1);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    constexpr auto kSlowPop = std::chrono::milliseconds(500);
+    constexpr auto kPoll = std::chrono::milliseconds(10);
+    constexpr auto kFlowTimeout = std::chrono::seconds(5);
+    config.consumer_pop_timeout = kSlowPop;
+    config.capture_stall_timeout = kHealthStallTimeout;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(kCam0Dims), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(kCam1Dims, true),
+                   std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<ManualDecision>(selected),
+        record_sink, sink, config, nullptr, nullptr, &compositor, &layout);
+    ASSERT_TRUE(orchestrator.Start());
+    const auto health_deadline = std::chrono::steady_clock::now() + kFlowTimeout;
+    while (std::chrono::steady_clock::now() < health_deadline &&
+           orchestrator.CameraHealth(1) != sst_cam::CAMERA_HEALTH_DOWN) {
+        std::this_thread::sleep_for(kPoll);
+    }
+    ASSERT_EQ(orchestrator.CameraHealth(1), sst_cam::CAMERA_HEALTH_DOWN);
+    const auto switched_at = std::chrono::steady_clock::now();
+    selected.Set(0);
+    const auto deadline = switched_at + kFlowTimeout;
+    while (std::chrono::steady_clock::now() < deadline && std::get<0>(sink.Snapshot()) == 0) {
+        std::this_thread::sleep_for(kPoll);
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - switched_at;
+    orchestrator.Stop();
+    EXPECT_GT(std::get<0>(sink.Snapshot()), 0);
+    EXPECT_LT(elapsed, kSlowPop);
+}
+
+TEST(PipelineOrchestratorTest, SideBySideUnhealthySelectedCameraOneHoldsSelection) {
+    FakeCompositor compositor;
+    sst::streaming::PreviewLayoutState layout;
+    layout.Set(sst::streaming::PreviewLayout::kSideBySide);
+    ManualCameraState selected;
+    selected.Set(1);
+    CountingSink record_sink;
+    CountingSink sink;
+    auto config = FastConfig();
+    constexpr auto kSlowPop = std::chrono::milliseconds(200);
+    constexpr auto kObservation = std::chrono::milliseconds(850);
+    config.consumer_pop_timeout = kSlowPop;
+    PipelineOrchestrator orchestrator(
+        TwoCameras(std::make_unique<FakeCapture>(kCam0Dims), std::make_unique<FakePreprocessor>(),
+                   std::make_unique<FakeCapture>(kCam1Dims, true),
+                   std::make_unique<FakePreprocessor>()),
+        std::make_unique<FakePostprocessor>(), std::make_unique<ManualDecision>(selected),
+        record_sink, sink, config, nullptr, nullptr, &compositor, &layout);
+    ASSERT_TRUE(orchestrator.Start());
+    std::this_thread::sleep_for(kObservation);
+    orchestrator.Stop();
+    EXPECT_NE(orchestrator.CameraHealth(1), sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_EQ(std::get<0>(sink.Snapshot()), 0);
+    EXPECT_EQ(compositor.Calls(), 0);
+}
+
 TEST(PipelineOrchestratorTest, SideBySideCompositesBothCamerasToStream) {
     FakeCompositor compositor;
     sst::streaming::PreviewLayoutState layout;

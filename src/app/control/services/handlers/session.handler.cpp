@@ -44,12 +44,14 @@ SessionHandler::SessionHandler(
     sst::session::ISessionManager& session, sst::overlay::OverlayController& controller,
     std::function<std::optional<std::uint32_t>()> camera,
     std::function<std::optional<sst_cam::PreviewLayout>()> layout,
-    std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> health)
+    std::function<std::optional<sst_cam::CameraHealth>(std::uint32_t)> health,
+    std::function<sst_cam::DeviceComponents()> components)
     : session_(session),
       controller_(controller),
       camera_(std::move(camera)),
       layout_(std::move(layout)),
-      health_(std::move(health)) {}
+      health_(std::move(health)),
+      components_(std::move(components)) {}
 
 auto SessionHandler::HandledCases() const -> std::vector<sst_cam::Command::PayloadCase> {
     return {sst_cam::Command::kPushSessionConfig, sst_cam::Command::kGetSessionSnapshot};
@@ -136,6 +138,7 @@ auto SessionHandler::SnapshotResponse() const -> sst_cam::CommandResponse {
         }
     }
     snapshot->set_is_recording(state.phase == sst::session::SessionPhase::kRecording);
+    snapshot->set_is_finalizing(state.phase == sst::session::SessionPhase::kFinalizing);
     snapshot->set_is_streaming(state.is_streaming);
     snapshot->set_wifi_group_up(state.wifi_group_up);
     if (state.recording_elapsed_seconds) {
@@ -151,6 +154,9 @@ auto SessionHandler::SnapshotResponse() const -> sst_cam::CommandResponse {
         if (const auto value = health_(1)) {
             snapshot->set_camera1_health(*value);
         }
+    }
+    if (components_) {
+        *snapshot->mutable_components() = components_();
     }
     if (!state.config && state.last_session) {
         auto* last = snapshot->mutable_last_session();
@@ -169,6 +175,9 @@ auto SessionHandler::SnapshotResponse() const -> sst_cam::CommandResponse {
                 break;
             case sst::session::SessionEndReason::kReboot:
                 last->set_end_reason(sst_cam::SESSION_END_REBOOT);
+                break;
+            case sst::session::SessionEndReason::kShutdown:
+                last->set_end_reason(sst_cam::SESSION_END_SHUTDOWN);
                 break;
         }
     }

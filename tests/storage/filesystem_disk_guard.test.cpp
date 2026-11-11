@@ -71,6 +71,13 @@ TEST_F(FilesystemDiskGuardTest, ResolvesParentWhenPathDoesNotExist) {
     EXPECT_TRUE(guard.HasEnoughFreeSpace());
 }
 
+TEST_F(FilesystemDiskGuardTest, WritableProbeRejectsReadOnlyFilesystem) {
+    FilesystemDiskGuard writable(root_, std::nullopt);
+    EXPECT_TRUE(writable.IsWritable());
+    FilesystemDiskGuard read_only("/sys/fs/cgroup", std::nullopt);
+    EXPECT_FALSE(read_only.IsWritable());
+}
+
 TEST_F(FilesystemDiskGuardTest, EmptyPathReturnsZeroFreeBytes) {
     FilesystemDiskGuard guard(std::filesystem::path{}, std::nullopt);
     EXPECT_EQ(guard.FreeBytes(), 0U);

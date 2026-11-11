@@ -11,7 +11,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <future>
 #include <stdexcept>
 #include <string>
 
@@ -38,6 +40,9 @@ class FakeCleanup final : public sst::session::ISessionCleanup {
         if (on_finalize) {
             on_finalize();
         }
+        if (finalize_throws) {
+            throw std::runtime_error("finalize failed");
+        }
         return finalize_ok;
     }
     auto StopStreaming() -> void override { stop_streaming = true; }
@@ -46,6 +51,7 @@ class FakeCleanup final : public sst::session::ISessionCleanup {
 
     std::function<void()> on_finalize;
     bool finalize_ok{true};
+    bool finalize_throws{false};
     bool finalize_recording{false};
     bool stop_streaming{false};
     bool teardown_wifi{false};
@@ -242,6 +248,7 @@ TEST(SessionManagerTest, StreamingOnlyReconfigKeepsIdentityAndChangesTimeout) {
     EXPECT_TRUE(manager.Snapshot().is_streaming);
     now += std::chrono::minutes(1);
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
     fs::remove_all(root);
 }
@@ -268,6 +275,7 @@ TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     manager.OnDisconnect();
     EXPECT_EQ(manager.Phase(), SessionPhase::kReady);
     manager.EndSession(sst::session::SessionEndReason::kAppStop);
+    manager.WaitForFinalization();
 
     auto after = manager.Snapshot();
     EXPECT_EQ(after.phase, SessionPhase::kIdle);
@@ -393,6 +401,7 @@ TEST(SessionManagerTest, DisconnectCleanupIsExceptionSafe) {
 
     manager.OnDisconnect();
     EXPECT_NO_THROW(manager.EndSession(sst::session::SessionEndReason::kAppStop));
+    manager.WaitForFinalization();
 
     EXPECT_TRUE(cleanup.finalize_attempted);
     EXPECT_TRUE(cleanup.stop_streaming);              // ran despite the earlier throw
@@ -438,6 +447,7 @@ TEST(SessionManagerTest, CustomTimeoutRearmsFromConfigAndFinalizesOnce) {
     now += std::chrono::minutes(1);
     manager.Tick();
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_TRUE(cleanup.teardown_wifi);
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
     ASSERT_TRUE(manager.Snapshot().last_session.has_value());
@@ -458,6 +468,7 @@ TEST(SessionManagerTest, StreamingOnlySurvivesDisconnectThenAutoStops) {
     EXPECT_FALSE(cleanup.stop_streaming);
     now += kDefaultStop;
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_TRUE(cleanup.stop_streaming);
     EXPECT_FALSE(cleanup.finalize_recording);
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
@@ -477,6 +488,7 @@ TEST(SessionManagerTest, RepeatedDisconnectDoesNotExtendDeadline) {
     manager.OnDisconnect();
     now += std::chrono::minutes(1);
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
 }
 
@@ -489,6 +501,7 @@ TEST(SessionManagerTest, WifiOnlyDisconnectedSessionTimesOutAtDefault) {
     manager.OnDisconnect();
     now += kDefaultStop;
     manager.Tick();
+    manager.WaitForFinalization();
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
     EXPECT_TRUE(cleanup.teardown_wifi);
     EXPECT_FALSE(manager.Snapshot().last_session.has_value());
@@ -529,6 +542,26 @@ TEST(SessionManagerTest, BootOrphanReportsRebootAndInvalidFile) {
     fs::remove_all(root);
 }
 
+TEST(SessionManagerTest, BootOrphanUsesMatchUuidForDirectoryOutputPath) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    auto cfg = MakeConfig(root);
+    cfg.match_uuid = "match-uuid";
+    cfg.user_uuid = "different-user-uuid";
+    cfg.video_output_path = (root / "video/different-user-uuid/match-uuid").string() + "/";
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        const auto marker = root / "video/different-user-uuid/match-uuid/match-uuid.session-active";
+        ASSERT_TRUE(fs::exists(marker));
+    }
+    SessionManager rebooted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_EQ(rebooted.Snapshot().last_session.value_or(sst::session::LastSession{}).match_uuid,
+              cfg.match_uuid);
+    fs::remove_all(root);
+}
+
 TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     FakeCleanup cleanup;
     cleanup.finalize_ok = false;
@@ -539,6 +572,7 @@ TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     ASSERT_TRUE(manager.OnRecordingStart());
     manager.OnDisconnect();
     EXPECT_TRUE(manager.EndSession(sst::session::SessionEndReason::kAppStop));
+    manager.WaitForFinalization();
     EXPECT_FALSE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
     SessionManager rebooted(cleanup, std::chrono::steady_clock::now, root / "video");
     EXPECT_EQ(rebooted.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
@@ -546,8 +580,35 @@ TEST(SessionManagerTest, FailedFinalizeKeepsOrphanMarkerForBootRecovery) {
     fs::remove_all(root);
 }
 
+TEST(SessionManagerTest, ThrowingFinalizeCannotInheritPreviousFileValidity) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    const auto marker = fs::path(cfg.video_output_path).replace_extension(".session-active");
+    SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+    AdvanceToReady(manager, cfg);
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    ASSERT_EQ(manager.Phase(), SessionPhase::kReady);
+    ASSERT_TRUE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_TRUE(fs::exists(marker));
+    cleanup.finalize_throws = true;
+    ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+    manager.WaitForFinalization();
+    EXPECT_FALSE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    EXPECT_TRUE(fs::exists(marker));
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_EQ(restarted.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kReboot);
+    fs::remove_all(root);
+}
+
 TEST(SessionManagerTest, ExplicitStopWithFailedEosKeepsOrphanMarker) {
     FakeCleanup cleanup;
+    cleanup.finalize_ok = false;
     const auto root = MakeTempRoot();
     const auto cfg = MakeConfig(root);
     const auto marker = fs::path(cfg.video_output_path).replace_extension(".session-active");
@@ -555,9 +616,513 @@ TEST(SessionManagerTest, ExplicitStopWithFailedEosKeepsOrphanMarker) {
     AdvanceToReady(manager, cfg);
     ASSERT_TRUE(manager.OnRecordingStart());
     ASSERT_TRUE(fs::exists(marker));
-    ASSERT_TRUE(manager.OnRecordingStop(false));
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
     EXPECT_TRUE(fs::exists(marker));
     EXPECT_FALSE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, StopRequestReturnsWhileFinalizeIsBlocked) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    EXPECT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kFinalizing);
+    EXPECT_FALSE(manager.OnRecordingStart());
+    EXPECT_EQ(manager.OnRecordingStopRequested(),
+              sst::session::RecordingStopResult::kAlreadyStopping);
+    release.set_value();
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_TRUE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, CameraFailureWhileFinalizeBlocksStaysPollableUntilSummary) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kCameraFailure));
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(manager.Snapshot().phase, SessionPhase::kFinalizing);
+    EXPECT_FALSE(manager.EndSession(sst::session::SessionEndReason::kCameraFailure));
+    release.set_value();
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kCameraFailure);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, StreamStopDuringRecordingFinalizeClosesSessionOnce) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_TRUE(manager.OnStreamingChanged(false));
+    EXPECT_FALSE(manager.Snapshot().is_streaming);
+    release.set_value();
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_TRUE(cleanup.teardown_wifi);
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kAppStop);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, StreamStopImmediatelyAfterRecordingFinalizeGoesIdle) {
+    FakeCleanup cleanup;
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    ASSERT_EQ(manager.Phase(), SessionPhase::kReady);
+    ASSERT_TRUE(manager.OnStreamingChanged(false));
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_FALSE(manager.Snapshot().is_streaming);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, RecordingStopKeepsActiveStreamAndSessionReady) {
+    FakeCleanup cleanup;
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kReady);
+    EXPECT_TRUE(manager.Snapshot().is_streaming);
+    EXPECT_TRUE(manager.Snapshot().config.has_value());
+    EXPECT_FALSE(cleanup.stop_streaming);
+    EXPECT_FALSE(cleanup.teardown_wifi);
+    EXPECT_TRUE(cleanup.finalize_recording);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, AutoStopDuringBlockedFinalizePreservesSingleSummary) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    std::chrono::steady_clock::time_point now{};
+    SessionManager manager(cleanup, [&] { return now; });
+    const auto root = MakeTempRoot();
+    auto config = MakeConfig(root);
+    config.auto_stop_minutes = 1;
+    AdvanceToReady(manager, config);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    manager.OnDisconnect();
+    now += std::chrono::minutes(1);
+    manager.Tick();
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    manager.Tick();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kFinalizing);
+    release.set_value();
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kAutoStop);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, StopDistinguishesIdleFromAnAlreadyFinalizingSession) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    EXPECT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kIdle);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    EXPECT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(manager.OnRecordingStopRequested(),
+              sst::session::RecordingStopResult::kAlreadyStopping);
+    release.set_value();
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kIdle);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, RepeatedStopAfterNewSessionDoesNotBlockOnPriorWorker) {
+    FakeCleanup cleanup;
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    ASSERT_TRUE(manager.OnConnect());
+    ASSERT_TRUE(manager.OnWifiReady());
+    ASSERT_TRUE(manager.ApplySessionConfig(MakeConfig(root)));
+    ASSERT_TRUE(manager.OnOverlayConfigured());
+    ASSERT_TRUE(manager.OnRecordingStart());
+    EXPECT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, CameraFailureDuringRecordingStopWithStreamEndsSessionWithoutSecondEos) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    std::atomic<int> attempts{0};
+    cleanup.on_finalize = [&] {
+        ++attempts;
+        entered.set_value();
+        released.wait();
+    };
+    const auto root = MakeTempRoot();
+    SessionManager manager(cleanup);
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto camera_failure = std::async(std::launch::async, [&] {
+        return manager.EndSession(sst::session::SessionEndReason::kCameraFailure);
+    });
+    EXPECT_EQ(camera_failure.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_TRUE(camera_failure.get());
+    manager.WaitForFinalization();
+    EXPECT_EQ(attempts.load(), 1);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_FALSE(manager.Snapshot().is_streaming);
+    EXPECT_TRUE(cleanup.stop_streaming);
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kCameraFailure);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, ShutdownDuringRecordingStopWithStreamFinishesBothWithoutSecondEos) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    std::atomic<int> attempts{0};
+    cleanup.on_finalize = [&] {
+        ++attempts;
+        entered.set_value();
+        released.wait();
+    };
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+    AdvanceToReady(manager, cfg);
+    ASSERT_TRUE(manager.OnStreamingChanged(true));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto shutdown = std::async(std::launch::async, [&] {
+        const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
+        manager.WaitForFinalization();
+        return started;
+    });
+    EXPECT_EQ(shutdown.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_TRUE(shutdown.get());
+    EXPECT_EQ(attempts.load(), 1);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_TRUE(cleanup.stop_streaming);
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kShutdown);
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_EQ(restarted.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kShutdown);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, ShutdownDuringAppStopWithoutStreamRetainsAppStopAfterRestart) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    std::atomic<int> attempts{0};
+    cleanup.on_finalize = [&] {
+        ++attempts;
+        entered.set_value();
+        released.wait();
+    };
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+    AdvanceToReady(manager, cfg);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto shutdown = std::async(std::launch::async, [&] {
+        const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
+        manager.WaitForFinalization();
+        return started;
+    });
+    EXPECT_EQ(shutdown.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_FALSE(shutdown.get());
+    EXPECT_EQ(attempts.load(), 1);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kAppStop);
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session.value_or(sst::session::LastSession{});
+    EXPECT_EQ(summary.match_uuid, cfg.match_uuid);
+    EXPECT_EQ(summary.reason, sst::session::SessionEndReason::kAppStop);
+    EXPECT_TRUE(summary.file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, ShutdownWaitsForAnExistingStopWithoutFinalizingTwice) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    std::atomic<int> attempts{0};
+    cleanup.on_finalize = [&] {
+        ++attempts;
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    const auto root = MakeTempRoot();
+    AdvanceToReady(manager, MakeConfig(root));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto shutdown = std::async(std::launch::async, [&] {
+        const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
+        manager.WaitForFinalization();
+        return started;
+    });
+    EXPECT_EQ(shutdown.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_FALSE(shutdown.get());
+    EXPECT_EQ(attempts.load(), 1);
+    EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kAppStop);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, IncompleteShutdownSummaryIsIgnoredOnRestart) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    fs::create_directories(root / "video");
+    {
+        std::ofstream file(root / "video/.last-session-shutdown");
+        file << "match-uuid\n42\ntrailing-data\n";
+    }
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_FALSE(restarted.Snapshot().last_session.has_value());
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, UnwrittenShutdownSummaryLeavesOrphanForRecovery) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    const auto marker = fs::path(cfg.video_output_path).replace_extension(".session-active");
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        fs::create_directories(root / "video/.last-session-shutdown");
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    EXPECT_TRUE(fs::exists(marker));
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session;
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kReboot);
+    EXPECT_FALSE(summary.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, CleanShutdownSummarySurvivesServiceRestart) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session;
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).match_uuid, "match-uuid");
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kShutdown);
+    EXPECT_TRUE(summary.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, FailedShutdownKeepsBootOrphanInvalid) {
+    FakeCleanup cleanup;
+    cleanup.finalize_ok = false;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session;
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kReboot);
+    EXPECT_FALSE(summary.value_or(sst::session::LastSession{}).file_valid);
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, NewMatchClearsPersistedShutdownSummary) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        auto next = MakeConfig(root);
+        next.match_uuid = "different-match";
+        AdvanceToReady(manager, next);
+        EXPECT_FALSE(manager.Snapshot().last_session.has_value());
+    }
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_FALSE(restarted.Snapshot().last_session.has_value());
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, FailedSummaryRemovalRejectsNewMatchWithoutChangingState) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+    ASSERT_TRUE(manager.OnConnect());
+    ASSERT_TRUE(manager.OnWifiReady());
+    fs::create_directories(root / "video/.last-session-shutdown");
+    std::ofstream(root / "video/.last-session-shutdown/unremovable").close();
+    EXPECT_FALSE(manager.ApplySessionConfig(cfg));
+    EXPECT_EQ(manager.Phase(), SessionPhase::kWifiReady);
+    EXPECT_FALSE(manager.Snapshot().config.has_value());
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, OldOrphanCannotOverrideNewerShutdownSummary) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto orphan = root / "video/user-uuid/match-a/clip.session-active";
+    auto cfg = MakeConfig(root);
+    cfg.match_uuid = "match-b";
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    fs::create_directories(orphan.parent_path());
+    std::ofstream(orphan).close();
+    fs::last_write_time(orphan, fs::file_time_type::clock::now() - std::chrono::hours(1));
+    ASSERT_TRUE(fs::exists(orphan));
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session.value_or(sst::session::LastSession{});
+    EXPECT_EQ(summary.match_uuid, "match-b");
+    EXPECT_EQ(summary.reason, sst::session::SessionEndReason::kShutdown);
+    EXPECT_FALSE(fs::exists(orphan));
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, NegativeShutdownClockIsIgnoredOnRestart) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    fs::create_directories(root / "video");
+    {
+        std::ofstream file(root / "video/.last-session-shutdown");
+        file << "match-uuid\n-1\n";
+    }
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    EXPECT_FALSE(restarted.Snapshot().last_session.has_value());
+    fs::remove_all(root);
+}
+
+TEST(SessionManagerTest, ShutdownSummaryDoesNotMaskNewerBootOrphan) {
+    FakeCleanup cleanup;
+    const auto root = MakeTempRoot();
+    const auto cfg = MakeConfig(root);
+    {
+        SessionManager manager(cleanup, std::chrono::steady_clock::now, root / "video");
+        AdvanceToReady(manager, cfg);
+        ASSERT_TRUE(manager.OnRecordingStart());
+        ASSERT_TRUE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+        manager.WaitForFinalization();
+    }
+    const auto orphan = root / "video/user-uuid/new-match/clip.session-active";
+    fs::create_directories(orphan.parent_path());
+    std::ofstream(orphan).close();
+    SessionManager restarted(cleanup, std::chrono::steady_clock::now, root / "video");
+    const auto summary = restarted.Snapshot().last_session;
+    ASSERT_TRUE(summary.has_value());
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).match_uuid, "new-match");
+    EXPECT_EQ(summary.value_or(sst::session::LastSession{}).reason,
+              sst::session::SessionEndReason::kReboot);
+    EXPECT_FALSE(summary.value_or(sst::session::LastSession{}).file_valid);
     fs::remove_all(root);
 }
 
@@ -568,6 +1133,7 @@ TEST(SessionManagerTest, CameraFailureFinalizesWithReason) {
     AdvanceToReady(manager, MakeConfig(root));
     ASSERT_TRUE(manager.OnRecordingStart());
     EXPECT_TRUE(manager.EndSession(sst::session::SessionEndReason::kCameraFailure));
+    manager.WaitForFinalization();
     EXPECT_TRUE(cleanup.finalize_recording);
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kCameraFailure);
@@ -586,6 +1152,7 @@ TEST(SessionManagerTest, FinalizingIsVisibleAndPreservesClockAndValidity) {
     cleanup.on_finalize = [&] { EXPECT_EQ(manager.Phase(), SessionPhase::kFinalizing); };
     EXPECT_TRUE(manager.EndSession(sst::session::SessionEndReason::kAppStop));
     EXPECT_FALSE(manager.EndSession(sst::session::SessionEndReason::kAppStop));
+    manager.WaitForFinalization();
     ASSERT_TRUE(manager.Snapshot().last_session.has_value());
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).match_uuid,
               "match-uuid");

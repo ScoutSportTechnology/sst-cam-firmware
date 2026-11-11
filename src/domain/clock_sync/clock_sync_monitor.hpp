@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -39,7 +40,7 @@ class ClockSyncMonitor {
    private:
     std::unique_ptr<IClockSyncSource> source_;
     LogCallback log_callback_;
-    bool was_synced_ = false;
+    std::atomic<bool> was_synced_{false};
     bool first_check_ = true;
 };
 

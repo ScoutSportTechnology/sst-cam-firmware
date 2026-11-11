@@ -75,24 +75,20 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
             return resp;
         }
         case sst_cam::RECORDING_STOP: {
-            if (session_.Phase() != sst::session::SessionPhase::kRecording) {
+            if (session_.OnRecordingStopRequested() == sst::session::RecordingStopResult::kIdle) {
                 resp.set_status(sst_cam::ERROR);
                 resp.set_error_message("no active recording to stop");
                 return resp;
             }
-            const auto result = recording_.Stop();
-            proxy_.Stop(sst::raw_capture::ProxyOwners::Owner::kRecording);
-            // Flush the overlay timeline next to the L1 MP4 (#6 F6b).
-            timeline_.Stop();
-            session_.OnRecordingStop(result.success);
-            resp.set_status(result.success ? sst_cam::ResponseStatus::OK
-                                           : sst_cam::ResponseStatus::ERROR);
-            if (!result.success) {
-                resp.set_error_message("no active recording to stop");
-            }
+            resp.set_status(sst_cam::OK);
             return resp;
         }
         case sst_cam::RECORDING_PAUSE:
+            if (session_.Phase() == sst::session::SessionPhase::kFinalizing) {
+                resp.set_status(sst_cam::ERROR);
+                resp.set_error_message("cannot pause: recording is finalizing");
+                return resp;
+            }
             resp.set_status(recording_.Pause() ? sst_cam::ResponseStatus::OK
                                                : sst_cam::ResponseStatus::ERROR);
             if (resp.status() != sst_cam::ResponseStatus::OK) {
@@ -100,6 +96,11 @@ auto RecordingHandler::Handle(const sst_cam::Command& cmd) -> sst_cam::CommandRe
             }
             return resp;
         case sst_cam::RECORDING_RESUME:
+            if (session_.Phase() == sst::session::SessionPhase::kFinalizing) {
+                resp.set_status(sst_cam::ERROR);
+                resp.set_error_message("cannot resume: recording is finalizing");
+                return resp;
+            }
             resp.set_status(recording_.Resume() ? sst_cam::ResponseStatus::OK
                                                 : sst_cam::ResponseStatus::ERROR);
             if (resp.status() != sst_cam::ResponseStatus::OK) {
