@@ -144,19 +144,19 @@ auto NowEpochMs() -> std::uint64_t {
 // TIME_ERROR flag in the status means the clock is not synchronized.
 // Returns true if synced, false otherwise.
 auto IsClockSynced() -> bool {
-    struct timex tx{};
-    tx.modes = 0;  // Just read the status
-    int result = ntp_adjtime(&tx);
+    struct timex timex_params{};
+    timex_params.modes = 0;  // Just read the status
+    int result = ntp_adjtime(&timex_params);
     if (result == -1) {
         // Fallback to adjtimex if ntp_adjtime is not available
-        result = adjtimex(&tx);
+        result = adjtimex(&timex_params);
     }
     if (result == -1) {
         // Both failed, assume not synced
         return false;
     }
     // TIME_ERROR (0x0001) means the clock is not synchronized
-    return (tx.status & 0x0001) == 0;
+    return (timex_params.status & 0x0001) == 0;
 }
 
 // Log the clock synchronization state at startup and when it changes.
