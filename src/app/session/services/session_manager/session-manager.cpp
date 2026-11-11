@@ -347,6 +347,10 @@ auto SessionManager::BeginFinalization(SessionEndReason reason, bool recording_o
     disconnected_at_.reset();
     {
         std::lock_guard worker_lock(worker_mtx_);
+        // A non-finalizing phase means the old worker released mtx_ and is exiting.
+        if (finalize_worker_.joinable()) {
+            finalize_worker_.join();
+        }
         finalize_worker_ = std::thread([this, ending = std::move(ending), reason, recording_only] {
             FinishSession(ending, reason, recording_only);
         });
