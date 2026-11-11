@@ -92,7 +92,7 @@ _run +cmd:
         test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
         docker volume create sst-conan2 >/dev/null; \
         docker volume create sst-ccache >/dev/null; \
-        name="sst-run-$(basename "{{justfile_directory()}}" | tr -c '[:alnum:]_.-' '-')-$$"; \
+        name="sst-run-$(basename "{{justfile_directory()}}" | tr -cd '[:alnum:]_.-')-$$"; \
         trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT; \
         trap 'exit 130' INT; trap 'exit 143' TERM; \
         docker run --rm --init --name "$name" --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
