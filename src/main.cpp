@@ -76,6 +76,7 @@
 #include "app/storage/services/recording_service/recording-service.hpp"
 #include "app/streaming/services/streaming_service/streaming-service.hpp"
 #include "domain/capture/models/camera-config.hpp"
+#include "domain/clock_sync/clock_sync_monitor.hpp"
 #include "domain/control/utils/advertised-name.hpp"
 #include "domain/decision/models/manual-camera-state.hpp"
 #include "domain/focus/models/focus-state.hpp"
@@ -149,6 +150,12 @@ namespace {
 auto RunFirmware() -> int {
     spdlog::set_level(spdlog::level::debug);
     spdlog::info("sst-cam-firmware starting");
+
+    // Clock sync monitor - logs initial state and transitions
+    sst::domain::clock_sync::ClockSyncMonitor clock_monitor(
+        std::make_unique<sst::domain::clock_sync::SystemClockSyncSource>(),
+        [](const std::string& msg) { spdlog::info("{}", msg); });
+    clock_monitor.CheckAndLog();
 
     // ── Config (device identity + lens calibration — the only persistent state) ─
     sst::config::app::ConfigLoader config(sst::paths::kConfigDir, sst::paths::kConfigFormat);
@@ -560,12 +567,15 @@ auto RunFirmware() -> int {
 
     // Drive the display-only match clock at ~1 Hz (the app is still the timing
     // authority; this only advances the on-screen clock between app events).
+    // Also poll for clock synchronization state changes.
     std::atomic<bool> clock_running{true};
-    std::thread clock_thread([&match_handler, &session_manager, &clock_running] {
+    std::thread clock_thread([&match_handler, &session_manager, &clock_running, &clock_monitor] {
+        clock_monitor.CheckAndLog();  // Initial log
         while (clock_running.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             match_handler->TickClock();
             session_manager.Tick();
+            clock_monitor.CheckAndLog();  // Check for sync state changes
         }
     });
 

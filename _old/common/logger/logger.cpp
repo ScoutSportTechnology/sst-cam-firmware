@@ -44,11 +44,19 @@ class Logger {
 
    public:
     template <typename... Args>
-    void debug(std::string_view msg, Args&&... args) const { log(LogLevel::DEBUG, msg, std::forward<Args>(args)...); }
+    void debug(std::string_view msg, Args&&... args) const {
+        log(LogLevel::DEBUG, msg, std::forward<Args>(args)...);
+    }
     template <typename... Args>
-    void info(std::string_view msg, Args&&... args) const { log(LogLevel::INFO, msg, std::forward<Args>(args)...); }
+    void info(std::string_view msg, Args&&... args) const {
+        log(LogLevel::INFO, msg, std::forward<Args>(args)...);
+    }
     template <typename... Args>
-    void warning(std::string_view msg, Args&&... args) const { log(LogLevel::WARNING, msg, std::forward<Args>(args)...); }
+    void warning(std::string_view msg, Args&&... args) const {
+        log(LogLevel::WARNING, msg, std::forward<Args>(args)...);
+    }
     template <typename... Args>
-    void error(std::string_view msg, Args&&... args) const { log(LogLevel::ERROR, msg, std::forward<Args>(args)...); }
+    void error(std::string_view msg, Args&&... args) const {
+        log(LogLevel::ERROR, msg, std::forward<Args>(args)...);
+    }
 };
