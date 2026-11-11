@@ -135,6 +135,21 @@ This is a personal project developed solo and iteratively.
 
 ---
 
+## CLI Flags
+
+The binary accepts the following command-line arguments:
+
+| Flag | Description |
+|------|-------------|
+| `--version` | Print version information (e.g. `sst_cam_firmware v0.1.0-alpha.12 (git 7394384)`) and exit 0 |
+| `-h`, `--help` | Print usage and exit 0 |
+| *(no arguments)* | Start the firmware (normal systemd behavior) |
+| Any unknown argument | Print usage to stderr and exit 2; **never starts the firmware** |
+
+Running `sst_cam_firmware --version` while the systemd service is active will not start a second firmware instance — it prints the version and exits immediately.
+
+---
+
 ## Hardware & 3D Parts
 
 Custom 3D-printed parts are used for mounting and assembly.

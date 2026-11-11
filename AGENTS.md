@@ -336,6 +336,23 @@ If a new feature needs a new system dep, install it in the sysroot via `compiler
 
 The L4T r39.2 BSP sample rootfs does not include every `-dev` package — when a new system dep is needed (e.g. `sdbus-c++`, `gst-rtsp-server`), add the matching Ubuntu **noble** (24.04) `arm64` `.deb` URL to [compiler-image/sysroot/noble-deb-urls.txt](compiler-image/sysroot/noble-deb-urls.txt) (resolve the exact version + dep closure with `apt-get install --print-uris` against the assembled rootfs). `003_install_extra_pkgs.sh` extracts that list, and `compiler-image/Dockerfile` runs it *before* `002_fix_sysroot.sh`, so newly extracted libraries are picked up by the symlink-fix and `.so` linker-stub passes automatically. Then bump `compiler-image/VERSION` (`v<n>+1`) and the `FROM` tag in `.devcontainer/Dockerfile`; the push publishes the new image.
 
+## CLI Flags
+
+The `sst_cam_firmware` binary accepts the following command-line arguments:
+
+| Flag | Description |
+|------|-------------|
+| `--version` | Print version information (e.g. `sst_cam_firmware v0.1.0-alpha.12 (git 7394384)`) and exit 0 |
+| `-h`, `--help` | Print usage and exit 0 |
+| *(no arguments)* | Start the firmware (normal systemd behavior) |
+| Any unknown argument | Print usage to stderr and exit 2; **never starts the firmware** |
+
+The version string is constructed at CMake configure time from:
+- `SST_RELEASE_TAG` env var (set by release workflow), or `git describe --tags --always --dirty` as fallback, with `dev` when empty
+- Short git SHA from `git rev-parse --short HEAD`
+
+This allows `sst_cam_firmware --version` to run safely while the systemd service is active — it prints the version and exits immediately without touching BLE, cameras, or WiFi.
+
 ## Scope guardrails
 
 - CI/CD + docs changes here do **not** touch C++ / CMake / build-system code.

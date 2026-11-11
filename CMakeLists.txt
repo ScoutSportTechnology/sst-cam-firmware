@@ -243,12 +243,25 @@ else()
     )
 endif()
 if(NOT SST_FIRMWARE_VERSION)
-    set(SST_FIRMWARE_VERSION "unknown")
+    set(SST_FIRMWARE_VERSION "dev")
+endif()
+
+# Short git SHA for --version output
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE SST_GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT SST_GIT_SHA)
+    set(SST_GIT_SHA "unknown")
 endif()
 
 target_compile_definitions(sst_cam_firmware_internal_libs PUBLIC
     SST_REPO_ROOT_DIR="${SST_REPO_ROOT_DIR}"
     SST_FIRMWARE_VERSION="${SST_FIRMWARE_VERSION}"
+    SST_GIT_SHA="${SST_GIT_SHA}"
 )
 
 # ============================================================

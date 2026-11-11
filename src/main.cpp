@@ -45,6 +45,7 @@
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
+#include "app/control/cli.hpp"
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
 #include "app/control/services/handlers/active-camera.handler.hpp"
 #include "app/control/services/handlers/auto-white-balance.handler.hpp"
@@ -603,7 +604,28 @@ auto RunFirmware() -> int {
 // Catch any startup/runtime exception so the failure is LOGGED and the exit is
 // clean, instead of a silent std::terminate/abort that systemd merely restarts
 // (e.g. a malformed config file, or a subsystem that can't reach its hardware).
-auto main() -> int {
+auto main(int argc, char* argv[]) -> int {
+    // Parse CLI arguments first, before any firmware initialization
+    const std::string version = SST_FIRMWARE_VERSION;
+    const std::string git_sha = SST_GIT_SHA;
+    auto cli_result = sst::control::ParseArgs(argc, argv, version, git_sha);
+
+    if (cli_result.action == sst::control::CliAction::kPrintVersion) {
+        std::printf("%s\n", cli_result.output.c_str());
+        return cli_result.exit_code;
+    }
+
+    if (cli_result.action == sst::control::CliAction::kPrintHelp) {
+        std::printf("%s", cli_result.output.c_str());
+        return cli_result.exit_code;
+    }
+
+    if (cli_result.action == sst::control::CliAction::kError) {
+        std::fprintf(stderr, "%s", cli_result.error.c_str());
+        return cli_result.exit_code;
+    }
+
+    // kRunFirmware - normal behavior
     try {
         return RunFirmware();
     } catch (const std::exception& e) {
