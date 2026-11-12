@@ -110,7 +110,7 @@ lint)
       fi
     fi
   elif [ "$scope" = full ]; then
-    files="$(find src tests \( -name '*.cpp' -o -name '*.hpp' -o -name '*.cc' -o -name '*.h' \) -not -path '*/_old/*')"
+    files="$(git ls-files -- 'src/*.cpp' 'src/*.hpp' 'src/*.cc' 'src/*.h' 'tests/*.cpp' 'tests/*.hpp' 'tests/*.cc' 'tests/*.h')"
     if [ -z "$files" ]; then exit 1; fi
     scripts/ci/tidy-run.sh full
   else
@@ -123,6 +123,7 @@ lint)
       printf '%s\n' "$tu_files" | grep -E '\.(cpp|hpp|cc|h)$' | xargs -r clang-format-18 --dry-run --Werror
     fi
   elif printf '%s\n' "$files" | grep -Eq '\.(cpp|hpp|cc|h)$'; then
+    echo 'clang-format-18 --dry-run --Werror: full src/ and tests/ tree'
     printf '%s\n' "$files" | grep -E '\.(cpp|hpp|cc|h)$' | xargs -r clang-format-18 --dry-run --Werror
   fi
   scripts/test-check-floor-nolints.sh
