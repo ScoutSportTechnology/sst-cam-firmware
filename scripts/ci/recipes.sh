@@ -26,7 +26,7 @@ setup_ccache() {
 # This prevents concurrent Conan installs from multiple worktrees corrupting the cache.
 run_cmake_preset() {
   local preset="$1"
-  local lock_file="/root/.conan2/.cmake_configure.lock"
+  local lock_file="${CONAN_HOME:-/root/.conan2}/.cmake_configure.lock"
   local lock_fd=200
 
   # Ensure the lock directory exists
