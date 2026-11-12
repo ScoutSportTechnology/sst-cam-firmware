@@ -108,7 +108,8 @@ The `_run` target mounts `sst-ccache` at `/root/.ccache` for compiler hits
 across worktrees. Conan packages for all three presets are baked into the pinned
 image at `/opt/conan-cache`; local and CI containers use that same image. The
 first configure uses `flock` on `/opt/conan-cache/.cmake_configure.lock` to
-serialize Conan cache writes between concurrent worktrees. Builds and tests
+serialize Conan cache writes between concurrent worktrees; CI caches ccache
+separately for compile and test, scoped by branch and image tag. Builds and tests
 remain parallel.
 
 **Recipes:**
