@@ -555,6 +555,7 @@ auto ConnectivityArbiter::RequestSharedWifiLocked(const sst::config::WifiStaUpli
         // reason (surfaced to the app as a friendly message + error_message).
         spdlog::warn("ConnectivityArbiter: STA join failed ({}); reverting to P2P", sta.detail);
         last_error_ = sta.detail;
+        uplink_.FlushWifiStaAddress();
         uplink_.TeardownWifiSta();
         hooks_.OnRevertedToP2p();
         mode_ = ConnectivityMode::kP2pOnly;
@@ -685,12 +686,8 @@ auto ConnectivityArbiter::RevertToP2p() -> void {
 }
 
 auto ConnectivityArbiter::DoRevertLocked() -> void {
+    uplink_.FlushWifiStaAddress();
     timer_.Disarm();
-    // Cleanly tear the STA down FIRST (release the lease, kill dhclient, flush the
-    // address + routes) so no leftover STA IP/route lingers to fight another
-    // interface or dirty the radio — THEN restore the GO. Without this a reverted
-    // migration can wedge the camera (e.g. a stale STA address on the same subnet
-    // as ethernet breaks its routing).
     uplink_.TeardownWifiSta();
     // Return the radio to the GO. The hook restores the GO preview; a failure is
     // logged but does not keep us in a STA mode — the radio is no longer STA either

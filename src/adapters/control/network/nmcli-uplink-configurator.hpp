@@ -27,6 +27,7 @@ class NmcliUplinkConfigurator final : public sst::network::IUplinkConfigurator {
     auto operator=(NmcliUplinkConfigurator&&) -> NmcliUplinkConfigurator& = delete;
 
     auto ApplyWifiSta(const sst::config::WifiStaUplink& cfg) -> sst::network::UplinkResult override;
+    auto FlushWifiStaAddress() -> void override;
     auto TeardownWifiSta() -> void override;
     auto ProbeWifiSta() -> sst::network::UplinkResult override;
 

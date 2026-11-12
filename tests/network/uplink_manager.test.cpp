@@ -19,6 +19,7 @@ class FakeConfigurator final : public sst::network::IUplinkConfigurator {
         ++wifi_calls;
         return {.ok = false, .detail = "unavailable"};
     }
+    auto FlushWifiStaAddress() -> void override {}
     auto TeardownWifiSta() -> void override {}
     auto ProbeWifiSta() -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};

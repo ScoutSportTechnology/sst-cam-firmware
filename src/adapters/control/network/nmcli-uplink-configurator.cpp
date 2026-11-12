@@ -273,6 +273,16 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     return {.ok = true, .detail = address};
 }
 
+auto NmcliUplinkConfigurator::FlushWifiStaAddress() -> void {
+    const std::string iface = DetectWifiDevice();
+    if (iface.empty()) {
+        return;
+    }
+    RunBounded({"ip", "-4", "addr", "flush", "dev", iface}, kQueryTimeout);
+    RunBounded({"ip", "-4", "route", "flush", "dev", iface}, kQueryTimeout);
+    spdlog::info("NmcliUplinkConfigurator: wifi STA IPv4 address and routes removed on {}", iface);
+}
+
 auto NmcliUplinkConfigurator::TeardownWifiSta() -> void {
     const std::string iface = DetectWifiDevice();
     if (iface.empty()) {

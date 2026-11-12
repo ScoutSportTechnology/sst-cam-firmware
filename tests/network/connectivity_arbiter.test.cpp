@@ -66,6 +66,10 @@ class FakeUplink final : public sst::network::IUplinkConfigurator {
         }
         return sta_result;
     }
+    auto FlushWifiStaAddress() -> void override {
+        log_.Record("uplink.FlushWifiStaAddress");
+        log_.sta_addressed = false;
+    }
     auto TeardownWifiSta() -> void override {
         log_.Record("uplink.TeardownWifiSta");
         ++teardown_calls;
@@ -685,6 +689,26 @@ TEST(ConnectivityArbiterTest, BootWithoutCarrierBindsStaOnly) {
     EXPECT_EQ(harness.arbiter.CurrentMode(), ConnectivityMode::kStaOnly);
     EXPECT_EQ(harness.ethernet.apply_calls, 0);
     EXPECT_EQ(harness.uplink.wifi_calls, 1);
+    EXPECT_FALSE(harness.log.dual_home);
+}
+
+TEST(ConnectivityArbiterTest, CarrierReturnFlushesStaBeforeLeaseReleaseGoAndEthernet) {
+    Harness harness;
+    ASSERT_EQ(
+        harness.arbiter.SelectBootLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet")).path,
+        LanPath::kWifiSta);
+    harness.log.calls.clear();
+    harness.ethernet.carrier = true;
+    harness.monitor.Poll();
+
+    const int flush = IndexOf(harness.log.calls, "uplink.FlushWifiStaAddress");
+    ASSERT_GE(flush, 0);
+    ASSERT_GE(IndexOf(harness.log.calls, "uplink.TeardownWifiSta"), 0);
+    ASSERT_GE(IndexOf(harness.log.calls, "hooks.OnRevertedToP2p"), 0);
+    ASSERT_GE(IndexOf(harness.log.calls, "ethernet.Apply"), 0);
+    EXPECT_LT(flush, IndexOf(harness.log.calls, "uplink.TeardownWifiSta"));
+    EXPECT_LT(flush, IndexOf(harness.log.calls, "hooks.OnRevertedToP2p"));
+    EXPECT_LT(flush, IndexOf(harness.log.calls, "ethernet.Apply"));
     EXPECT_FALSE(harness.log.dual_home);
 }
 
