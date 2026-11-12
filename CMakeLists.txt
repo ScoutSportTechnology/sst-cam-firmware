@@ -293,8 +293,8 @@ if (SST_ENABLE_TESTS)
         GTest::gtest_main
     )
 
-    include(GoogleTest)
-    gtest_discover_tests(sst_cam_firmware_tests DISCOVERY_MODE PRE_TEST)
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/batched-tests-include.cmake" CONTENT
+        "set(SST_TEST_BINARY \"$<TARGET_FILE:sst_cam_firmware_tests>\")\nset(SST_TEST_EMULATOR \"${CMAKE_CROSSCOMPILING_EMULATOR}\")\ninclude(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/hardware-tests.cmake\")\n")
     set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/hardware-tests.cmake)
+        "${CMAKE_CURRENT_BINARY_DIR}/batched-tests-include.cmake")
 endif()

@@ -92,7 +92,7 @@ ctest --preset test
 
 **Compilation is the first test.** Before declaring any change done, run `cmake --build --preset debug` (or `--preset test`) and ensure it builds clean. If you cannot make the binary build, you have not finished. Do not hand work back as done while the tree is broken.
 
-**Tests are isolated.** A test for module X must spawn its own dependencies (config, GStreamer pipeline, temp storage dir, …), not reach into the app's wiring or borrow state from another test. A recording-service test writes to its own per-test temp directory and enumerates that, never a shared one. No fixtures bleeding through, no "the previous test left this file in place." Each test must be runnable in any order, alone, repeatedly.
+**Tests are isolated.** Container-runnable cases are batched by GoogleTest suite in CTest, so cases in one suite share a process; each still needs its own temp storage and cleanup. A test for module X must spawn its own dependencies (config, GStreamer pipeline, temp storage dir, …), not reach into the app's wiring or borrow state from another test. A recording-service test writes to its own per-test temp directory and enumerates that, never a shared one. No fixtures bleeding through, no "the previous test left this file in place." Each test must be runnable in any order, alone, repeatedly.
 
 Tests must verify behaviour end-to-end at the **module** boundary: feed real inputs through the public port and assert the real outputs (a file on disk, a row in DB, a frame on a loopback socket). Mocks are for things outside the module (network endpoints, hardware that isn't on the test machine), not for the module's own collaborators.
 
@@ -114,7 +114,7 @@ remain parallel.
 
 **Recipes:**
 
-- `just test <filter>` — optional filter passed to `ctest -R <filter>`. Example: `just test NmcliCommandTest`. No filter = full suite.
+- `just test <filter>` — optional CTest regex matched against full `Suite.Case` names before grouping into suite processes. Example: `just test NmcliCommandTest` runs the suite; `just test 'NmcliCommandTest.SpecificCase'` runs that case only. No filter = full suite. Failed cases are named in CTest's `--output-on-failure` log; `just test <case>` reruns one case. Hardware cases remain separately labeled CTests.
 - `just ci changed` — fast gate for a one-file change: runs `lint changed` in parallel with `compile`, then `test`. The full gate is still `just ci` (no argument).
 
 **Clearing ccache:** `docker volume rm sst-ccache` (run on the host).
