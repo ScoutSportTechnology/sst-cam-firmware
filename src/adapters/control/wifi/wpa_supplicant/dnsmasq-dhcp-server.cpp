@@ -1,5 +1,7 @@
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 
+#include "adapters/control/network/subprocess.hpp"
+
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>
@@ -28,6 +30,7 @@ constexpr int kExecFailedExitCode = 127;
 // (~500ms) — surviving it is the bound/listening signal.
 constexpr int kListenCheckAttempts = 10;
 constexpr auto kListenCheckInterval = std::chrono::milliseconds(50);
+constexpr auto kStopTimeout = std::chrono::seconds(3);
 
 // Best-effort: kill any orphan dnsmasq a prior firmware run left bound to this
 // group interface. After a SIGKILL/OOM the in-memory pid_ is lost (resets to -1),
@@ -38,18 +41,7 @@ constexpr auto kListenCheckInterval = std::chrono::milliseconds(50);
 // the interface token so unrelated dnsmasq instances are untouched.
 void SweepStaleDnsmasq(const std::string& group_interface) {
     const std::string pattern = fmt::format("dnsmasq.*--interface={}", group_interface);
-    const int pid = ::fork();
-    if (pid < 0) {
-        spdlog::warn("DnsmasqDhcpServer: orphan-sweep fork failed: {}", std::strerror(errno));
-        return;
-    }
-    if (pid == 0) {
-        // NOLINTNEXTLINE(readability-magic-numbers)
-        std::array<const char*, 4> argv{"pkill", "-f", pattern.c_str(), nullptr};
-        ::execvp("pkill", const_cast<char* const*>(argv.data()));
-        ::_exit(kExecFailedExitCode);  // pkill missing — best-effort, ignored by parent
-    }
-    ::waitpid(pid, nullptr, 0);  // exit status irrelevant (1 = nothing matched)
+    RunBounded({"pkill", "-f", pattern}, kQueryTimeout);
 }
 }  // namespace
 
@@ -141,7 +133,26 @@ auto DnsmasqDhcpServer::Stop() -> void {
         return;
     }
     ::kill(pid_, SIGTERM);
-    ::waitpid(pid_, nullptr, 0);
+    const auto deadline = std::chrono::steady_clock::now() + kStopTimeout;
+    while (true) {
+        const pid_t done = ::waitpid(pid_, nullptr, WNOHANG);
+        if (done == pid_) {
+            break;
+        }
+        if (done < 0 && errno != EINTR) {
+            spdlog::warn("DnsmasqDhcpServer: waitpid failed (pid={}): {}", pid_,
+                         std::strerror(errno));
+            break;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            spdlog::warn("DnsmasqDhcpServer: SIGKILL needed (pid={})", pid_);
+            ::kill(pid_, SIGKILL);
+            while (::waitpid(pid_, nullptr, 0) < 0 && errno == EINTR) {
+            }
+            break;
+        }
+        std::this_thread::sleep_for(kListenCheckInterval);
+    }
     spdlog::info("DnsmasqDhcpServer: stopped (pid={})", pid_);
     pid_ = -1;
 }
