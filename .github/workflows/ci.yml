@@ -133,8 +133,12 @@ jobs:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - if: ${{ !env.ACT }}
         run: |
-          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          free_gb=$(df -BG --output=avail / | tr -dc '0-9')
+          if (( free_gb < 30 )); then
+            sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          fi
           df -h /
+          test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 30
       - uses: actions/checkout@v4
         with:
           submodules: recursive

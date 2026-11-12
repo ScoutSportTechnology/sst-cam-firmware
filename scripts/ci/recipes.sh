@@ -141,7 +141,7 @@ test)
   cmake --build --preset test -j "$(nproc)"
   test_filter="${2:-}"
   if [ -n "$test_filter" ]; then
-    QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware -R "$test_filter" --output-on-failure
+    SST_TEST_FILTER="$test_filter" QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware --output-on-failure
   else
     QEMU_LD_PREFIX=/l4t/targetfs ctest --preset test -j "$(nproc)" -LE hardware --output-on-failure
   fi
