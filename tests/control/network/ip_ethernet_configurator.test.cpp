@@ -41,10 +41,9 @@ TEST(IpEthernetCommandTest, GatewayIgnoresFirmwareMetric90WhenNmHasNewLease) {
     EXPECT_EQ(GatewayFromRoutes("default via 10.10.1.1 dev eth0 metric 90\n"), "10.10.1.1");
 }
 
-TEST(IpEthernetCommandTest, StaDhcpUsesMetricScriptForEveryLease) {
+TEST(IpEthernetCommandTest, StaDhcpUsesStockScript) {
     EXPECT_EQ(BuildStaDhclientArgv("wlP1p1s0"),
-              (std::vector<std::string>{"dhclient", "-1", "-4", "-sf",
-                                        "/opt/sst-cam/bin/sst-sta-dhclient-script", "wlP1p1s0"}));
+              (std::vector<std::string>{"dhclient", "-1", "-4", "wlP1p1s0"}));
     EXPECT_TRUE(BuildStaDhclientArgv("wlP1p1s0; nft flush ruleset").empty());
 }
 

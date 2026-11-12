@@ -39,6 +39,7 @@ INSTALL_DIR="${INSTALL_ROOT}/bin"
 INSTALL_PATH="${INSTALL_DIR}/sst_cam_firmware"
 BACKUP_PATH="${INSTALL_PATH}.bak"
 STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
+STA_HOOK_DIR="/etc/dhcp/dhclient-enter-hooks.d"
 UNIT_PATH="/etc/systemd/system/${SERVICE}.service"
 XORG_UNIT_PATH="/etc/systemd/system/xorg-headless.service"
 NVARGUS_DROPIN_DIR="/etc/systemd/system/nvargus-daemon.service.d"
@@ -1028,31 +1029,35 @@ fi
 
 # --- sta-dhcp-script:begin
 install_sta_dhcp_script() {
-  install -d -m 755 "$INSTALL_DIR"
-  cat >"$STA_SCRIPT_PATH" <<'STA_SCRIPT'
-#!/bin/sh
-IF_METRIC=600
-ip() {
-  if [ "$1" = -4 ] && [ "$2" = addr ] &&
-     { [ "$3" = add ] || [ "$3" = change ]; } &&
-     [ "$4" = "${new_ip_address}${new_subnet_mask:+/$new_subnet_mask}" ]; then
-    if [ "$3" = change ]; then
-      shift 3
-      command ip -4 addr replace "$@" metric 600
+  install -d -o root -g root -m 755 "$STA_HOOK_DIR"
+  cat >"${STA_HOOK_DIR}/sst-cam-sta" <<STA_SCRIPT
+if [ "\$interface" = "$STA_IFACE" ]; then
+  IF_METRIC=600
+  ip() {
+    if [ "\$1" = -4 ] && [ "\$2" = addr ] &&
+       { [ "\$3" = add ] || [ "\$3" = change ]; } &&
+       [ "\$4" = "\${new_ip_address}\${new_subnet_mask:+/\$new_subnet_mask}" ]; then
+      if [ "\$3" = change ]; then
+        shift 3
+        command ip -4 addr replace "\$@" metric 600
+      else
+        command ip "\$@" metric 600
+      fi
     else
-      command ip "$@" metric 600
+      command ip "\$@"
     fi
-  else
-    command ip "$@"
-  fi
-}
-. /sbin/dhclient-script
+  }
+fi
 STA_SCRIPT
-  chmod 755 "$STA_SCRIPT_PATH"
+  chown root:root "${STA_HOOK_DIR}/sst-cam-sta"
+  chmod 0644 "${STA_HOOK_DIR}/sst-cam-sta"
+  rm -f "$STA_SCRIPT_PATH"
 }
 # --- sta-dhcp-script:end
 
 # --- Idempotency: skip if already installed and identical --------------------
+STA_IFACE="$(iw dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
+STA_IFACE="${STA_IFACE:-wlP1p1s0}"
 install_sta_dhcp_script
 if [ -f "$INSTALL_PATH" ]; then
   cur_sum="$(sha256sum "$INSTALL_PATH" | awk '{print $1}')"

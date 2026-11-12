@@ -156,7 +156,7 @@ auto BuildStaDhclientArgv(const std::string& iface) -> std::vector<std::string> 
     if (!IsSafeIfaceName(iface)) {
         return {};
     }
-    return {"dhclient", "-1", "-4", "-sf", "/opt/sst-cam/bin/sst-sta-dhclient-script", iface};
+    return {"dhclient", "-1", "-4", iface};
 }
 
 auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
