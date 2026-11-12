@@ -10,17 +10,20 @@ StartupPreflight::StartupPreflight(std::function<StartupProbes()> probe, Startup
 auto StartupPreflight::Poll() -> void {
     std::lock_guard lock(mutex_);
     latest_ = probe_();
+    polled_ = true;
     if (!ble_up_ && latest_.bluetooth == sst_cam::COMPONENT_STATUS_OK) {
         ble_up_ = actions_.ble();
     }
-    if (!network_up_ && (latest_.wifi == sst_cam::COMPONENT_STATUS_OK ||
-                         latest_.ethernet == sst_cam::COMPONENT_STATUS_OK)) {
+    if (!network_up_ && (latest_.wifi != sst_cam::COMPONENT_STATUS_MISSING ||
+                         latest_.ethernet != sst_cam::COMPONENT_STATUS_MISSING)) {
         network_up_ = actions_.network();
     }
     if (network_up_ && !http_up_) {
         http_up_ = actions_.http();
     }
-    if (!pipeline_up_ && latest_.gpu == sst_cam::COMPONENT_STATUS_OK) {
+    if (!pipeline_up_ && latest_.gpu == sst_cam::COMPONENT_STATUS_OK &&
+        latest_.camera0 == sst_cam::CAMERA_HEALTH_OK &&
+        latest_.camera1 == sst_cam::CAMERA_HEALTH_OK) {
         pipeline_up_ = actions_.pipeline();
         if (!pipeline_up_) {
             latest_.camera0 = sst_cam::CAMERA_HEALTH_DOWN;
@@ -31,7 +34,16 @@ auto StartupPreflight::Poll() -> void {
 
 auto StartupPreflight::Ready() const -> bool {
     std::lock_guard lock(mutex_);
-    return ble_up_ && network_up_ && http_up_;
+    return polled_;
+}
+
+auto StartupPreflight::TakeReadyNotification() -> bool {
+    std::lock_guard lock(mutex_);
+    if (!polled_ || ready_notified_) {
+        return false;
+    }
+    ready_notified_ = true;
+    return true;
 }
 
 auto StartupPreflight::Components() const -> sst_cam::DeviceComponents {

@@ -31,6 +31,7 @@ class StartupPreflight {
     StartupPreflight(std::function<StartupProbes()> probe, StartupActions actions);
     auto Poll() -> void;
     [[nodiscard]] auto Ready() const -> bool;
+    auto TakeReadyNotification() -> bool;
     [[nodiscard]] auto Components() const -> sst_cam::DeviceComponents;
     [[nodiscard]] auto CameraHealth(std::uint32_t index) const -> sst_cam::CameraHealth;
 
@@ -43,6 +44,8 @@ class StartupPreflight {
     bool network_up_{false};
     bool http_up_{false};
     bool pipeline_up_{false};
+    bool polled_{false};
+    bool ready_notified_{false};
 };
 
 }  // namespace sst::control

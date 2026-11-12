@@ -26,6 +26,7 @@
 #include "adapters/control/network/nmcli-uplink-configurator.hpp"
 #include "adapters/control/network/policy-routing.hpp"
 #include "adapters/control/network/subprocess.hpp"
+#include "adapters/control/system/camera-probe.hpp"
 #include "adapters/control/system/gpu-probe.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
@@ -271,16 +272,9 @@ auto RunFirmware(const sigset_t& mask) -> int {
     // commit. Declared before the arbiter so it outlives the arbiter's teardown.
     sst::adapters::control::PolicyRouting policy_routing;
     // F2: close the boot exposure window before boot-apply touches Ethernet.
-    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
-    // Bring up enabled uplinks on boot OFF the main path: nmcli con up can stall
-    // (NM mid-restart, DHCP wait), and the subprocess deadline is generous (45s).
-    // Doing it synchronously here would delay BLE/WiFi-Direct/preview start by
-    // that long on a bad boot. Detach so BLE comes up regardless; the manager +
-    // configurator outlive main()'s run loop, and a copy of the config is moved
-    // into the thread, so there is no use-after-free of locals.
-    std::thread([&uplink_manager, boot_cfg = cfg.uplink]() mutable {
-        uplink_manager.Apply(boot_cfg);
-    }).detach();
+    bool firewall_ready = sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+    bool network_started = false;
+    bool uplink_apply_started = false;
 
     sst::adapters::raw_capture::FilesystemRawCaptureSink raw_capture_sink(
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
@@ -599,22 +593,19 @@ auto RunFirmware(const sigset_t& mask) -> int {
             const auto wifi = sst::adapters::control::DetectWifiStaIface();
             const auto ethernet = sst::adapters::control::DetectWiredIface();
             const auto gpu = sst::adapters::control::GpuAvailable();
-            const auto camera0 =
+            const auto cameras =
                 pipeline.IsRunning()
-                    ? pipeline.CameraHealth(0).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)
-                    : sst_cam::CAMERA_HEALTH_UNKNOWN;
-            const auto camera1 =
-                pipeline.IsRunning()
-                    ? pipeline.CameraHealth(1).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)
-                    : sst_cam::CAMERA_HEALTH_UNKNOWN;
+                    ? sst::adapters::control::CameraStatuses{pipeline.CameraHealth(0).value_or(
+                                                                 sst_cam::CAMERA_HEALTH_DOWN),
+                                                             pipeline.CameraHealth(1).value_or(
+                                                                 sst_cam::CAMERA_HEALTH_DOWN)}
+                    : sst::adapters::control::ProbeCameras();
             return sst::control::StartupProbes{
-                .camera0 = camera0,
-                .camera1 = camera1,
+                .camera0 = cameras[0],
+                .camera1 = cameras[1],
                 .gpu = gpu ? sst_cam::COMPONENT_STATUS_OK : sst_cam::COMPONENT_STATUS_MISSING,
-                .wifi =
-                    wifi.empty() ? sst_cam::COMPONENT_STATUS_MISSING : sst_cam::COMPONENT_STATUS_OK,
-                .ethernet = ethernet.empty() ? sst_cam::COMPONENT_STATUS_MISSING
-                                             : sst_cam::COMPONENT_STATUS_OK,
+                .wifi = sst::adapters::control::ProbeUplinkHealth(wifi),
+                .ethernet = sst::adapters::control::ProbeUplinkHealth(ethernet),
                 .bluetooth = std::filesystem::exists("/sys/class/bluetooth/hci0")
                                  ? sst_cam::COMPONENT_STATUS_OK
                                  : sst_cam::COMPONENT_STATUS_MISSING,
@@ -627,7 +618,29 @@ auto RunFirmware(const sigset_t& mask) -> int {
                  ble_transport.Start();
                  return ble_transport.IsRunning();
              },
-         .network = [] { return true; },
+         .network =
+             [&] {
+                 if (!firewall_ready) {
+                     firewall_ready = sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+                     if (!firewall_ready) {
+                         spdlog::error("networking: boot egress firewall failed; HTTP stays down");
+                         return false;
+                     }
+                 }
+                 const auto wifi = sst::adapters::control::DetectWifiStaIface();
+                 const auto ethernet = sst::adapters::control::DetectWiredIface();
+                 if (wifi.empty() && ethernet.empty()) {
+                     return false;
+                 }
+                 if (!uplink_apply_started) {
+                     uplink_apply_started = true;
+                     std::thread([&uplink_manager, boot_cfg = cfg.uplink]() mutable {
+                         uplink_manager.Apply(boot_cfg);
+                     }).detach();
+                 }
+                 network_started = true;
+                 return true;
+             },
          .http = [&] { return http_download_server.Start(); },
          .pipeline = [&] { return pipeline.Start(); }});
     live_startup = &startup;
@@ -644,16 +657,12 @@ auto RunFirmware(const sigset_t& mask) -> int {
             sst_cam::ComponentStatus_Name(status.ethernet()),
             sst_cam::ComponentStatus_Name(status.bluetooth()),
             sst_cam::ComponentStatus_Name(status.storage()), status.clock_synced(),
-            ble_transport.IsRunning(),
-            status.wifi() == sst_cam::COMPONENT_STATUS_OK ||
-                status.ethernet() == sst_cam::COMPONENT_STATUS_OK,
-            http_download_server.IsRunning(), pipeline.IsRunning());
+            ble_transport.IsRunning(), network_started, http_download_server.IsRunning(),
+            pipeline.IsRunning());
     };
     log_components();
-    bool notified_ready = false;
-    if (startup.Ready()) {
+    if (startup.TakeReadyNotification()) {
         NotifySystemd("READY=1");
-        notified_ready = true;
     }
 
     // Drive the display-only match clock at ~1 Hz (the app is still the timing
@@ -687,9 +696,8 @@ auto RunFirmware(const sigset_t& mask) -> int {
             clock_monitor.CheckAndLog();
             startup.Poll();
             log_components();
-            if (!notified_ready && startup.Ready()) {
+            if (startup.TakeReadyNotification()) {
                 NotifySystemd("READY=1");
-                notified_ready = true;
             }
             next_probe = std::chrono::steady_clock::now() + kRetryInterval;
         }
@@ -715,6 +723,10 @@ auto RunFirmware(const sigset_t& mask) -> int {
 auto main(int argc, char* argv[]) -> int {
     if (argc == 2 && std::strcmp(argv[1], "--gpu-probe") == 0) {
         return sst::adapters::control::RunGpuProbe();
+    }
+    if (argc == 3 && std::strcmp(argv[1], "--probe-cameras") == 0 &&
+        (std::strcmp(argv[2], "0") == 0 || std::strcmp(argv[2], "1") == 0)) {
+        return sst::adapters::control::RunCameraProbe(argv[2][0] - '0');
     }
     // Parse CLI arguments first, before any firmware initialization
     const std::string version = SST_FIRMWARE_VERSION;

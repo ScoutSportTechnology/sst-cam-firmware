@@ -1,5 +1,9 @@
 #include "adapters/control/network/net-iface.hpp"
 
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -77,6 +81,33 @@ auto DetectWiredIface() -> std::string {
         return name;
     }
     return {};
+}
+
+auto UplinkHealth(const std::string& iface, bool carrier, bool ipv4) -> sst_cam::ComponentStatus {
+    if (iface.empty()) {
+        return sst_cam::COMPONENT_STATUS_MISSING;
+    }
+    return carrier && ipv4 ? sst_cam::COMPONENT_STATUS_OK : sst_cam::COMPONENT_STATUS_DEGRADED;
+}
+
+auto ProbeUplinkHealth(const std::string& iface) -> sst_cam::ComponentStatus {
+    if (iface.empty()) {
+        return sst_cam::COMPONENT_STATUS_MISSING;
+    }
+    ifaddrs* addresses = nullptr;
+    bool carrier = false;
+    bool ipv4 = false;
+    if (::getifaddrs(&addresses) == 0) {
+        for (const ifaddrs* address = addresses; address != nullptr; address = address->ifa_next) {
+            if (address->ifa_name != nullptr && iface == address->ifa_name) {
+                carrier = carrier || (address->ifa_flags & IFF_RUNNING) != 0;
+                ipv4 = ipv4 ||
+                       (address->ifa_addr != nullptr && address->ifa_addr->sa_family == AF_INET);
+            }
+        }
+        ::freeifaddrs(addresses);
+    }
+    return UplinkHealth(iface, carrier, ipv4);
 }
 
 auto DetectWifiStaIface() -> std::string {

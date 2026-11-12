@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "adapters/control/network/net-iface.hpp"
+#include "adapters/control/system/camera-probe.hpp"
 #include "app/control/services/startup-preflight.hpp"
 
 namespace {
@@ -23,6 +25,7 @@ struct Fixture {
     int pipeline = 0;
     bool ble_starts = true;
     bool pipeline_starts = true;
+    bool network_starts = true;
     auto Make() -> StartupPreflight {
         return StartupPreflight([this] { return probes; }, {.ble =
                                                                 [this] {
@@ -32,7 +35,7 @@ struct Fixture {
                                                             .network =
                                                                 [this] {
                                                                     ++network;
-                                                                    return true;
+                                                                    return network_starts;
                                                                 },
                                                             .http =
                                                                 [this] {
@@ -46,6 +49,23 @@ struct Fixture {
                                                                 }});
     }
 };
+
+TEST(UplinkHealthTest, MissingCarrierAndAddressAreNotOk) {
+    using sst::adapters::control::UplinkHealth;
+    EXPECT_EQ(UplinkHealth("", true, true), COMPONENT_STATUS_MISSING);
+    EXPECT_EQ(UplinkHealth("enP8p1s0", false, true), sst_cam::COMPONENT_STATUS_DEGRADED);
+    EXPECT_EQ(UplinkHealth("enP8p1s0", true, false), sst_cam::COMPONENT_STATUS_DEGRADED);
+    EXPECT_EQ(UplinkHealth("enP8p1s0", true, true), COMPONENT_STATUS_OK);
+}
+
+TEST(CameraProbeTest, ChildCrashTimeoutAndBadOutputFailClosed) {
+    using sst::adapters::control::DecodeCameraProbe;
+    EXPECT_EQ(DecodeCameraProbe("1 1\n", true)[0], sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_EQ(DecodeCameraProbe("1 0\n", true)[1], sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(DecodeCameraProbe("1 1\n", false)[0], sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(DecodeCameraProbe("1 1\n", false)[1], sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(DecodeCameraProbe("1 1 junk", true)[0], sst_cam::CAMERA_HEALTH_DOWN);
+}
 
 TEST(StartupPreflightTest, MissingGpuKeepsControlReadyAndRetriesCaptureAfterRecovery) {
     Fixture fixture;
@@ -67,11 +87,31 @@ TEST(StartupPreflightTest, MissingCameraDoesNotStartCaptureButKeepsControlReady)
     auto startup = fixture.Make();
     startup.Poll();
     EXPECT_TRUE(startup.Ready());
-    EXPECT_EQ(fixture.pipeline, 1);
+    EXPECT_EQ(fixture.pipeline, 0);
     EXPECT_EQ(startup.CameraHealth(1), sst_cam::CAMERA_HEALTH_DOWN);
-    fixture.probes.camera1 = sst_cam::CAMERA_HEALTH_UNKNOWN;
+    fixture.probes.camera1 = sst_cam::CAMERA_HEALTH_OK;
     startup.Poll();
     EXPECT_EQ(fixture.pipeline, 1);
+}
+
+TEST(StartupPreflightTest, CameraZeroMissingNeverStartsCapture) {
+    Fixture fixture;
+    fixture.probes.camera0 = sst_cam::CAMERA_HEALTH_DOWN;
+    auto startup = fixture.Make();
+    startup.Poll();
+    EXPECT_EQ(fixture.pipeline, 0);
+    EXPECT_TRUE(startup.Ready());
+}
+
+TEST(StartupPreflightTest, ProbeChildCrashOrTimeoutNeverStartsCapture) {
+    for (const auto failure : {sst_cam::CAMERA_HEALTH_DOWN, sst_cam::CAMERA_HEALTH_UNKNOWN}) {
+        Fixture fixture;
+        fixture.probes.camera0 = failure;
+        auto startup = fixture.Make();
+        startup.Poll();
+        EXPECT_EQ(fixture.pipeline, 0);
+        EXPECT_EQ(startup.CameraHealth(0), failure);
+    }
 }
 
 TEST(StartupPreflightTest, MissingBluetoothWithholdsReadyUntilItRecovers) {
@@ -79,18 +119,29 @@ TEST(StartupPreflightTest, MissingBluetoothWithholdsReadyUntilItRecovers) {
     fixture.probes.bluetooth = COMPONENT_STATUS_MISSING;
     auto startup = fixture.Make();
     startup.Poll();
-    EXPECT_FALSE(startup.Ready());
+    EXPECT_TRUE(startup.Ready());
     EXPECT_EQ(fixture.ble, 0);
     EXPECT_EQ(fixture.network, 1);
     EXPECT_EQ(fixture.http, 1);
     fixture.probes.bluetooth = COMPONENT_STATUS_OK;
     fixture.ble_starts = false;
     startup.Poll();
-    EXPECT_FALSE(startup.Ready());
+    EXPECT_TRUE(startup.Ready());
     fixture.ble_starts = true;
     startup.Poll();
     EXPECT_TRUE(startup.Ready());
     EXPECT_EQ(fixture.ble, 2);
+}
+
+TEST(StartupPreflightTest, ReadyNotificationIsClaimedExactlyOnce) {
+    Fixture fixture;
+    auto startup = fixture.Make();
+    EXPECT_FALSE(startup.TakeReadyNotification());
+    startup.Poll();
+    EXPECT_TRUE(startup.TakeReadyNotification());
+    EXPECT_FALSE(startup.TakeReadyNotification());
+    startup.Poll();
+    EXPECT_FALSE(startup.TakeReadyNotification());
 }
 
 TEST(StartupPreflightTest, AllPresentStartsServicesOnceInDependencyOrder) {
@@ -123,21 +174,48 @@ TEST(StartupPreflightTest, FailedCaptureReportsDownAndRetries) {
     EXPECT_EQ(fixture.pipeline, 2);
 }
 
-TEST(StartupPreflightTest, UnknownCameraNeedsARealCaptureAttempt) {
+TEST(StartupPreflightTest, UnknownCameraNeverStartsCapture) {
     Fixture fixture;
     fixture.probes.camera0 = sst_cam::CAMERA_HEALTH_UNKNOWN;
     auto startup = fixture.Make();
     startup.Poll();
-    EXPECT_EQ(fixture.pipeline, 1);
+    EXPECT_EQ(fixture.pipeline, 0);
 }
 
-TEST(StartupPreflightTest, NoNetworkKeepsHttpDownAndReadyWithheld) {
+TEST(StartupPreflightTest, NoUplinkAddressStillStartsNetworkAndReportsDegraded) {
+    Fixture fixture;
+    fixture.probes.wifi = sst_cam::COMPONENT_STATUS_DEGRADED;
+    fixture.probes.ethernet = sst_cam::COMPONENT_STATUS_DEGRADED;
+    auto startup = fixture.Make();
+    startup.Poll();
+    EXPECT_EQ(fixture.network, 1);
+    EXPECT_EQ(fixture.http, 1);
+    EXPECT_TRUE(startup.Ready());
+    EXPECT_EQ(startup.Components().wifi(), sst_cam::COMPONENT_STATUS_DEGRADED);
+    EXPECT_EQ(startup.Components().ethernet(), sst_cam::COMPONENT_STATUS_DEGRADED);
+}
+
+TEST(StartupPreflightTest, NetworkStartFailureKeepsHttpDownButSendsReadyAndRetries) {
+    Fixture fixture;
+    fixture.network_starts = false;
+    auto startup = fixture.Make();
+    startup.Poll();
+    EXPECT_TRUE(startup.Ready());
+    EXPECT_EQ(fixture.http, 0);
+    fixture.network_starts = true;
+    startup.Poll();
+    EXPECT_EQ(fixture.network, 2);
+    EXPECT_EQ(fixture.http, 1);
+    EXPECT_TRUE(startup.Ready());
+}
+
+TEST(StartupPreflightTest, NoNetworkKeepsHttpDownButSendsReady) {
     Fixture fixture;
     fixture.probes.wifi = COMPONENT_STATUS_MISSING;
     fixture.probes.ethernet = COMPONENT_STATUS_MISSING;
     auto startup = fixture.Make();
     startup.Poll();
-    EXPECT_FALSE(startup.Ready());
+    EXPECT_TRUE(startup.Ready());
     EXPECT_EQ(fixture.network, 0);
     EXPECT_EQ(fixture.http, 0);
     fixture.probes.ethernet = COMPONENT_STATUS_OK;

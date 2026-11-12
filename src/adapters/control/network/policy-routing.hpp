@@ -124,7 +124,7 @@ class PolicyRouting final : public sst::network::IPolicyRouting {
     // `nft -f` transaction (F7). Idempotent; resolves the wired iface itself; bounded /
     // never throws (a no wired iface / absent nft is a logged no-op in the container).
     // Stateless (forks `nft`), so static — callable via an instance or the class.
-    static auto ApplyEgressFirewall() -> void;
+    static auto ApplyEgressFirewall() -> bool;
 };
 
 }  // namespace sst::adapters::control
