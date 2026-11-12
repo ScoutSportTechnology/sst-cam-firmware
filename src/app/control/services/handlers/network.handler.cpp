@@ -148,9 +148,6 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
         current_.wifi.passphrase.value_or("") == incoming.wifi.passphrase.value_or("")) {
         spdlog::info("NetworkHandler: SetNetworkConfig — already connected to '{}' (no-op)",
                      arbiter_.CurrentSsid());
-        // The arbiter is already committed (kStaOnly from a prior Set) — its
-        // CurrentLanPath() is authoritative, so a plain Get must never derive.
-        arbiter_engaged_ = true;
         return BuildResponse(sst_cam::ResponseStatus::OK, std::nullopt);
     }
 
@@ -171,7 +168,6 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
     // From here on the arbiter has classified the operator's intent, so its
     // CurrentLanPath() is authoritative (even a failed selection reverted to a legal
     // state it now owns) — a plain Get must trust it, never derive from a raw probe.
-    arbiter_engaged_ = true;
     if (!selection.ok) {
         // An enabled interface failed to come up; the arbiter has reverted to a
         // legal state. Roll current_ back (so the echoed config + displayed
@@ -195,8 +191,7 @@ auto NetworkHandler::HandleSet(const sst_cam::SetNetworkConfigCommand& cmd)
                                                       .preview_credential = selection.credential};
     }
 
-    // Only durable once the config was accepted. autoconnect=no on the STA profile
-    // holds R-BOOT (no self-join on the next boot).
+    // Only durable once the config was accepted. The arbiter selects it at boot.
     if (!store_.Persist(current_)) {
         spdlog::error("NetworkHandler: uplink accepted but persistence failed");
         return BuildResponse(sst_cam::ResponseStatus::ERROR, migration,
@@ -277,27 +272,7 @@ auto NetworkHandler::BuildResponse(
     // handshake below.
     const auto committed_path = arbiter_.CurrentLanPath();
 
-    // Boot-before-Set gap (KNOWN GAP flagged by U4): the arbiter boots kP2p and is
-    // only driven to a real LAN path by an operator Set (R-BOOT forbids the arbiter
-    // auto-applying a stored uplink), yet boot-apply (uplink_manager.Apply on a
-    // detached thread) brings a PERSISTED Ethernet/STA up OUTSIDE the arbiter. So
-    // before the first Set has engaged the arbiter, derive the REPORTED lan_path from
-    // the live probes so a plain Get reports REALITY (R12). This can NEVER mislabel a
-    // different-subnet uplink as the LAN: an uplink only becomes one once a Set feeds
-    // the arbiter a phone subnet (it then applies policy routing and commits kP2p /
-    // kWifiSta) — from that point arbiter_engaged_ holds and CurrentLanPath() is
-    // authoritative, so we never derive. Before any phone subnet is known, "Ethernet
-    // is the LAN" matches the arbiter's own empty-phone-subnet classification.
-    auto reported_path = committed_path;
-    if (!arbiter_engaged_ && (committed_path == sst::network::LanPath::kP2p ||
-                              committed_path == sst::network::LanPath::kNone)) {
-        if (ethernet_up) {
-            reported_path = sst::network::LanPath::kEthernet;
-        } else if (live.wifi.ok) {
-            reported_path = sst::network::LanPath::kWifiSta;
-        }
-    }
-    payload->set_lan_path(ToProtoLanPath(reported_path));
+    payload->set_lan_path(ToProtoLanPath(committed_path));
 
     // Credential-exposure gate (INV6, U8): the LAN credential (STA preview OR
     // Ethernet) now transits on essentially EVERY Get, so its confidentiality rests

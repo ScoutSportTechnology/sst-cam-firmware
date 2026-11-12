@@ -31,7 +31,12 @@ using sst::adapters::control::IsIpv4Cidr;
 using sst::adapters::control::IsIpv4Literal;
 using sst::adapters::control::MaskToPrefix;
 using sst::adapters::control::ParseDhcpOfferCidr;
+using sst::adapters::control::ReadEthernetCarrier;
 using sst::network::EthernetMode;
+
+TEST(IpEthernetCommandTest, UnreadableCarrierReturnsFalse) {
+    EXPECT_FALSE(ReadEthernetCarrier("/proc/1/mem"));
+}
 
 TEST(IpEthernetCommandTest, GatewayIgnoresFirmwareMetric90WhenNmHasNewLease) {
     EXPECT_EQ(GatewayFromRoutes("default via 10.10.1.1 dev eth0 proto 186 metric 90\n"

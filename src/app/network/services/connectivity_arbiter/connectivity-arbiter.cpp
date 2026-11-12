@@ -148,9 +148,7 @@ ConnectivityArbiter::ConnectivityArbiter(sst::control::IWifiManager& wifi,
       eth_monitor_(monitor),
       policy_routing_(policy_routing),
       revert_after_(revert_after) {
-    // R-BOOT: the arbiter is born in kP2pOnly (LAN path P2P over the GO) and never
-    // auto-applies a stored uplink — a shared LAN is only ever reached through an
-    // app-confirmed selection.
+    // The first boot selection is applied explicitly after all hooks are wired.
     spdlog::info("ConnectivityArbiter: boot mode={} lan_path={}", mode_, current_path_);
     // R20: the always-on carrier monitor runs for the whole process lifetime, so an
     // Ethernet hotplug in kP2pOnly (or an unplug while LanPath=kEthernet) re-runs
@@ -171,6 +169,21 @@ ConnectivityArbiter::~ConnectivityArbiter() {
         uplink_routing_active_ = false;
         uplink_routing_touched_ = false;
     }
+}
+
+auto ConnectivityArbiter::SelectBootLanPath(const sst::config::UplinkData& desired)
+    -> LanSelectionResult {
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        desired_uplink_ = desired;
+    }
+    const PreparedEthernet prepared = PrepareEthernetTransition(desired, {}, {});
+    std::lock_guard<std::mutex> lock(mtx_);
+    const auto selected = ArbitrateLocked(/*unsolicited=*/true, prepared);
+    if (selected.ok && selected.path == LanPath::kWifiSta && selected.confirm_id != 0) {
+        ConfirmSharedWifiLocked(selected.confirm_id, /*reachable=*/true);
+    }
+    return selected;
 }
 
 auto ConnectivityArbiter::SelectLanPath(const sst::config::UplinkData& desired,
@@ -207,12 +220,10 @@ auto ConnectivityArbiter::PrepareEthernetTransition(const sst::config::UplinkDat
         prepared.classification =
             ClassifyEthernet(prepared.eth, desired, phone_subnet_cidr, sta_ip);
     }
-    // F1 + F3: a different-subnet uplink has NO STA ordering constraint, so ADDRESS it
-    // here off-lock (a REAL ApplyEthernet lease/static bind, not the no-bind offer) and
-    // re-probe for the routing config — the arbiter installs routing against the bound
-    // address without ever running a dhclient under `mtx_`.
+    // Only an Ethernet-only different-subnet uplink may bind here.
     if (prepared.classification &&
-        prepared.classification->role == EthernetRole::kUplinkDifferentSubnet) {
+        prepared.classification->role == EthernetRole::kUplinkDifferentSubnet &&
+        !desired.wifi.enabled.value_or(false)) {
         const auto applied = ethernet_.ApplyEthernet(desired.ethernet);
         prepared.uplink_bound = true;
         prepared.uplink_bind_ok = applied.ok;
@@ -241,15 +252,12 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
     // even without a carrier edge (a lease that lands later still promotes Ethernet).
     dhcp_pending_ = classification && classification->role == EthernetRole::kDhcpPending;
 
-    // U7 (R4): the ONE legit concurrent dual-interface case — Ethernet on a DIFFERENT
-    // subnet as an internet uplink — gets source-based policy routing + an egress-only
-    // firewall; EVERY other outcome tears that down.
-    const bool want_uplink_routing =
-        classification && classification->role == EthernetRole::kUplinkDifferentSubnet;
+    // Only an Ethernet-only different-subnet uplink may use the policy table.
+    const bool want_uplink_routing = classification &&
+                                     classification->role == EthernetRole::kUplinkDifferentSubnet &&
+                                     !desired_uplink_.wifi.enabled.value_or(false);
     if (want_uplink_routing) {
         // F1: the uplink address was already bound off-lock (PrepareEthernetTransition).
-        // A same-subnet-LAN -> different-subnet-uplink transition must drop the stale
-        // kEthernet LAN handshake WITHOUT flushing (the bound uplink address stays).
         if (current_path_ == LanPath::kEthernet) {
             ethernet_endpoint_.clear();
             ethernet_credential_.clear();
@@ -280,11 +288,9 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
             // a later lease re-arbitrates via the carrier monitor (F4 pending flag).
             spdlog::info("ConnectivityArbiter: Ethernet DHCP-pending — not yet a LAN candidate");
         } else if (classification->role == EthernetRole::kUplinkDifferentSubnet) {
-            // R4: a different-subnet Ethernet is an internet uplink, NOT a LAN path.
-            // It is bound + policy-routed (above); LAN falls to STA/P2P.
             spdlog::info(
-                "ConnectivityArbiter: Ethernet on a different subnet — bound + uplink policy "
-                "routing applied (U7/F1), LAN falls to STA/P2P");
+                "ConnectivityArbiter: Ethernet on a different subnet — LAN falls to "
+                "STA/P2P without binding a second uplink");
         }
     }
 
@@ -381,16 +387,12 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
                                                   bool unsolicited) -> LanSelectionResult {
     const bool sta_live =
         mode_ == ConnectivityMode::kStaOnly || mode_ == ConnectivityMode::kMigrating;
-    const bool is_dhcp = desired_uplink_.ethernet.dhcp.value_or(true);
 
-    // R21 no-surprise-migrate: a LATE same-subnet DHCP lease must NOT auto-migrate a
-    // HEALTHY STA session (a preview drop ~30s after the cable was plugged, with no
-    // operator action). The offer was classified WITHOUT binding, so leaving STA up
-    // dual-homes nothing. Only an operator SelectLanPath (solicited) switches.
-    if (sta_live && unsolicited && is_dhcp) {
+    // R21: keep a live STA session on an unsolicited Ethernet return.
+    if (sta_live && unsolicited) {
         spdlog::info(
-            "ConnectivityArbiter: late same-subnet DHCP Ethernet lease — keeping healthy STA (no "
-            "surprise migrate, R21)");
+            "ConnectivityArbiter: unsolicited Ethernet return — keeping healthy STA "
+            "(no surprise migrate, R21)");
         return {.ok = true,
                 .error = {},
                 .path = LanPath::kWifiSta,
@@ -400,15 +402,10 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
     }
 
     if (sta_live) {
-        // Same-subnet: the two interfaces CANNOT coexist (R2). Suppress the STA IP
-        // FIRST (tear it down, restore the GO), THEN bind Ethernet — no transient
-        // dual-home. For an UNSOLICITED static hotplug this is the documented R2>R19
-        // precedence (suppress-before-confirm to prevent the guaranteed collision);
-        // for an operator switch the operator explicitly chose it.
+        // An operator-selected switch suppresses STA before binding Ethernet.
         spdlog::info(
-            "ConnectivityArbiter: Ethernet same-subnet — suppressing STA before binding Ethernet "
-            "(R2>R19, unsolicited={})",
-            unsolicited);
+            "ConnectivityArbiter: operator Ethernet selection — suppressing STA before "
+            "binding Ethernet");
         DoRevertLocked();
     }
 
@@ -457,11 +454,8 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
 }
 
 auto ConnectivityArbiter::SelectStaLocked(bool unsolicited) -> LanSelectionResult {
-    // Event-driven re-arbitration that resolved to "STA stays" (e.g. a different-
-    // subnet Ethernet appeared, or a late DHCP lease we won't auto-migrate to): keep
-    // the HEALTHY kStaOnly session — never tear it down and re-migrate (R21
-    // no-surprise-drop). An operator (solicited) SelectLanPath always goes through
-    // RequestSharedWifi so a same-SSID-different-credential re-provision is honoured.
+    // Unsolicited re-arbitration keeps a healthy STA session; an operator selection
+    // still re-provisions changed credentials.
     if (unsolicited && mode_ == ConnectivityMode::kStaOnly) {
         current_path_ = LanPath::kWifiSta;
         return {.ok = true,
@@ -842,7 +836,11 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
         }
         return;
     }
-    ArbitrateLocked(/*unsolicited=*/true, prepared);
+    const auto selected = ArbitrateLocked(/*unsolicited=*/true, prepared);
+    if (selected.ok && selected.path == LanPath::kWifiSta && selected.confirm_id != 0 &&
+        mode_ == ConnectivityMode::kMigrating) {
+        ConfirmSharedWifiLocked(selected.confirm_id, /*reachable=*/true);
+    }
     if (address_changed && !observed.address.empty() && current_path_ != LanPath::kEthernet &&
         !uplink_routing_touched_) {
         policy_routing_.RefreshEgressFirewall();

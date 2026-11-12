@@ -10,6 +10,7 @@
 namespace sst::adapters::control {
 
 auto GatewayFromRoutes(const std::string& routes) -> std::string;
+auto ReadEthernetCarrier(const std::string& path) -> bool;
 
 // Firmware-OWNED Ethernet configurator (hardware-bound — fork/exec `ip` +
 // `dhclient`). The firmware runs as root and takes Ethernet out of

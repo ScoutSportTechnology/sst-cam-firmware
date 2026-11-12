@@ -42,18 +42,17 @@ auto ReadTrimmed(const std::string& path) -> std::string {
     if (!file) {
         return {};
     }
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::string content;
+    try {
+        content.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    } catch (const std::ios_base::failure&) {
+        return {};
+    }
     while (!content.empty() && (content.back() == '\n' || content.back() == '\r' ||
                                 content.back() == ' ' || content.back() == '\t')) {
         content.pop_back();
     }
     return content;
-}
-
-// Physical carrier state — /sys/class/net/<iface>/carrier is "1" only when the
-// link is up (the file read fails / is "0" when the cable is out or admin-down).
-auto CarrierUp(const std::string& iface) -> bool {
-    return ReadTrimmed("/sys/class/net/" + iface + "/carrier") == "1";
 }
 
 // The IPv4 address (CIDR) currently bound on `iface`, empty if none. Parses
@@ -114,6 +113,8 @@ auto WriteResolvConf(const std::string& body) -> void {
 }
 
 }  // namespace
+
+auto ReadEthernetCarrier(const std::string& path) -> bool { return ReadTrimmed(path) == "1"; }
 
 auto GatewayFromRoutes(const std::string& routes) -> std::string {
     std::istringstream lines(routes);
@@ -229,7 +230,7 @@ auto IpEthernetConfigurator::ProbeEthernet() -> sst::network::EthernetProbe {
     if (iface.empty()) {
         return {};  // kDown, no address
     }
-    const bool carrier = CarrierUp(iface);
+    const bool carrier = ReadEthernetCarrier("/sys/class/net/" + iface + "/carrier");
     if (!carrier) {
         // Carrier down: report down with no address (tolerated, no throw) — even
         // if a stale address lingers on the iface, the link is not usable.
