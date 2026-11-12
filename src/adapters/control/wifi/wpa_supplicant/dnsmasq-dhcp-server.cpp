@@ -53,6 +53,12 @@ void SweepStaleDnsmasq(const std::string& group_interface) {
 }
 }  // namespace
 
+auto ResetDnsmasqChildSignalMask() -> bool {
+    sigset_t empty;
+    sigemptyset(&empty);
+    return sigprocmask(SIG_SETMASK, &empty, nullptr) == 0;
+}
+
 DnsmasqDhcpServer::~DnsmasqDhcpServer() { Stop(); }
 
 auto DnsmasqDhcpServer::Start(const std::string& group_interface,
@@ -90,6 +96,9 @@ auto DnsmasqDhcpServer::Start(const std::string& group_interface,
         return false;
     }
     if (pid == 0) {
+        if (!ResetDnsmasqChildSignalMask()) {
+            ::_exit(kExecFailedExitCode);
+        }
         // Child: exec dnsmasq in the foreground, bound to the group interface.
         // --leasefile-ro: the service runs as non-root sst-cam and cannot write the
         // default lease file under root-only /var/lib/misc; P2P leases are ephemeral
