@@ -239,3 +239,31 @@ jobs:
           docker run --rm --user root -v "$PWD":/workspace -v "$PWD/.ccache":/root/.ccache -w /workspace \
             -e QEMU_LD_PREFIX=/l4t/targetfs -e CCACHE_MAXSIZE=1G \
             "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; trap "ccache -s" EXIT; just test'
+      - if: ${{ github.base_ref != 'main' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-test-binary
+          path: build/test/bin/sst_cam_firmware_tests
+          compression-level: 0
+
+  arm-probe:
+    needs: test
+    if: ${{ github.base_ref != 'main' && needs.test.result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm-test-binary
+          path: build/test/bin
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgstrtspserver-1.0-0 libopencv-core406t64 libopencv-imgproc406t64 libopencv-imgcodecs406t64 libsdbus-c++1 libprotobuf32t64 libpangocairo-1.0-0
+          chmod +x build/test/bin/sst_cam_firmware_tests
+          mkdir -p build/test
+          printf 'set(SST_TEST_BINARY "%s")\nset(SST_TEST_EMULATOR "")\ninclude("%s/cmake/hardware-tests.cmake")\n' "$PWD/build/test/bin/sst_cam_firmware_tests" "$PWD" > build/test/batched-tests-include.cmake
+          printf 'include("%s/build/test/batched-tests-include.cmake")\n' "$PWD" > build/test/CTestTestfile.cmake
+          ctest --test-dir build/test -N -LE hardware
+          ctest --test-dir build/test -j "$(nproc)" -LE hardware --output-on-failure
