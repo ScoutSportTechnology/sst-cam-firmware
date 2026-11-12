@@ -605,10 +605,9 @@ auto RunFirmware(const sigset_t& mask) -> int {
             "preflight: camera0={} ({} ms) camera1={} ({} ms) gpu={} wifi={} ethernet={} "
             "bluetooth={} "
             "storage={} clock_synced={} ble={} network={} http={} pipeline={}",
-            sst_cam::CameraHealth_Name(camera_health(0).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
-            camera_probe_ms[0],
-            sst_cam::CameraHealth_Name(camera_health(1).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
-            camera_probe_ms[1], sst_cam::ComponentStatus_Name(status.gpu()),
+            sst_cam::CameraHealth_Name(startup.CameraHealth(0)), camera_probe_ms[0],
+            sst_cam::CameraHealth_Name(startup.CameraHealth(1)), camera_probe_ms[1],
+            sst_cam::ComponentStatus_Name(status.gpu()),
             sst_cam::ComponentStatus_Name(status.wifi()),
             sst_cam::ComponentStatus_Name(status.ethernet()),
             sst_cam::ComponentStatus_Name(status.bluetooth()),
