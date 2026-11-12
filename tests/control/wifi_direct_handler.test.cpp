@@ -79,8 +79,10 @@ class FakeNetworkConfigurator final : public sst::control::INetworkConfigurator 
     auto Clear(const std::string& iface) -> void override {
         ++clears;
         cleared_iface = iface;
+        address.clear();
     }
     bool ok{true};
+    std::string address;
     int assigns{0};
     int clears{0};
     std::string assigned_iface;
@@ -368,6 +370,26 @@ TEST(WifiDirectHandlerTest, PreviewFailureIsDegradedNotFatal) {
     EXPECT_EQ(wifi.stops, 0);
     EXPECT_EQ(dhcp.stops, 0);
     EXPECT_EQ(manager.Phase(), sst::session::SessionPhase::kWifiReady);
+}
+
+TEST(WifiDirectHandlerTest, RepeatedStaJoinPreservesLeaseOnReusedGoInterface) {
+    FakeCleanup cleanup;
+    sst::session::SessionManager manager(cleanup);
+    manager.OnConnect();
+    FakeWifi wifi;
+    FakeDhcp dhcp;
+    FakeNetworkConfigurator netcfg;
+    FakeStreaming streaming;
+    WifiDirectHandler handler(manager, wifi, netcfg, dhcp, streaming,
+                              sst::control::PreviewPort{kPreviewPort},
+                              sst::control::DownloadPort{kDownloadPort});
+
+    ASSERT_EQ(handler.Handle(StartCmd()).status(), sst_cam::OK);
+    netcfg.address = "10.10.1.148/24";
+    handler.OnSharedWifiJoined("10.10.1.148");
+
+    EXPECT_EQ(netcfg.address, "10.10.1.148/24");
+    EXPECT_EQ(dhcp.stops, 1);
 }
 
 // U6 / R6, R11: OnEthernetLanSelected mints a per-session RTSP credential (the SAME
