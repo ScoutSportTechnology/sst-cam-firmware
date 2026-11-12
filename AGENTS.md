@@ -159,6 +159,32 @@ git config core.hooksPath .githooks
 
 It runs `scripts/fix.sh` on staged C/C++ files and re-stages what it rewrote.
 
+## Running CI locally with act
+
+On rs-vm-37, `~/.actrc` maps `ubuntu-latest` and `ubuntu-24.04` to
+`catthehacker/ubuntu:act-24.04` with `--bind`, `--pull=false`, and
+`--container-daemon-socket /var/run/docker.sock`. Docker must be running and
+qemu arm64 binfmt available. In a worktree, bind the Git common directory too:
+
+```bash
+# pr-event.json must contain a real pull_request.number and base.ref=development.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+act pull_request -W .github/workflows/ci.yml -j compile -e /path/to/pr-event.json \
+  -a rsantamaria01 -s GITHUB_TOKEN="$(gh auth token)" \
+  --container-options "-v ${common}:${common}:ro" --rm
+# Repeat with -j lint to exercise the lint aggregator and its compile dependency.
+```
+
+`changes` queries GitHub for the event's real PR number; use a PR that changes
+code or workflow files, otherwise `compile` is skipped. As tested on rs-vm-37,
+GHCR responds `403 Forbidden` to the `image` job's `buildx imagetools inspect`
+even with the CLI token, so dependent jobs stop before compilation. A local
+cached compiler image does not bypass that remote check. Use `just ci` against
+the cached pinned image to check code, `act -n -W .github/workflows/ci.yml` for
+workflow structure, and GitHub Actions for the end-to-end job until GHCR access
+works. `act` is a workflow debugging tool, not a replacement for `just ci` or
+hardware tests. Never store a token in `.actrc` or an event file.
+
 ## CI/CD & releasing
 
 PR-gated, Conventional-Commit driven. The cross-build runs **inside the published compiler image** (see "Compiler image" above) — pulled, never rebuilt per job. Same Git Flow model in all three sst-cam repos (proto, firmware, app); **levels are tags, not branches**:
