@@ -4,7 +4,7 @@
 # ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler (recipe: compiler-image/).
 # Nothing heavy is built locally; this only adds the tools used while editing.
 # Keep the tag equal to compiler-image/VERSION (CI checks it).
-FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:jetpack_7.2-jetson_r39.2-v2
+FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:jetpack_7.2-jetson_r39.2-v3
 
 USER root
 

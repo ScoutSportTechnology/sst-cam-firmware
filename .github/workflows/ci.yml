@@ -32,6 +32,8 @@ jobs:
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
               - 'conanfile.py'
+              - 'conan.lock'
+              - 'conan/profiles/**'
               - 'proto/**'
               - 'compiler-image/**'
               - '.devcontainer/**'
@@ -50,6 +52,8 @@ jobs:
           tag="$(tr -d '[:space:]' < compiler-image/VERSION)"
           dev="$(sed -n 's#^FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:\([^ ]*\).*#\1#p' .devcontainer/Dockerfile)"
           test "$tag" = "$dev"
+          recipe="$(git ls-files -s compiler-image conanfile.py conan.lock conan/profiles | grep -v ' compiler-image/VERSION$' | sha256sum | cut -d' ' -f1)"
+          echo "recipe=$recipe" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
@@ -58,7 +62,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: docker buildx imagetools inspect "${IMAGE}:${TAG}" >/dev/null
+          RECIPE: ${{ steps.tag.outputs.recipe }}
+        run: |
+          have="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ index .Image.Config.Labels "io.sst.compiler-image.recipe" }}')"
+          test "$have" = "$RECIPE"
 
   lint:
     needs: [changes, image]
@@ -126,8 +133,12 @@ jobs:
       - run: test '${{ needs.image.result }}' = success && { test '${{ github.event_name }}' != pull_request || test '${{ needs.changes.result }}' = success; }
       - if: ${{ !env.ACT }}
         run: |
-          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          free_gb=$(df -BG --output=avail / | tr -dc '0-9')
+          if (( free_gb < 30 )); then
+            sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+          fi
           df -h /
+          test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 30
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -143,11 +154,20 @@ jobs:
         with:
           image: ${{ env.IMAGE }}
           tag: ${{ needs.image.outputs.tag }}
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ github.head_ref || github.ref_name }}-${{ needs.image.outputs.tag }}-compile-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.head_ref || github.ref_name }}-${{ needs.image.outputs.tag }}-compile-
+            ccache-development-${{ needs.image.outputs.tag }}-compile-
       - env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
-          docker run --rm --user root -v "$PWD":/workspace -w /workspace \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just compile'
+          mkdir -p .ccache
+          docker run --rm --user root -v "$PWD":/workspace -v "$PWD/.ccache":/root/.ccache -w /workspace \
+            -e CCACHE_MAXSIZE=1G \
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; trap "ccache -s" EXIT; just compile'
 
   test:
     needs: [changes, image]
@@ -184,9 +204,18 @@ jobs:
           image: ${{ env.IMAGE }}
           tag: ${{ needs.image.outputs.tag }}
       - if: ${{ github.base_ref != 'main' }}
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ github.head_ref || github.ref_name }}-${{ needs.image.outputs.tag }}-test-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.head_ref || github.ref_name }}-${{ needs.image.outputs.tag }}-test-
+            ccache-development-${{ needs.image.outputs.tag }}-test-
+      - if: ${{ github.base_ref != 'main' }}
         env:
           TAG: ${{ needs.image.outputs.tag }}
         run: |
-          docker run --rm --user root -v "$PWD":/workspace -w /workspace \
-            -e QEMU_LD_PREFIX=/l4t/targetfs \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just test'
+          mkdir -p .ccache
+          docker run --rm --user root -v "$PWD":/workspace -v "$PWD/.ccache":/root/.ccache -w /workspace \
+            -e QEMU_LD_PREFIX=/l4t/targetfs -e CCACHE_MAXSIZE=1G \
+            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; trap "ccache -s" EXIT; just test'

@@ -90,13 +90,12 @@ _run +cmd:
         git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
         docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
         test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
-        docker volume create sst-conan2 >/dev/null; \
         docker volume create sst-ccache >/dev/null; \
         name="sst-run-$(basename "{{justfile_directory()}}" | tr -cd '[:alnum:]_.-')-$$"; \
         trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT; \
         trap 'exit 130' INT; trap 'exit 143' TERM; \
         docker run --rm --init --name "$name" --user root -v "{{justfile_directory()}}":"{{justfile_directory()}}" -v "$git_dir":"$git_dir":ro \
-            -v sst-conan2:/root/.conan2 -v sst-ccache:/root/.ccache \
+            -v sst-ccache:/root/.ccache \
             -w "{{justfile_directory()}}" -e BASE="${BASE:-origin/development}" -e BASE_REF="${BASE_REF:-development}" -e SST_RELEASE_TAG="${SST_RELEASE_TAG:-}" "$image" \
             bash -lc "{{cmd}}" & \
         wait $!; \

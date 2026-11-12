@@ -52,6 +52,7 @@ graph_info.json
 # Repo-local caches for cross-build workflow
 # ------------------------------------------------------------
 .cache/
+.ccache/
 
 # ------------------------------------------------------------
 # Logs / runtime
