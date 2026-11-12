@@ -231,7 +231,7 @@ Default `GITHUB_TOKEN` only — no PAT/App. The "Release Tags" ruleset permits c
 - rc (hardware sign-off): flash the newest beta on a real Jetson and test end to end with the app; when it passes, run `gh workflow run release.yml --ref release/X.Y.Z -f to=rc` in each repo → `rc.1`; later fixes → `rc.N`.
 - Stable: open the `release/X.Y.Z → main` PR (1 approval); on merge, `release.yml` tags `vX.Y.Z` and copies the verified rc binary — no rebuild. Afterward delete `release/X.Y.Z` and PR `main → development`. Release-branch creation, promotion and merging follow the shared `sst-cam-git-flow` skill; the `sst-cam-ci` skill link is pending a workspace PR.
 - The compiler-image build is heavy (~35 min, ~7.6 GB of NVIDIA downloads) and can flake on hosted runners — re-run with `gh run rerun <id> --failed`.
-- Install/update on a Jetson: `deploy/install.sh` installs a **released** (stable, rc or beta) binary (see `deploy/README.md`).
+- Install/update on a Jetson: `deploy/install.sh` installs a **released** (stable, rc or beta) binary (see `deploy/README.md`). It ensures `firmware_class.path=/usr/lib/firmware` in the DEFAULT boot label; the change takes effect on the next boot and the previous extlinux.conf is backed up as `.bak-sstcam`.
 
 ### Debugging on device
 

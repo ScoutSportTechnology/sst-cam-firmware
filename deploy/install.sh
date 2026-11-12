@@ -678,6 +678,90 @@ ensure_camera_overlay() {
   log "Camera: overlay installed -> ${merged} (reboot required to load it)."
 }
 
+# --- firmware-class:begin
+# R39.2 nvgpu can return -40 during ACR firmware lookup through /lib -> usr/lib;
+# https://forums.developer.nvidia.com/t/intermittent-missing-gpu-devfreq-node-on-cold-boot-jetson-agx-orin-jetpack-7-2-l4t-39-2/384170
+ensure_firmware_class_path() {
+  if [ ! -f "$EXTLINUX_CONF" ]; then
+    log "GPU: ${EXTLINUX_CONF} not found — skipping firmware path."
+    return 0
+  fi
+  local default candidate
+  default="$(awk '$1 == "DEFAULT" { print $2; exit }' "$EXTLINUX_CONF")"
+  if [ -z "$default" ] || ! awk -v label="$default" '
+    $1 == "LABEL" { active = ($2 == label) }
+    active && $1 == "APPEND" { found = 1 }
+    END { exit !found }
+  ' "$EXTLINUX_CONF"; then
+    log "GPU: DEFAULT label or APPEND missing in ${EXTLINUX_CONF} — skipping firmware path."
+    return 0
+  fi
+  candidate="$(mktemp "${EXTLINUX_CONF}.tmp.XXXXXX")"
+  if ! awk -v label="$default" '
+    $1 == "LABEL" { active = ($2 == label) }
+    active && $1 == "APPEND" {
+      if (gsub(/firmware_class\.path=[^[:space:]]+/, "firmware_class.path=/usr/lib/firmware") == 0)
+        $0 = $0 " firmware_class.path=/usr/lib/firmware"
+    }
+    { print }
+  ' "$EXTLINUX_CONF" > "$candidate"; then
+    rm -f "$candidate"
+    die "GPU: could not prepare ${EXTLINUX_CONF}."
+  fi
+  if cmp -s "$EXTLINUX_CONF" "$candidate" && awk -v label="$default" '
+    $1 == "LABEL" { active = ($2 == label) }
+    active && $1 == "APPEND" {
+      count++
+      for (i = 1; i <= NF; i++)
+        if ($i ~ /^firmware_class\.path=/) {
+          tokens++
+          if ($i != "firmware_class.path=/usr/lib/firmware") bad = 1
+        }
+    }
+    END { exit (count != 1 || tokens != 1 || bad) }
+  ' "$EXTLINUX_CONF"; then
+    rm -f "$candidate"
+    log "GPU: firmware_class.path already set for DEFAULT ${default}; no change."
+    return 0
+  fi
+  if ! cp -a "$EXTLINUX_CONF" "${EXTLINUX_CONF}.bak-sstcam"; then
+    rm -f "$candidate"
+    die "GPU: could not back up ${EXTLINUX_CONF}."
+  fi
+  if ! cat "$candidate" > "$EXTLINUX_CONF" || ! awk -v label="$default" '
+    NR == FNR { before[FNR] = $0; lines = FNR; next }
+    {
+      if (FNR > lines) bad = 1
+      if ($1 == "LABEL") active = ($2 == label)
+      original = before[FNR]
+      if (active && $1 == "APPEND") {
+        count++
+        old = original
+        if (sub(/firmware_class\.path=[^[:space:]]+/, "firmware_class.path=/usr/lib/firmware", old) == 0)
+          old = old " firmware_class.path=/usr/lib/firmware"
+        if ($0 != old) bad = 1
+        tokens = 0
+        for (i = 1; i <= NF; i++)
+          if ($i ~ /^firmware_class\.path=/) {
+            tokens++
+            if ($i != "firmware_class.path=/usr/lib/firmware") bad = 1
+          }
+        if (tokens != 1) bad = 1
+      } else if ($0 != original) bad = 1
+      seen = FNR
+    }
+    END { if (bad || seen != lines || count != 1) exit 1 }
+  ' "${EXTLINUX_CONF}.bak-sstcam" "$EXTLINUX_CONF"; then
+    cp -a "${EXTLINUX_CONF}.bak-sstcam" "$EXTLINUX_CONF"
+    rm -f "$candidate"
+    die "GPU: invalid extlinux.conf update; restored ${EXTLINUX_CONF}.bak-sstcam."
+  fi
+  rm -f "$candidate"
+  REBOOT_NEEDED="yes"
+  log "GPU: firmware_class.path=/usr/lib/firmware set for DEFAULT ${default} (takes effect on next boot)."
+}
+# --- firmware-class:end
+
 # systemd unit for the dedicated wpa_supplicant that owns the WiFi-Direct radio.
 wpa_p2p_unit() {  # <iface>
   cat <<UNIT
@@ -895,9 +979,9 @@ check_runtime_libs() {  # <binary>
 print_pending_actions() {
   if [ "${REBOOT_NEEDED:-no}" = "yes" ]; then
     log ""
-    log "==> ACTION REQUIRED: a camera device-tree overlay was installed."
-    log "==> REBOOT to load it:  sudo reboot"
-    log "==> Until you reboot, the IMX477 cameras will not be detected."
+    log "==> ACTION REQUIRED: boot configuration was updated."
+    log "==> REBOOT to load the camera overlay or GPU firmware path: sudo reboot"
+    log "==> Changes take effect on the next boot."
   fi
 }
 trap print_pending_actions EXIT
@@ -906,6 +990,7 @@ if [ "$DO_SETUP" = "yes" ]; then
   ensure_setup
   ensure_device_identity
   ensure_camera_overlay
+  ensure_firmware_class_path
   ensure_wifi_direct_provisioning
   ensure_ethernet_provisioning
   cleanup_retired_sta_source_routing

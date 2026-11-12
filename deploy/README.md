@@ -87,6 +87,10 @@ systemctl status sst-cam-firmware
 2. **Fails early** (before stopping the service) on a bad download, a non-aarch64
    ELF, a **platform mismatch** (a JetPack-7.2 binary on a non-r39 flash), or a
    **sha256** that disagrees with the digest recorded in the release notes.
+   - **GPU boot path.** The installer sets `firmware_class.path=/usr/lib/firmware`
+     only in the DEFAULT label's APPEND in `/boot/extlinux/extlinux.conf`. Other
+     labels stay untouched. Changes take effect on the **next boot**; restore
+     `/boot/extlinux/extlinux.conf.bak-sstcam` to roll back.
 3. **No-op** if the installed binary already matches (sha256).
 4. Stops the service, **atomically** swaps in the new binary (keeps a `.bak`),
    restarts.
