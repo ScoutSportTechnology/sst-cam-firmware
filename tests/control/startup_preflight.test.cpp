@@ -1,7 +1,12 @@
 #include <gtest/gtest.h>
+#include <unistd.h>
+
+#include <cstdlib>
+#include <string>
 
 #include "adapters/control/network/net-iface.hpp"
 #include "adapters/control/system/camera-probe.hpp"
+#include "adapters/control/system/systemd-notify.hpp"
 #include "app/control/services/startup-preflight.hpp"
 
 namespace {
@@ -67,6 +72,21 @@ TEST(CameraProbeTest, ChildCrashTimeoutAndBadOutputFailClosed) {
     EXPECT_EQ(DecodeCameraProbe("1 1 junk", true)[0], sst_cam::CAMERA_HEALTH_DOWN);
 }
 
+TEST(SystemdNotifyTest, MissingSocketSucceedsAndClosedSocketFails) {
+    const char* saved = std::getenv("NOTIFY_SOCKET");
+    const std::string previous = saved == nullptr ? "" : saved;
+    ::unsetenv("NOTIFY_SOCKET");
+    EXPECT_TRUE(sst::adapters::control::NotifySystemd("READY=1"));
+    const std::string socket_path = "/tmp/sst-notify-" + std::to_string(::getpid()) + ".sock";
+    ::setenv("NOTIFY_SOCKET", socket_path.c_str(), 1);
+    EXPECT_FALSE(sst::adapters::control::NotifySystemd("READY=1"));
+    if (saved == nullptr) {
+        ::unsetenv("NOTIFY_SOCKET");
+    } else {
+        ::setenv("NOTIFY_SOCKET", previous.c_str(), 1);
+    }
+}
+
 TEST(StartupPreflightTest, MissingGpuKeepsControlReadyAndRetriesCaptureAfterRecovery) {
     Fixture fixture;
     fixture.probes.gpu = COMPONENT_STATUS_MISSING;
@@ -114,7 +134,7 @@ TEST(StartupPreflightTest, ProbeChildCrashOrTimeoutNeverStartsCapture) {
     }
 }
 
-TEST(StartupPreflightTest, MissingBluetoothWithholdsReadyUntilItRecovers) {
+TEST(StartupPreflightTest, MissingBluetoothKeepsReadyAndRetriesBle) {
     Fixture fixture;
     fixture.probes.bluetooth = COMPONENT_STATUS_MISSING;
     auto startup = fixture.Make();
@@ -209,18 +229,19 @@ TEST(StartupPreflightTest, NetworkStartFailureKeepsHttpDownButSendsReadyAndRetri
     EXPECT_TRUE(startup.Ready());
 }
 
-TEST(StartupPreflightTest, NoNetworkKeepsHttpDownButSendsReady) {
+TEST(StartupPreflightTest, MissingUplinksStillStartNetworkingAndHttp) {
     Fixture fixture;
     fixture.probes.wifi = COMPONENT_STATUS_MISSING;
     fixture.probes.ethernet = COMPONENT_STATUS_MISSING;
     auto startup = fixture.Make();
     startup.Poll();
     EXPECT_TRUE(startup.Ready());
-    EXPECT_EQ(fixture.network, 0);
-    EXPECT_EQ(fixture.http, 0);
+    EXPECT_EQ(fixture.network, 1);
+    EXPECT_EQ(fixture.http, 1);
     fixture.probes.ethernet = COMPONENT_STATUS_OK;
     startup.Poll();
     EXPECT_TRUE(startup.Ready());
+    EXPECT_EQ(fixture.network, 1);
     EXPECT_EQ(fixture.http, 1);
 }
 }  // namespace

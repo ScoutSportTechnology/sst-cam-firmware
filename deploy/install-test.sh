@@ -362,7 +362,7 @@ if grep -q 'ELF\*aarch64' "$INSTALL_SH"; then ok; else bad "install.sh must keep
 unit_output="$(bash -c "$(sed -n '/^embedded_unit() {/,/^}/p' "$INSTALL_SH"); embedded_unit")"
 for unit in "$unit_output" "$(< "${SCRIPT_DIR}/sst-cam-firmware.service")"; do
   if grep -q '^User=root$' <<<"$unit"; then ok; else bad "firmware service must run as root for network/time operations"; fi
-  for setting in 'Type=notify' 'WatchdogSec=60' 'Restart=on-failure' \
+  for setting in 'Type=notify' 'WatchdogSec=60' 'TimeoutStartSec=120' 'Restart=on-failure' \
     'After=.*bluetooth.service' 'After=.*nvargus-daemon.service' \
     'After=.*network-pre.target' 'Wants=.*bluetooth.service' \
     'Wants=.*nvargus-daemon.service' 'Wants=.*network-pre.target'; do

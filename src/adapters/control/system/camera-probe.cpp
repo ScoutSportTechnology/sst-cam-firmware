@@ -1,6 +1,7 @@
 #include "adapters/control/system/camera-probe.hpp"
 
 #include <gst/gst.h>
+#include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -70,10 +71,16 @@ auto ProbeCameras() -> CameraStatuses {
         if (!std::filesystem::exists("/dev/video" + std::to_string(index))) {
             continue;
         }
+        const auto start = std::chrono::steady_clock::now();
         const auto probe = CaptureBounded(
             {executable.data(), "--probe-cameras", std::to_string(index)}, kProbeTimeout);
         const auto decoded = DecodeCameraProbe(probe.output, probe.ok);
         result[static_cast<std::size_t>(index)] = decoded[static_cast<std::size_t>(index)];
+        spdlog::info("camera probe {}: {} in {} ms", index,
+                     sst_cam::CameraHealth_Name(result[static_cast<std::size_t>(index)]),
+                     std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - start)
+                         .count());
     }
     return result;
 }

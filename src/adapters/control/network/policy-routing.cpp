@@ -568,14 +568,14 @@ auto PolicyRouting::ApplyUplinkRouting(const sst::network::UplinkRoutingConfig& 
 
 auto PolicyRouting::RefreshEgressFirewall() -> void { ApplyEgressFirewall(); }
 
-auto PolicyRouting::ApplyEgressFirewall() -> bool {
+auto PolicyRouting::ApplyEgressFirewall() -> void {
     const std::string iface = DetectWiredIface();
     if (!IsSafeIfaceName(iface)) {
         spdlog::info(
             "PolicyRouting: no safe wired iface for the boot egress firewall ('{}') — skipping "
             "(no wired uplink to protect yet)",
             iface);
-        return true;
+        return;
     }
     // B1/F2: close the boot exposure window — a root listener (e.g. HttpDownloadServer
     // on 0.0.0.0:8080) must not be reachable on a wired uplink before the arbiter has
@@ -583,7 +583,7 @@ auto PolicyRouting::ApplyEgressFirewall() -> bool {
     // firewall-only (no routing table/rule), so a same-subnet-LAN commit later removes
     // it via TeardownUplinkRouting and a different-subnet uplink re-applies it.
     spdlog::info("PolicyRouting: installing boot egress-only firewall on {} (B1/F2)", iface);
-    return WriteAndApplyFirewallScript(iface);
+    WriteAndApplyFirewallScript(iface);
 }
 
 auto PolicyRouting::TeardownUplinkRouting() -> void {

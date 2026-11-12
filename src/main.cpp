@@ -1,12 +1,8 @@
 #include <spdlog/spdlog.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -29,6 +25,7 @@
 #include "adapters/control/system/camera-probe.hpp"
 #include "adapters/control/system/gpu-probe.hpp"
 #include "adapters/control/system/proc-system-stats.hpp"
+#include "adapters/control/system/systemd-notify.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 #include "adapters/control/wifi/wpa_supplicant/ip-network-configurator.hpp"
 #include "adapters/control/wifi/wpa_supplicant/wpa-wifi-manager.hpp"
@@ -151,30 +148,6 @@ auto NowEpochMs() -> std::uint64_t {
                                           .count());
 }
 
-auto NotifySystemd(const char* message) -> void {
-    const char* path = std::getenv("NOTIFY_SOCKET");
-    if (path == nullptr || *path == '\0') {
-        return;
-    }
-    const int socket_fd = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-    if (socket_fd < 0) {
-        return;
-    }
-    sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    const std::size_t length = std::strlen(path);
-    if (length > 0 && length < sizeof(addr.sun_path)) {
-        std::memcpy(addr.sun_path, path, length + 1);
-        if (path[0] == '@') {
-            addr.sun_path[0] = '\0';
-        }
-        (void)::sendto(socket_fd, message, std::strlen(message), MSG_NOSIGNAL,
-                       reinterpret_cast<const sockaddr*>(&addr),
-                       static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + length + 1));
-    }
-    ::close(socket_fd);
-}
-
 }  // namespace
 
 // App-as-source-of-truth firmware: a stateless executor of the sst-cam-proto
@@ -272,9 +245,11 @@ auto RunFirmware(const sigset_t& mask) -> int {
     // commit. Declared before the arbiter so it outlives the arbiter's teardown.
     sst::adapters::control::PolicyRouting policy_routing;
     // F2: close the boot exposure window before boot-apply touches Ethernet.
-    bool firewall_ready = sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
-    bool network_started = false;
-    bool uplink_apply_started = false;
+    sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
+    const auto uplink_status = uplink_manager.Apply(cfg.uplink);
+    const bool network_started = true;
+    spdlog::info("networking: uplinks applied (ethernet={}, wifi={})", uplink_status.ethernet.ok,
+                 uplink_status.wifi.ok);
 
     sst::adapters::raw_capture::FilesystemRawCaptureSink raw_capture_sink(
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
@@ -618,29 +593,7 @@ auto RunFirmware(const sigset_t& mask) -> int {
                  ble_transport.Start();
                  return ble_transport.IsRunning();
              },
-         .network =
-             [&] {
-                 if (!firewall_ready) {
-                     firewall_ready = sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
-                     if (!firewall_ready) {
-                         spdlog::error("networking: boot egress firewall failed; HTTP stays down");
-                         return false;
-                     }
-                 }
-                 const auto wifi = sst::adapters::control::DetectWifiStaIface();
-                 const auto ethernet = sst::adapters::control::DetectWiredIface();
-                 if (wifi.empty() && ethernet.empty()) {
-                     return false;
-                 }
-                 if (!uplink_apply_started) {
-                     uplink_apply_started = true;
-                     std::thread([&uplink_manager, boot_cfg = cfg.uplink]() mutable {
-                         uplink_manager.Apply(boot_cfg);
-                     }).detach();
-                 }
-                 network_started = true;
-                 return true;
-             },
+         .network = [&] { return network_started; },
          .http = [&] { return http_download_server.Start(); },
          .pipeline = [&] { return pipeline.Start(); }});
     live_startup = &startup;
@@ -662,7 +615,16 @@ auto RunFirmware(const sigset_t& mask) -> int {
     };
     log_components();
     if (startup.TakeReadyNotification()) {
-        NotifySystemd("READY=1");
+        bool sent = false;
+        for (int attempt = 0; attempt < 3 && !sent; ++attempt) {
+            if (attempt > 0) {
+                std::this_thread::sleep_for(std::chrono::seconds{1});
+            }
+            sent = sst::adapters::control::NotifySystemd("READY=1");
+        }
+        if (!sent) {
+            spdlog::error("sd_notify: READY=1 failed after 3 attempts; continuing");
+        }
     }
 
     // Drive the display-only match clock at ~1 Hz (the app is still the timing
@@ -691,14 +653,11 @@ auto RunFirmware(const sigset_t& mask) -> int {
         if (signo == SIGTERM || signo == SIGINT) {
             break;
         }
-        NotifySystemd("WATCHDOG=1");
+        sst::adapters::control::NotifySystemd("WATCHDOG=1");
         if (std::chrono::steady_clock::now() >= next_probe) {
             clock_monitor.CheckAndLog();
             startup.Poll();
             log_components();
-            if (startup.TakeReadyNotification()) {
-                NotifySystemd("READY=1");
-            }
             next_probe = std::chrono::steady_clock::now() + kRetryInterval;
         }
     }

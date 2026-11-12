@@ -26,7 +26,7 @@ ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure
 RestartSec=10
 WatchdogSec=60
-TimeoutStartSec=0
+TimeoutStartSec=120
 TimeoutStopSec=120
 
 [Install]

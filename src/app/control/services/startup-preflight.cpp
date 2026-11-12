@@ -14,8 +14,7 @@ auto StartupPreflight::Poll() -> void {
     if (!ble_up_ && latest_.bluetooth == sst_cam::COMPONENT_STATUS_OK) {
         ble_up_ = actions_.ble();
     }
-    if (!network_up_ && (latest_.wifi != sst_cam::COMPONENT_STATUS_MISSING ||
-                         latest_.ethernet != sst_cam::COMPONENT_STATUS_MISSING)) {
+    if (!network_up_) {
         network_up_ = actions_.network();
     }
     if (network_up_ && !http_up_) {
