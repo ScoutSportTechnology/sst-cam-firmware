@@ -11,19 +11,22 @@
 
 [Unit]
 Description=SST Cam firmware runtime
-# Order after the Argus camera daemon so the capture pipeline isn't racing its
-# socket at cold boot. Ordering-only: harmless if nvargus-daemon is absent.
-After=network-online.target nvargus-daemon.service
-Wants=network-online.target
+# Order after boot services and physical NIC discovery; absent hardware stays optional.
+After=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+Wants=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
-Type=simple
+Type=notify
 User=root
 Group=root
 WorkingDirectory=/opt/sst-cam
 ExecStart=/opt/sst-cam/bin/sst_cam_firmware
 Restart=on-failure
-RestartSec=5
+RestartSec=10
+WatchdogSec=60
+TimeoutStartSec=120
 TimeoutStopSec=120
 
 [Install]

@@ -1215,6 +1215,18 @@ TEST(ConnectivityArbiterTest, F4LateDhcpLeasePromotesWithoutCarrierEdge) {
     EXPECT_GE(harness.ethernet.offer_calls, 2);  // the offer was re-polled after the pending hold
 }
 
+TEST(ConnectivityArbiterTest, EthernetCarrierAfterBootWithAddressRefreshesFirewall) {
+    Harness harness;
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 0);
+    harness.ethernet.carrier = true;
+    harness.ethernet.probe_address = "10.10.1.30/24";
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 1);
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.policy_routing.refresh_calls, 1);
+}
+
 TEST(ConnectivityArbiterTest, AddressAppearingAfterBootRefreshesFirewallSubnet) {
     Harness harness;
     harness.ethernet.carrier = true;

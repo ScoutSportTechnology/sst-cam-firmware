@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "bluetooth.pb.h"
+
 namespace sst::adapters::control {
 
 // Interface discovery from /sys/class/net (no subprocess). The SINGLE source of
@@ -22,5 +24,7 @@ auto DetectWiredIface() -> std::string;
 // name does NOT start with "p2p" (the "p2p-dev-*" virtual iface is skipped). Empty
 // if none. This is the STA LAN interface the arbiter joins the phone's network on.
 auto DetectWifiStaIface() -> std::string;
+auto UplinkHealth(const std::string& iface, bool carrier, bool ipv4) -> sst_cam::ComponentStatus;
+auto ProbeUplinkHealth(const std::string& iface) -> sst_cam::ComponentStatus;
 
 }  // namespace sst::adapters::control
