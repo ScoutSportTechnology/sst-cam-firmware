@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "adapters/control/network/net-iface.hpp"
 #include "adapters/control/system/camera-probe.hpp"
@@ -63,13 +65,16 @@ TEST(UplinkHealthTest, MissingCarrierAndAddressAreNotOk) {
     EXPECT_EQ(UplinkHealth("enP8p1s0", true, true), COMPONENT_STATUS_OK);
 }
 
-TEST(CameraProbeTest, ChildCrashTimeoutAndBadOutputFailClosed) {
-    using sst::adapters::control::DecodeCameraProbe;
-    EXPECT_EQ(DecodeCameraProbe("1 1\n", true)[0], sst_cam::CAMERA_HEALTH_OK);
-    EXPECT_EQ(DecodeCameraProbe("1 0\n", true)[1], sst_cam::CAMERA_HEALTH_DOWN);
-    EXPECT_EQ(DecodeCameraProbe("1 1\n", false)[0], sst_cam::CAMERA_HEALTH_DOWN);
-    EXPECT_EQ(DecodeCameraProbe("1 1\n", false)[1], sst_cam::CAMERA_HEALTH_DOWN);
-    EXPECT_EQ(DecodeCameraProbe("1 1 junk", true)[0], sst_cam::CAMERA_HEALTH_DOWN);
+TEST(CameraProbeTest, ChildOutputDoesNotDetermineHealth) {
+    using sst::adapters::control::RunCameraProbeChild;
+    constexpr auto timeout = std::chrono::seconds{1};
+    const std::vector<std::string> noisy{"sh", "-c", "printf 'GST_ARGUS: capture\\n'; exit 0"};
+    EXPECT_EQ(RunCameraProbeChild(noisy, timeout), sst_cam::CAMERA_HEALTH_OK);
+    EXPECT_EQ(RunCameraProbeChild({"sh", "-c", "exit 10"}, timeout), sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(RunCameraProbeChild({"sh", "-c", "exit 42"}, timeout), sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(RunCameraProbeChild({"sh", "-c", "kill -TERM $$"}, timeout),
+              sst_cam::CAMERA_HEALTH_DOWN);
+    EXPECT_EQ(RunCameraProbeChild({"sleep", "30"}, timeout), sst_cam::CAMERA_HEALTH_DOWN);
 }
 
 TEST(SystemdNotifyTest, MissingSocketSucceedsAndClosedSocketFails) {

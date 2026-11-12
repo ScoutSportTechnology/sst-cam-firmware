@@ -563,6 +563,7 @@ auto RunFirmware(const sigset_t& mask) -> int {
     dispatcher.Register(
         std::make_shared<sst::control::ThumbnailHandler>(pipeline, jpeg_encoder, NowEpochMs));
 
+    std::array<std::int64_t, 2> camera_probe_ms{};
     sst::control::StartupPreflight startup(
         [&] {
             const auto wifi = sst::adapters::control::DetectWifiStaIface();
@@ -574,7 +575,7 @@ auto RunFirmware(const sigset_t& mask) -> int {
                                                                  sst_cam::CAMERA_HEALTH_DOWN),
                                                              pipeline.CameraHealth(1).value_or(
                                                                  sst_cam::CAMERA_HEALTH_DOWN)}
-                    : sst::adapters::control::ProbeCameras();
+                    : sst::adapters::control::ProbeCameras(&camera_probe_ms);
             return sst::control::StartupProbes{
                 .camera0 = cameras[0],
                 .camera1 = cameras[1],
@@ -601,11 +602,13 @@ auto RunFirmware(const sigset_t& mask) -> int {
     auto log_components = [&] {
         const auto status = startup.Components();
         spdlog::info(
-            "preflight: camera0={} camera1={} gpu={} wifi={} ethernet={} bluetooth={} "
+            "preflight: camera0={} ({} ms) camera1={} ({} ms) gpu={} wifi={} ethernet={} "
+            "bluetooth={} "
             "storage={} clock_synced={} ble={} network={} http={} pipeline={}",
             sst_cam::CameraHealth_Name(camera_health(0).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
+            camera_probe_ms[0],
             sst_cam::CameraHealth_Name(camera_health(1).value_or(sst_cam::CAMERA_HEALTH_UNKNOWN)),
-            sst_cam::ComponentStatus_Name(status.gpu()),
+            camera_probe_ms[1], sst_cam::ComponentStatus_Name(status.gpu()),
             sst_cam::ComponentStatus_Name(status.wifi()),
             sst_cam::ComponentStatus_Name(status.ethernet()),
             sst_cam::ComponentStatus_Name(status.bluetooth()),
