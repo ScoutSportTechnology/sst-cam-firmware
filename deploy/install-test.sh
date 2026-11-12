@@ -352,6 +352,67 @@ fi
 # the --binary path too (rejecting an x86_64 host build).
 if grep -q 'ELF\*aarch64' "$INSTALL_SH"; then ok; else bad "install.sh must keep the aarch64-ELF guard for both install paths"; fi
 
+BOOT_SANDBOX="$(mktemp -d)"
+trap 'rm -rf "$IDENTITY_SANDBOX" "$BOOT_SANDBOX"' EXIT
+sed -n '/# --- firmware-class:begin/,/# --- firmware-class:end/p' "$INSTALL_SH" > "${BOOT_SANDBOX}/firmware-class.sh"
+if [ -s "${BOOT_SANDBOX}/firmware-class.sh" ]; then
+  check_boot_path() {
+    local name="$1" input="$2" expected="$3" expect_backup="$4" expect_rc="$5"
+    local conf="${BOOT_SANDBOX}/${name}.conf" rc=0
+    if [ "$input" != absent ]; then printf '%s' "$input" > "$conf"; fi
+    local before_mtime=""
+    if [ "$name" = already-correct ]; then touch -d '2001-01-01 UTC' "$conf"; fi
+    if [ "$input" != absent ]; then before_mtime="$(stat -c %y "$conf")"; fi
+    (
+      # shellcheck disable=SC2034
+      EXTLINUX_CONF="$conf"
+      # shellcheck disable=SC2034
+      REBOOT_NEEDED=no
+      # shellcheck disable=SC2317,SC2329
+      log() { :; }
+      # shellcheck disable=SC2317,SC2329
+      err() { :; }
+      # shellcheck disable=SC2317,SC2329
+      die() { exit 1; }
+      # shellcheck source=/dev/null
+      . "${BOOT_SANDBOX}/firmware-class.sh"
+      ensure_firmware_class_path
+    ) >/dev/null 2>&1 || rc=$?
+    if [ "$rc" -ne "$expect_rc" ]; then bad "$name: expected exit $expect_rc, got $rc"; return; fi
+    if [ "$input" != absent ] && [ "$(< "$conf")" != "${expected%$'\n'}" ]; then
+      bad "$name: unexpected extlinux.conf"; return
+    fi
+    if [ "$name" = already-correct ] && [ "$(stat -c %y "$conf")" != "$before_mtime" ]; then
+      bad "$name: mtime changed on no-op"; return
+    fi
+    if [ "$expect_backup" = yes ]; then
+      if [ ! -f "${conf}.bak-sstcam" ] || [ "$(< "${conf}.bak-sstcam")" != "${input%$'\n'}" ]; then
+        bad "$name: backup missing or differs from original"; return
+      fi
+    elif [ -e "${conf}.bak-sstcam" ]; then
+      bad "$name: unexpected backup"; return
+    fi
+    ok
+  }
+  base=$'DEFAULT primary\nLABEL primary\n  LINUX /boot/Image\n  INITRD /boot/initrd\n  FDT /boot/camera.dtb\n  APPEND ${cbootargs} rootwait firmware_class.path=/etc/firmware quiet\n'
+  fixed=$'DEFAULT primary\nLABEL primary\n  LINUX /boot/Image\n  INITRD /boot/initrd\n  FDT /boot/camera.dtb\n  APPEND ${cbootargs} rootwait firmware_class.path=/usr/lib/firmware quiet\n'
+  check_boot_path stock "$base" "$fixed" yes 0
+  check_boot_path missing-token "${base/ firmware_class.path=\/etc\/firmware/}" "${fixed/ firmware_class.path=\/usr\/lib\/firmware quiet/ quiet firmware_class.path=\/usr\/lib\/firmware}" yes 0
+  check_boot_path already-correct "$fixed" "$fixed" no 0
+  duplicate="${base/ quiet/ firmware_class.path=\/etc\/firmware quiet}"
+  check_boot_path duplicate "$duplicate" "$duplicate" yes 1
+  fallback=$'LABEL orig\n  LINUX /boot/Image\n  INITRD /boot/initrd\n  FDT /boot/old.dtb\n  APPEND rootwait firmware_class.path=/etc/firmware\n'
+  check_boot_path fallback "${base}${fallback}" "${fixed}${fallback}" yes 0
+  check_boot_path absent absent absent no 0
+  check_boot_path missing-default "${base/DEFAULT primary/}" "${base/DEFAULT primary/}" no 0
+  check_boot_path missing-append "${base/  APPEND*quiet$'\n'/}" "${base/  APPEND*quiet$'\n'/}" no 0
+  malformed="${base}  APPEND rootwait firmware_class.path=/etc/firmware"$'\n'
+  check_boot_path malformed "$malformed" "$malformed" yes 1
+  unset base fixed fallback malformed duplicate
+else
+  bad 'installer firmware-class function not extractable'
+fi
+
 unit_output="$(bash -c "$(sed -n '/^embedded_unit() {/,/^}/p' "$INSTALL_SH"); embedded_unit")"
 for unit in "$unit_output" "$(< "${SCRIPT_DIR}/sst-cam-firmware.service")"; do
   if grep -q '^User=root$' <<<"$unit"; then ok; else bad "firmware service must run as root for network/time operations"; fi
