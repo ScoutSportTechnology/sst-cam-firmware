@@ -146,16 +146,8 @@ auto WifiDirectHandler::HandleStart() -> sst_cam::CommandResponse {
 }
 
 auto WifiDirectHandler::OnSharedWifiJoined(const std::string& sta_lan_ip) -> std::string {
-    // The arbiter has already stopped the GO radio (INV2). Clean up the residual
-    // GO plumbing (DHCP + the GO address on the now-gone iface), then mint a
-    // per-session credential and switch the preview onto the STA LAN IP with auth
-    // (S2/INV5). The authenticated preview must be live here so the app can probe
-    // it before confirming (F1 step 5).
     dhcp_.Stop();
-    if (!group_interface_.empty()) {
-        netcfg_.Clear(group_interface_);
-        group_interface_.clear();
-    }
+    group_interface_.clear();
     const std::string credential = MintPreviewCredential();
     // Bind the S2 preview to ALL interfaces (0.0.0.0), NOT the specific STA IP: the
     // DHCP address can still be settling when we rebind, and a specific-IP bind
