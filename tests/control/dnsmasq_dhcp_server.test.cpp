@@ -3,22 +3,22 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <csignal>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 
+#include "../support/temp-dir.hpp"
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 
 namespace {
 
 TEST(DnsmasqDhcpServerTest, StopKillsUnresponsiveDnsmasqWithinThreeSeconds) {
-    char directory[] = "/tmp/sst-dnsmasq-XXXXXX";
-    ASSERT_NE(mkdtemp(directory), nullptr);
-    const std::filesystem::path executable = std::filesystem::path(directory) / "dnsmasq";
-    const std::filesystem::path pid_file = std::filesystem::path(directory) / "pid";
+    const sst::test::TempDir directory("dnsmasq");
+    const std::filesystem::path executable = directory.path() / "dnsmasq";
+    const std::filesystem::path pid_file = directory.path() / "pid";
     {
         std::ofstream script(executable);
         script << "#!/bin/sh\n"
@@ -28,7 +28,7 @@ TEST(DnsmasqDhcpServerTest, StopKillsUnresponsiveDnsmasqWithinThreeSeconds) {
     }
     ASSERT_EQ(chmod(executable.c_str(), 0700), 0);
     const std::string old_path = std::getenv("PATH") != nullptr ? std::getenv("PATH") : "";
-    const std::string path = std::string(directory) + ":" + old_path;
+    const std::string path = directory.path().string() + ":" + old_path;
     ASSERT_EQ(setenv("PATH", path.c_str(), 1), 0);
     {
         sst::adapters::control::DnsmasqDhcpServer server;
@@ -49,7 +49,6 @@ TEST(DnsmasqDhcpServerTest, StopKillsUnresponsiveDnsmasqWithinThreeSeconds) {
         }
     }
     EXPECT_EQ(setenv("PATH", old_path.c_str(), 1), 0);
-    std::filesystem::remove_all(directory);
 }
 
 TEST(DnsmasqDhcpServerTest, ChildCanReceiveTerminationWhenFirmwareBlocksSignals) {

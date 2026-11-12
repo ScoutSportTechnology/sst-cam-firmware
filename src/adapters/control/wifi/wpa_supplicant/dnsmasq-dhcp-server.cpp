@@ -1,7 +1,5 @@
 #include "adapters/control/wifi/wpa_supplicant/dnsmasq-dhcp-server.hpp"
 
-#include "adapters/control/network/subprocess.hpp"
-
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>
@@ -14,6 +12,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "adapters/control/network/subprocess.hpp"
 
 namespace sst::adapters::control {
 
