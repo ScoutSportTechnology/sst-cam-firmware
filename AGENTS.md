@@ -38,7 +38,8 @@ Everything needed to cross-build and test lives in one published image,
 `ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:<tag>`: the JetPack 7.2 /
 L4T r39.2 aarch64 sysroot at `/l4t/targetfs` (BSP sample rootfs + noble `-dev` debs +
 CUDA 13.2 / cuDNN 9.20 / TensorRT 10.16 / VPI 4.1), Ubuntu's gcc-13 aarch64 cross
-toolchain, cmake, ninja, conan, host protoc, qemu-user-static, just, clang-tidy,
+toolchain, cmake, ninja, conan (with cross-built Debug/Release/test dependencies
+in `/opt/conan-cache`), host protoc, qemu-user-static, just, clang-tidy,
 clang-format, shellcheck and ccache. Its recipe is
 [compiler-image/](compiler-image/) (Dockerfile + `sysroot/` scripts) and its tag is
 [compiler-image/VERSION](compiler-image/VERSION):
@@ -46,9 +47,10 @@ clang-format, shellcheck and ccache. Its recipe is
 pushed as `:latest`.
 
 - Only `.github/workflows/compiler-image.yml` builds it, on any push that changes
-  `compiler-image/` (or by hand). Tags are immutable: any change in `compiler-image/`
-  needs a new `VERSION` (bump `v<n>`, or the JetPack/L4T part when moving the BSP);
-  the workflow fails if a published tag would get a different recipe.
+  `compiler-image/`, `conanfile.py`, `conan.lock`, or `conan/profiles/` (or by hand).
+  Tags are immutable: bump `VERSION` (`v<n>`, or the JetPack/L4T part when moving
+  the BSP) whenever any of these inputs changes. Both the publisher and CI check
+  the published recipe hash; a stale tag fails until the new image is published.
 - `.devcontainer/Dockerfile` is `FROM` that tag plus editor tooling only. Bump its
   `FROM` together with `VERSION`; CI's `image` job fails if they differ or if the tag
   is not published yet (re-run it once `compiler-image` is green).
@@ -102,21 +104,19 @@ Use `just up` to check the pinned compiler image, then `just lint` (full-tree fo
 
 ## Local fast loop (shared caches)
 
-The `_run` target mounts two named Docker volumes so repeated invocations are fast:
-
-| Volume | Mount point | Purpose |
-|---|---|---|
-| `sst-conan2` | `/root/.conan2` | Shared Conan 2 package cache — avoids rebuilding fmt, spdlog, gtest on every configure. |
-| `sst-ccache` | `/root/.ccache` | Shared ccache — compiler hits across worktrees. Enabled automatically because `ccache` is baked into the image. |
-
-**Conan cache serialization:** the first `cmake --preset …` (which runs `cmake-conan`) is serialized with `flock` on `/root/.conan2/.cmake_configure.lock` so concurrent worktrees never corrupt the cache. Builds and tests remain fully parallel.
+The `_run` target mounts `sst-ccache` at `/root/.ccache` for compiler hits
+across worktrees. Conan packages for all three presets are baked into the pinned
+image at `/opt/conan-cache`; local and CI containers use that same image. The
+first configure uses `flock` on `/opt/conan-cache/.cmake_configure.lock` to
+serialize Conan cache writes between concurrent worktrees. Builds and tests
+remain parallel.
 
 **Recipes:**
 
 - `just test <filter>` — optional filter passed to `ctest -R <filter>`. Example: `just test NmcliCommandTest`. No filter = full suite.
 - `just ci changed` — fast gate for a one-file change: runs `lint changed` in parallel with `compile`, then `test`. The full gate is still `just ci` (no argument).
 
-**Clearing caches:** `docker volume rm sst-conan2 sst-ccache` (run on the host).
+**Clearing ccache:** `docker volume rm sst-ccache` (run on the host).
 
 ## Linting & formatting
 
