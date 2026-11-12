@@ -712,6 +712,29 @@ TEST(ConnectivityArbiterTest, CarrierReturnFlushesStaBeforeLeaseReleaseGoAndEthe
     EXPECT_FALSE(harness.log.dual_home);
 }
 
+TEST(ConnectivityArbiterTest, MissedCarrierEdgesReconcileStaOnNextPeriodicCheck) {
+    Harness harness;
+    harness.uplink.sta_result = {.ok = true, .detail = "10.10.1.148"};
+    ASSERT_EQ(
+        harness.arbiter.SelectBootLanPath(BothEnabledConfig("10.10.1.30/24", "PhoneNet")).path,
+        LanPath::kWifiSta);
+    harness.ethernet.probe_address = "10.10.1.30/24";
+    int probes = 0;
+    harness.ethernet.on_probe = [&] {
+        if (++probes == 2) {
+            harness.ethernet.carrier = true;
+        }
+    };
+    harness.monitor.Poll();
+    ASSERT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kWifiSta);
+    harness.log.calls.clear();
+    harness.monitor.Poll();
+    EXPECT_EQ(harness.arbiter.CurrentLanPath(), LanPath::kEthernet);
+    EXPECT_FALSE(harness.log.sta_addressed);
+    EXPECT_LT(IndexOf(harness.log.calls, "uplink.FlushWifiStaAddress"),
+              IndexOf(harness.log.calls, "ethernet.Apply"));
+}
+
 TEST(ConnectivityArbiterTest, CarrierFlapUpDownUpEndsOnEthernetOnly) {
     Harness harness;
     const auto config = BothEnabledConfig("10.10.1.30/24", "PhoneNet");

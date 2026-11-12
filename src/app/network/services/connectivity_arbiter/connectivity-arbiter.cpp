@@ -775,17 +775,14 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
             carrier && !observed.address.empty() && observed.gateway.empty() &&
             desired_uplink_.ethernet.enabled.value_or(false) &&
             desired_uplink_.ethernet.dhcp.value_or(true) && current_path_ != LanPath::kEthernet;
-        if (!edge && !address_changed && !gateway_changed && !pending_repoll && !missing_gateway) {
+        const bool reconcile_sta = carrier && current_path_ == LanPath::kWifiSta &&
+                                   StaCollidesWith(preview_endpoint_, observed.address);
+        const bool check = edge || address_changed || gateway_changed || pending_repoll ||
+                           missing_gateway || reconcile_sta;
+        if (!check) {
             return;
         }
-        const char* reason = "DHCP-pending re-poll";
-        if (edge) {
-            reason = "carrier edge";
-        } else if (address_changed) {
-            reason = "address change";
-        } else if (gateway_changed) {
-            reason = "gateway change";
-        }
+        const char* reason = edge ? "carrier edge" : "level reconcile";
         spdlog::info(
             "ConnectivityArbiter: Ethernet {} (carrier={} was={} dhcp_pending={}) — re-arbitrating "
             "(mode-independent monitor, R20/F4)",
