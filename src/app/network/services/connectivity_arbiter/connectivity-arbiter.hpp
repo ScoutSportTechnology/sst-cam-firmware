@@ -122,8 +122,8 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
                                    const std::string& sta_ip) -> PreparedEthernet;
 
     // The core decision (R3), caller holds `mtx_`. `unsolicited` = driven by the
-    // carrier monitor (a hotplug/unplug), NOT an operator SetNetworkConfig — it
-    // gates R2>R19 immediate suppression + the R21 no-surprise-migrate guard.
+    // carrier monitor, not an operator SetNetworkConfig. Ethernet carrier return
+    // prefers Ethernet over STA (decision A); operator subnet selection is unchanged.
     // `prepared` carries the off-lock Ethernet resolution (F3); when engaged the
     // locked path never runs a dhclient under `mtx_`.
     auto ArbitrateLocked(bool unsolicited, const PreparedEthernet& prepared) -> LanSelectionResult;

@@ -202,7 +202,7 @@ auto IpEthernetConfigurator::ApplyDhcp(const std::string& iface)
     RunBounded({"dhclient", "-1", "-4", iface}, kDhcpTimeout);
     const std::string address = IfaceIpv4Cidr(iface);
     if (address.empty()) {
-        // No lease within the bound: not-ready (feeds R21 DHCP-pending). Do NOT
+        // No lease within the bound: not-ready (DHCP-pending). Do NOT
         // throw / hang — the arbiter decides whether to wait or fall to STA.
         spdlog::warn("IpEthernetConfigurator: DHCP got no lease on {} within {}s", iface,
                      kDhcpTimeout.count());

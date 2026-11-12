@@ -284,8 +284,7 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
             return SelectEthernetLanLocked(classification->cidr, unsolicited);
         }
         if (classification->role == EthernetRole::kDhcpPending) {
-            // R21: carrier up, no lease yet — not yet a candidate. Fall to STA/P2P;
-            // a later lease re-arbitrates via the carrier monitor (F4 pending flag).
+            // No lease yet: fall to STA/P2P; a later lease re-arbitrates (F4).
             spdlog::info("ConnectivityArbiter: Ethernet DHCP-pending — not yet a LAN candidate");
         } else if (classification->role == EthernetRole::kUplinkDifferentSubnet) {
             spdlog::info(
@@ -298,6 +297,9 @@ auto ConnectivityArbiter::ArbitrateLocked(bool unsolicited,
     // address before falling through, so a stale same-subnet address can't linger.
     if (current_path_ == LanPath::kEthernet) {
         TeardownEthernetLanLocked();
+    }
+    if (unsolicited && prepared.eth.carrier && desired_uplink_.ethernet.enabled.value_or(false)) {
+        return SelectP2pLocked();
     }
     if (desired_uplink_.wifi.enabled.value_or(false)) {
         return SelectStaLocked(unsolicited);
@@ -388,24 +390,12 @@ auto ConnectivityArbiter::SelectEthernetLanLocked(const std::string& cidr,
     const bool sta_live =
         mode_ == ConnectivityMode::kStaOnly || mode_ == ConnectivityMode::kMigrating;
 
-    // R21: keep a live STA session on an unsolicited Ethernet return.
-    if (sta_live && unsolicited) {
-        spdlog::info(
-            "ConnectivityArbiter: unsolicited Ethernet return — keeping healthy STA "
-            "(no surprise migrate, R21)");
-        return {.ok = true,
-                .error = {},
-                .path = LanPath::kWifiSta,
-                .confirm_id = 0,
-                .endpoint = preview_endpoint_,
-                .credential = preview_credential_};
-    }
-
     if (sta_live) {
-        // An operator-selected switch suppresses STA before binding Ethernet.
+        // Ethernet wins on carrier return (decision A); retire STA before binding it.
         spdlog::info(
-            "ConnectivityArbiter: operator Ethernet selection — suppressing STA before "
-            "binding Ethernet");
+            "ConnectivityArbiter: Ethernet selected — suppressing STA before binding Ethernet "
+            "(unsolicited={})",
+            unsolicited);
         DoRevertLocked();
     }
 
@@ -814,11 +804,18 @@ auto ConnectivityArbiter::OnEthernetCarrierPoll() -> void {
         phone_subnet = phone_subnet_cidr_;
         sta_ip = preview_endpoint_;
     }
-    // F3: the heavy Ethernet work (ProbeEthernet + ProbeDhcpOffer + a different-subnet
-    // uplink bind — each a potential 20s dhclient) runs OFF the lock, mirroring
-    // OnCarrierCheck's lock-drop, so an Ethernet hotplug never freezes the BLE command
-    // thread for ~40s. Re-take the lock, re-validate, then commit.
-    const PreparedEthernet prepared = PrepareEthernetTransition(desired, phone_subnet, sta_ip);
+    if (carrier && desired.ethernet.enabled.value_or(false)) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (mode_ == ConnectivityMode::kStaOnly || mode_ == ConnectivityMode::kMigrating) {
+            DoRevertLocked();
+            sta_ip.clear();
+        }
+    }
+    // NM may address Ethernet before DHCP probing completes; retire STA first.
+    // The carrier return prefers Ethernet regardless of the phone subnet, while
+    // operator SelectLanPath retains its subnet-aware behavior.
+    const PreparedEthernet prepared = PrepareEthernetTransition(
+        desired, carrier && desired.ethernet.enabled.value_or(false) ? "" : phone_subnet, sta_ip);
     std::lock_guard<std::mutex> lock(mtx_);
     // Re-validate: a concurrent transition may have moved the carrier since the snapshot
     // — if so this poll is stale and the newer event owns the re-arbitration.
