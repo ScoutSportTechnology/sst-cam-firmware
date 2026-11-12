@@ -4,24 +4,19 @@
 #include <spdlog/spdlog.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-#include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "adapters/control/network/subprocess.hpp"
 #include "adapters/control/wifi/wpa_supplicant/ip-command.hpp"
 
 namespace sst::adapters::control {
 
 namespace {
-// Conventional shell "command not found" exit status, used when execvp fails.
-constexpr int kExecFailedExitCode = 127;
-
 // Carrier-readiness poll for the freshly-created P2P group interface. wpa forms
 // the group and we assign the address, but returning before the kernel marks the
 // iface UP+RUNNING races the phone's DHCP DISCOVER → intermittent "wifi failed"
@@ -54,35 +49,6 @@ auto WaitInterfaceRunning(const std::string& iface) -> bool {
     return false;
 }
 
-// Run `ip` with [argv] to completion; true iff it exits 0. Mirrors the
-// DnsmasqDhcpServer fork/execvp style but synchronous (ip is short-lived).
-auto RunIp(const std::vector<std::string>& argv) -> bool {
-    if (argv.empty()) {
-        return false;
-    }
-    std::vector<char*> c_argv;
-    c_argv.reserve(argv.size() + 1);
-    for (const auto& arg : argv) {
-        c_argv.push_back(
-            const_cast<char*>(arg.c_str()));  // NOLINT(cppcoreguidelines-pro-type-const-cast)
-    }
-    c_argv.push_back(nullptr);
-
-    const pid_t pid = ::fork();
-    if (pid < 0) {
-        spdlog::error("IpNetworkConfigurator: fork failed: {}", std::strerror(errno));
-        return false;
-    }
-    if (pid == 0) {
-        ::execvp("ip", c_argv.data());
-        ::_exit(kExecFailedExitCode);  // only reached if exec fails
-    }
-    int status = 0;
-    if (::waitpid(pid, &status, 0) != pid) {
-        return false;
-    }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
 }  // namespace
 
 auto IpNetworkConfigurator::AssignGroupOwnerAddress(const std::string& iface,
@@ -93,14 +59,14 @@ auto IpNetworkConfigurator::AssignGroupOwnerAddress(const std::string& iface,
         spdlog::error("IpNetworkConfigurator: invalid iface '{}' / cidr '{}'", iface, cidr);
         return false;
     }
-    if (!RunIp(replace_argv)) {
+    if (!RunBounded(replace_argv, kQueryTimeout)) {
         spdlog::error("IpNetworkConfigurator: `ip addr replace {} dev {}` failed", cidr, iface);
         return false;
     }
     // The wpa-created group iface is usually already up; the link-up call itself
     // is best-effort (a no-op `up` on an already-up iface can return non-zero).
     // Carrier readiness, not the call's exit code, is the real gate below.
-    if (!RunIp(up_argv)) {
+    if (!RunBounded(up_argv, kQueryTimeout)) {
         spdlog::warn("IpNetworkConfigurator: `ip link set {} up` returned non-zero", iface);
     }
     // Block until the kernel marks the iface UP+RUNNING before returning OK, so the
@@ -120,7 +86,7 @@ auto IpNetworkConfigurator::Clear(const std::string& iface) -> void {
     }
     // Best-effort: the group iface usually disappears at P2P_GROUP_REMOVE; flushing
     // guards against a reused iface name carrying a stale address.
-    RunIp({"ip", "addr", "flush", "dev", iface});
+    RunBounded({"ip", "addr", "flush", "dev", iface}, kQueryTimeout);
 }
 
 }  // namespace sst::adapters::control

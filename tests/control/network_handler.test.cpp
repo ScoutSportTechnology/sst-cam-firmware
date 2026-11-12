@@ -26,6 +26,7 @@ class FakeConfigurator final : public sst::network::IUplinkConfigurator {
         -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};
     }
+    auto FlushWifiStaAddress() -> void override {}
     auto TeardownWifiSta() -> void override {}
     auto ProbeWifiSta() -> sst::network::UplinkResult override {
         return {.ok = false, .detail = "unavailable"};
@@ -659,16 +660,13 @@ TEST(NetworkHandlerTest, GetWithP2pOnlySurfacesNoLanCredential) {
     EXPECT_TRUE(resp.network_config().preview_endpoint().empty());
 }
 
-// U8 boot-before-Set gap (R12): before any operator Set has engaged the arbiter (it
-// still reports its kP2p boot default), a plain Get derives lan_path from the LIVE
-// Ethernet probe so it reports REALITY — but surfaces NO credential (none is
-// committed/minted yet; the app commits via a Set to obtain one).
-TEST(NetworkHandlerTest, GetBeforeAnySetDerivesEthernetLanFromLiveProbe) {
+TEST(NetworkHandlerTest, GetBeforeAnySetReportsBootArbiterPath) {
     FakeConfigurator configurator;
     FakeEthernet ethernet;  // default: real STATIC link up at 10.10.1.30/24
     sst::network::UplinkManager manager(configurator, ethernet);
     FakeStore store;
-    FakeArbiter arbiter;  // pristine: kP2p boot default, never engaged by a Set
+    FakeArbiter arbiter;
+    arbiter.current_lan_path = sst::network::LanPath::kEthernet;
     FakeLinkSecurity secure(/*secure=*/true);
     sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
@@ -676,7 +674,7 @@ TEST(NetworkHandlerTest, GetBeforeAnySetDerivesEthernetLanFromLiveProbe) {
     cmd.mutable_get_network_config();
     const auto resp = handler.Handle(cmd);
 
-    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);  // reality
+    EXPECT_EQ(resp.network_config().lan_path(), sst_cam::LAN_PATH_ETHERNET);
     EXPECT_TRUE(resp.network_config().ethernet_up());
     EXPECT_EQ(resp.network_config().ethernet_address(), "10.10.1.30/24");
     ASSERT_TRUE(resp.network_config().has_ethernet_dhcp());
@@ -685,10 +683,7 @@ TEST(NetworkHandlerTest, GetBeforeAnySetDerivesEthernetLanFromLiveProbe) {
     EXPECT_EQ(arbiter.select_calls, 0);                                // Get never selects
 }
 
-// U8 boot-before-Set gap: once a Set HAS engaged the arbiter and it committed kP2p
-// (e.g. a different-subnet Ethernet uplink → LAN falls to P2P), a plain Get trusts
-// the arbiter and does NOT derive kEthernet from the (up) uplink interface — the
-// uplink is never mislabeled as the LAN path.
+// A plain Get trusts the arbiter, not the Ethernet probe, after an operator Set.
 TEST(NetworkHandlerTest, GetAfterSetTrustsArbiterAndDoesNotDeriveUplinkAsLan) {
     FakeConfigurator configurator;
     FakeEthernet ethernet;  // Ethernet interface is up (a different-subnet uplink)
@@ -700,7 +695,7 @@ TEST(NetworkHandlerTest, GetAfterSetTrustsArbiterAndDoesNotDeriveUplinkAsLan) {
     FakeLinkSecurity secure(/*secure=*/true);
     sst::control::NetworkHandler handler(manager, store, {}, arbiter, ethernet, &secure);
 
-    // Drive a Set first (P2P outcome) so arbiter_engaged_ is set in the handler.
+    // Drive a Set first (P2P outcome).
     sst_cam::Command set;
     set.mutable_set_network_config();  // no interfaces enabled -> arbiter returns kP2p
     handler.Handle(set);

@@ -208,10 +208,8 @@ auto RunFirmware(const sigset_t& mask) -> int {
     sst::adapters::control::IpNetworkConfigurator network_configurator;
     sst::adapters::control::DnsmasqDhcpServer dhcp_server;
 
-    // Internet uplink (ethernet / gated wifi-STA) for cloud streaming — a separate
-    // plane from the WiFi-Direct GO that serves the phone its preview. Applied from
-    // persisted config on boot; re-pushable from the app over BLE (U4). Driven via
-    // NetworkManager (the camera's ethernet is NM-managed, unlike the P2P radio).
+    // Ethernet and STA adapters are owned by the arbiter for boot and runtime
+    // selection; UplinkManager is used only for read-only status by the handler.
     sst::adapters::control::NmcliUplinkConfigurator uplink_configurator;
     // Firmware-owned Ethernet (ip/dhclient, out of NetworkManager per U2) — the
     // source of truth for the real static-vs-DHCP mode GetNetworkConfig reports.
@@ -235,21 +233,12 @@ auto RunFirmware(const sigset_t& mask) -> int {
     sst::network::UplinkManager uplink_manager(uplink_configurator, ethernet_configurator);
     sst::adapters::network::JsonUplinkStore uplink_store(std::string(sst::paths::kConfigDir) +
                                                          "/uplink.json");
-    // U7 / B1 / F2: the different-subnet uplink (R4) gets source-based policy routing +
-    // an egress-only firewall (the security bound for running as root). Declared here,
-    // ahead of the boot-apply, so the boot egress firewall is installed BEFORE any
-    // persisted Ethernet uplink is addressed — no root listener (e.g. the download
-    // server on 0.0.0.0:8080) is ever reachable on a wired uplink in the boot / pre-
-    // first-Set window. The arbiter (below) borrows it: it re-applies the full routing
-    // + firewall for a different-subnet uplink and removes it on a same-subnet-LAN
-    // commit. Declared before the arbiter so it outlives the arbiter's teardown.
+    // Install the boot egress firewall before arbitration can address Ethernet or
+    // the HTTP server can listen. Outlives the arbiter's policy-routing teardown.
     sst::adapters::control::PolicyRouting policy_routing;
     // F2: close the boot exposure window before boot-apply touches Ethernet.
     sst::adapters::control::PolicyRouting::ApplyEgressFirewall();
-    const auto uplink_status = uplink_manager.Apply(cfg.uplink);
     const bool network_started = true;
-    spdlog::info("networking: uplinks applied (ethernet={}, wifi={})", uplink_status.ethernet.ok,
-                 uplink_status.wifi.ok);
 
     sst::adapters::raw_capture::FilesystemRawCaptureSink raw_capture_sink(
         cfg.storage.video.value_or(sst::paths::kVideoRootFallback), /*camera_count=*/2);
@@ -406,12 +395,14 @@ auto RunFirmware(const sigset_t& mask) -> int {
     // watchdog only arms in kStaOnly). Owns a poll thread off the BLE dispatcher;
     // the arbiter Starts it in its ctor and Stops it in its dtor.
     sst::adapters::network::ThreadEthernetCarrierMonitor ethernet_carrier_monitor;
-    // policy_routing declared earlier (before boot-apply, for the F2 boot firewall);
-    // the arbiter borrows it to apply/tear down the different-subnet uplink routing.
+    // The arbiter borrows the policy routing declared before boot arbitration.
     sst::network::ConnectivityArbiter connectivity_arbiter(
         wifi_manager, uplink_configurator, self_revert_timer, *wifi_direct_handler,
         ethernet_configurator, ethernet_carrier_monitor, policy_routing,
         sst::runtime_defaults::kSelfRevertWindow);
+    const auto boot_lan = connectivity_arbiter.SelectBootLanPath(cfg.uplink);
+    spdlog::info("networking: boot LAN path={} ready={}", static_cast<int>(boot_lan.path),
+                 boot_lan.ok);
     dispatcher.Register(
         std::make_shared<sst::control::OverlayHandler>(session_manager, overlay_controller, NowMs));
     auto match_handler =

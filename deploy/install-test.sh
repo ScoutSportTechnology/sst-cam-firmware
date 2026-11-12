@@ -116,53 +116,46 @@ else
   bad "src/main.cpp not found: $MAIN_CPP"
 fi
 
-# A STA lease must use the installed metric-aware script on first bind and renewal.
 STA_SCRIPT_SANDBOX="$(mktemp -d)"
 sed -n '/# --- sta-dhcp-script:begin/,/# --- sta-dhcp-script:end/p' "$INSTALL_SH" >"${STA_SCRIPT_SANDBOX}/install-sta"
 if [ -s "${STA_SCRIPT_SANDBOX}/install-sta" ]; then
-  mkdir -p "${STA_SCRIPT_SANDBOX}/bin"
+  mkdir -p "${STA_SCRIPT_SANDBOX}/bin" "${STA_SCRIPT_SANDBOX}/hooks"
+  STA_SCRIPT_PATH="${STA_SCRIPT_SANDBOX}/bin/sst-sta-dhclient-script"
+  STA_HOOK_DIR="${STA_SCRIPT_SANDBOX}/hooks"
+  # shellcheck disable=SC2034
+  STA_IFACE=wlP1p1s0
+  : >"$STA_SCRIPT_PATH"
   (
-    INSTALL_DIR="${STA_SCRIPT_SANDBOX}/bin"
-    # shellcheck disable=SC2034
-    STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
-    # shellcheck disable=SC1091
+    # shellcheck source=/dev/null
     . "${STA_SCRIPT_SANDBOX}/install-sta"
     install_sta_dhcp_script
+    install_sta_dhcp_script
   )
-  STA_SCRIPT="${STA_SCRIPT_SANDBOX}/bin/sst-sta-dhclient-script"
-  # shellcheck disable=SC2016
-  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\nif [ "$3" = change ] && [ ! -f "$SST_STA_ADDRESS" ]; then exit 2; fi\nif [ "$3" = add ] || [ "$3" = replace ]; then : >"$SST_STA_ADDRESS"; fi\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
-  chmod +x "${STA_SCRIPT_SANDBOX}/bin/ip"
-  printf 'ip -4 addr add 198.51.100.148/24 dev wlP1p1s0\nip -4 addr change 198.51.100.148/24 dev wlP1p1s0\nip -4 route add default via 198.51.100.1 dev wlP1p1s0\n' >"${STA_SCRIPT_SANDBOX}/stock"
-  sed "s@/sbin/dhclient-script@${STA_SCRIPT_SANDBOX}/stock@" "$STA_SCRIPT" >"${STA_SCRIPT_SANDBOX}/sta"
-
-  for reason in BOUND RENEW REBIND REBOOT; do
-    : >"${STA_SCRIPT_SANDBOX}/ip.log"
-    PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
-      interface=wlP1p1s0 reason="$reason" new_ip_address=198.51.100.148 \
-       new_subnet_mask=24 SST_STA_ADDRESS="${STA_SCRIPT_SANDBOX}/address" sh "${STA_SCRIPT_SANDBOX}/sta" || true
-    if grep -q -- '-4 addr add 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
-       grep -q -- '-4 addr replace 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log" && \
-       grep -q -- '-4 route add default via 198.51.100.1 dev wlP1p1s0' "${STA_SCRIPT_SANDBOX}/ip.log"; then
-      ok
-    else
-      bad "STA $reason lease did not retain metric or default route"
-    fi
-  done
-  : >"${STA_SCRIPT_SANDBOX}/ip.log"
-  rm -f "${STA_SCRIPT_SANDBOX}/address"
-  PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
-    SST_STA_ADDRESS="${STA_SCRIPT_SANDBOX}/address" interface=wlP1p1s0 reason=RENEW \
-    old_ip_address=198.51.100.148 new_ip_address=198.51.100.148 \
-    new_subnet_mask=24 sh "${STA_SCRIPT_SANDBOX}/sta" || true
-  if [ -f "${STA_SCRIPT_SANDBOX}/address" ] && \
-     grep -q -- '-4 addr replace 198.51.100.148/24 dev wlP1p1s0 metric 600' "${STA_SCRIPT_SANDBOX}/ip.log"; then
+  hook="${STA_HOOK_DIR}/sst-cam-sta"
+  if [ -f "$hook" ] && [ "$(stat -c '%U:%G %a' "$hook")" = 'root:root 644' ] &&
+     [ ! -e "$STA_SCRIPT_PATH" ]; then
     ok
   else
-    bad "STA RENEW after address flush must restore the address with metric 600"
+    bad 'STA hook must be root:root 0644 and obsolete wrapper removed on repeated install'
   fi
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$SST_STA_IP_LOG"\n' >"${STA_SCRIPT_SANDBOX}/bin/ip"
+  chmod +x "${STA_SCRIPT_SANDBOX}/bin/ip"
+  for iface in wlP1p1s0 enP8p1s0 p2p-wlP1p1s0-0; do
+    : >"${STA_SCRIPT_SANDBOX}/ip.log"
+    PATH="${STA_SCRIPT_SANDBOX}/bin:${PATH}" SST_STA_IP_LOG="${STA_SCRIPT_SANDBOX}/ip.log" \
+      interface="$iface" reason=BOUND new_ip_address=10.10.1.148 new_subnet_mask=24 \
+      sh -c '. "$1"; ip -4 addr add 10.10.1.148/24 dev "$2"' sh "$hook" "$iface"
+    expected="-4 addr add 10.10.1.148/24 dev ${iface}"
+    [ "$iface" = wlP1p1s0 ] && expected="${expected} metric 600"
+    if [ "$(<"${STA_SCRIPT_SANDBOX}/ip.log")" = "$expected" ]; then
+      ok
+    else
+      bad "STA hook altered wrong interface or missed metric for $iface"
+    fi
+  done
 else
-  bad "STA DHCP metric script not found"
+  bad 'STA DHCP hook installer not found'
 fi
 rm -rf "$STA_SCRIPT_SANDBOX"
 

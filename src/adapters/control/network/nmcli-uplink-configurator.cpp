@@ -156,7 +156,7 @@ auto BuildStaDhclientArgv(const std::string& iface) -> std::vector<std::string> 
     if (!IsSafeIfaceName(iface)) {
         return {};
     }
-    return {"dhclient", "-1", "-4", "-sf", "/opt/sst-cam/bin/sst-sta-dhclient-script", iface};
+    return {"dhclient", "-1", "-4", iface};
 }
 
 auto NmcliUplinkConfigurator::DetectWifiDevice() -> std::string {
@@ -271,6 +271,16 @@ auto NmcliUplinkConfigurator::ApplyWifiSta(const sst::config::WifiStaUplink& cfg
     }
     spdlog::info("NmcliUplinkConfigurator: wifi STA '{}' joined on {} ({})", ssid, iface, address);
     return {.ok = true, .detail = address};
+}
+
+auto NmcliUplinkConfigurator::FlushWifiStaAddress() -> void {
+    const std::string iface = DetectWifiDevice();
+    if (iface.empty()) {
+        return;
+    }
+    RunBounded({"ip", "-4", "addr", "flush", "dev", iface}, kQueryTimeout);
+    RunBounded({"ip", "-4", "route", "flush", "dev", iface}, kQueryTimeout);
+    spdlog::info("NmcliUplinkConfigurator: wifi STA IPv4 address and routes removed on {}", iface);
 }
 
 auto NmcliUplinkConfigurator::TeardownWifiSta() -> void {

@@ -35,6 +35,8 @@ class IUplinkConfigurator {
     // is called, so the adapter is free to drive the STA join.
     virtual auto ApplyWifiSta(const sst::config::WifiStaUplink& cfg) -> UplinkResult = 0;
 
+    virtual auto FlushWifiStaAddress() -> void = 0;
+
     // Cleanly tear the WiFi-STA uplink down: release the DHCP lease + kill its
     // dhclient, disconnect the wpa association, and flush the STA address + routes
     // off the radio. Called by the arbiter on EVERY revert to S1 so a leftover STA

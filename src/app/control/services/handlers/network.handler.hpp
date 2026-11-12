@@ -89,14 +89,6 @@ class NetworkHandler final : public ICommandHandler {
     // Optional credential-link security gate (INV6/AE7). Null = no gate (non-BLE
     // wiring). Non-owning: the BLE transport that implements it outlives this.
     const ILinkSecurity* link_security_;
-    // U8 boot-before-Set gap: true once an operator SetNetworkConfig has driven the
-    // arbiter's SelectLanPath, after which arbiter_.CurrentLanPath() is the
-    // authoritative LAN path (it correctly EXCLUDES a different-subnet Ethernet
-    // uplink). Before that, boot-apply (uplink_manager.Apply on a detached thread)
-    // may bring a persisted Ethernet/STA up OUTSIDE the arbiter, which still reports
-    // its kP2p boot default — so a plain Get derives the LAN path from the live
-    // probes to report REALITY. Guarded by mtx_.
-    bool arbiter_engaged_{false};
     std::mutex mtx_;
 };
 

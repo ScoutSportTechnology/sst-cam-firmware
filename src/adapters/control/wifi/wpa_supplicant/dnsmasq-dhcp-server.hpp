@@ -6,6 +6,8 @@
 
 namespace sst::adapters::control {
 
+auto ResetDnsmasqChildSignalMask() -> bool;
+
 // dnsmasq-backed DHCP server (hardware-bound — spawns a dnsmasq process bound to
 // the WiFi Direct group interface). Assigns the GO static IP and serves a small
 // lease range on the 192.168.49.0/24 subnet for the joining phone. Stops the

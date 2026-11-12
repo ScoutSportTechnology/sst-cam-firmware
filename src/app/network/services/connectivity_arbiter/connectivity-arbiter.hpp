@@ -53,6 +53,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     auto operator=(ConnectivityArbiter&&) -> ConnectivityArbiter& = delete;
 
     // ── IConnectivityArbiter ────────────────────────────────────────────
+    auto SelectBootLanPath(const sst::config::UplinkData& desired) -> LanSelectionResult;
     auto SelectLanPath(const sst::config::UplinkData& desired,
                        const std::string& phone_subnet_cidr) -> LanSelectionResult override;
     auto ConfirmSharedWifi(MigrationId migration_id, bool reachable) -> ConnectivityMode override;
@@ -121,8 +122,8 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
                                    const std::string& sta_ip) -> PreparedEthernet;
 
     // The core decision (R3), caller holds `mtx_`. `unsolicited` = driven by the
-    // carrier monitor (a hotplug/unplug), NOT an operator SetNetworkConfig — it
-    // gates R2>R19 immediate suppression + the R21 no-surprise-migrate guard.
+    // carrier monitor, not an operator SetNetworkConfig. Ethernet carrier return
+    // prefers Ethernet over STA (decision A); operator subnet selection is unchanged.
     // `prepared` carries the off-lock Ethernet resolution (F3); when engaged the
     // locked path never runs a dhclient under `mtx_`.
     auto ArbitrateLocked(bool unsolicited, const PreparedEthernet& prepared) -> LanSelectionResult;
@@ -188,9 +189,8 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     const std::chrono::milliseconds revert_after_;
 
     mutable std::mutex mtx_;
-    ConnectivityMode mode_{ConnectivityMode::kP2pOnly};  // R-BOOT: boot starts in S1
-    // Boot serves the phone over the WiFi-Direct GO, so the initial LAN path is P2P
-    // (concretised on the first SelectLanPath / carrier event).
+    ConnectivityMode mode_{ConnectivityMode::kP2pOnly};
+    // P2P until SelectBootLanPath applies persisted intent.
     LanPath current_path_{LanPath::kP2p};
     MigrationId migration_counter_{0};
     MigrationId current_id_{0};
@@ -200,9 +200,7 @@ class ConnectivityArbiter final : public IConnectivityArbiter {
     std::string last_error_;      // reason the last request failed (empty on success)
     int carrier_loss_streak_{0};  // consecutive S2 carrier-check failures (D2a watchdog)
 
-    // The desired uplink + phone subnet from the last SelectLanPath — remembered so
-    // the carrier monitor can re-run arbitration on an Ethernet event without the
-    // handler.
+    // Desired uplink from boot or the last operator selection; the monitor reuses it.
     sst::config::UplinkData desired_uplink_;
     std::string phone_subnet_cidr_;
     // The Ethernet-LAN handshake currently surfaced (endpoint = Ethernet IP,
