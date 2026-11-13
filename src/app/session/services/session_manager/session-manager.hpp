@@ -52,6 +52,7 @@ class SessionManager final : public ISessionManager {
     auto AdvanceMatchClock() -> void;
     mutable std::mutex mtx_;
     SessionState state_;
+    bool central_connected_{false};
     bool recording_only_finalizing_{false};
     bool finalization_committing_{false};
     std::mutex worker_mtx_;

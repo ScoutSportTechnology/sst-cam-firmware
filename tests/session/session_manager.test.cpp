@@ -239,6 +239,48 @@ TEST(SessionManagerTest, StreamingOnlyReconfigKeepsIdentityAndChangesTimeout) {
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
 }
 
+TEST(SessionManagerTest, ConnectedCentralCanStartAnotherSessionAfterRecordingStops) {
+    FakeCleanup cleanup;
+    SessionManager manager(cleanup);
+    const sst::test::TempDir dir("session");
+    const auto config = MakeConfig(dir.path());
+    AdvanceToReady(manager, config);
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+
+    const auto ended = manager.Snapshot();
+    EXPECT_EQ(ended.phase, SessionPhase::kConnected);
+    EXPECT_FALSE(ended.config.has_value());
+    EXPECT_FALSE(ended.wifi_group_up);
+    EXPECT_FALSE(ended.is_streaming);
+    EXPECT_EQ(ended.match.score_a, 0U);
+    ASSERT_TRUE(ended.last_session.has_value());
+    EXPECT_EQ(ended.last_session.value_or(sst::session::LastSession{}).match_uuid,
+              config.match_uuid);
+    EXPECT_TRUE(manager.OnWifiReady());
+    auto next = MakeConfig(dir.path());
+    next.match_uuid = "next-match";
+    EXPECT_TRUE(manager.ApplySessionConfig(next));
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConfigured);
+}
+
+TEST(SessionManagerTest, DisconnectAfterFinishedSessionReturnsToIdle) {
+    FakeCleanup cleanup;
+    SessionManager manager(cleanup);
+    const sst::test::TempDir dir("session");
+    AdvanceToReady(manager, MakeConfig(dir.path()));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    manager.WaitForFinalization();
+    ASSERT_EQ(manager.Phase(), SessionPhase::kConnected);
+
+    manager.OnDisconnect();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_FALSE(manager.OnWifiReady());
+    EXPECT_TRUE(manager.Snapshot().last_session.has_value());
+}
+
 TEST(SessionManagerTest, SessionMemoryClearedOnEnd) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
@@ -627,8 +669,10 @@ TEST(SessionManagerTest, StopRequestReturnsWhileFinalizeIsBlocked) {
               sst::session::RecordingStopResult::kAlreadyStopping);
     release.set_value();
     manager.WaitForFinalization();
-    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
     EXPECT_TRUE(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
+    EXPECT_FALSE(manager.EndSession(sst::session::SessionEndReason::kShutdown));
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
 }
 
 TEST(SessionManagerTest, CameraFailureWhileFinalizeBlocksStaysPollableUntilSummary) {
@@ -676,13 +720,13 @@ TEST(SessionManagerTest, StreamStopDuringRecordingFinalizeClosesSessionOnce) {
     EXPECT_FALSE(manager.Snapshot().is_streaming);
     release.set_value();
     manager.WaitForFinalization();
-    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
     EXPECT_TRUE(cleanup.teardown_wifi);
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
               sst::session::SessionEndReason::kAppStop);
 }
 
-TEST(SessionManagerTest, StreamStopImmediatelyAfterRecordingFinalizeGoesIdle) {
+TEST(SessionManagerTest, StreamStopImmediatelyAfterRecordingFinalizeKeepsConnected) {
     FakeCleanup cleanup;
     SessionManager manager(cleanup);
     const sst::test::TempDir dir("session");
@@ -695,7 +739,7 @@ TEST(SessionManagerTest, StreamStopImmediatelyAfterRecordingFinalizeGoesIdle) {
     ASSERT_EQ(manager.Phase(), SessionPhase::kReady);
     ASSERT_TRUE(manager.OnStreamingChanged(false));
     manager.WaitForFinalization();
-    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
     EXPECT_FALSE(manager.Snapshot().is_streaming);
 }
 
@@ -786,6 +830,27 @@ TEST(SessionManagerTest, RepeatedStopAfterNewSessionDoesNotBlockOnPriorWorker) {
     ASSERT_TRUE(manager.OnRecordingStart());
     EXPECT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
     manager.WaitForFinalization();
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
+}
+
+TEST(SessionManagerTest, DisconnectDuringFinalizationReturnsToIdle) {
+    FakeCleanup cleanup;
+    std::promise<void> entered;
+    std::promise<void> release;
+    const auto released = release.get_future().share();
+    cleanup.on_finalize = [&] {
+        entered.set_value();
+        released.wait();
+    };
+    SessionManager manager(cleanup);
+    const sst::test::TempDir dir("session");
+    AdvanceToReady(manager, MakeConfig(dir.path()));
+    ASSERT_TRUE(manager.OnRecordingStart());
+    ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
+    ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    manager.OnDisconnect();
+    release.set_value();
+    manager.WaitForFinalization();
     EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
 }
 
@@ -816,7 +881,7 @@ TEST(SessionManagerTest, CameraFailureDuringRecordingStopWithStreamEndsSessionWi
     EXPECT_TRUE(camera_failure.get());
     manager.WaitForFinalization();
     EXPECT_EQ(attempts.load(), 1);
-    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
     EXPECT_FALSE(manager.Snapshot().is_streaming);
     EXPECT_TRUE(cleanup.stop_streaming);
     EXPECT_EQ(manager.Snapshot().last_session.value_or(sst::session::LastSession{}).reason,
@@ -843,6 +908,7 @@ TEST(SessionManagerTest, ShutdownDuringRecordingStopWithStreamFinishesBothWithou
     ASSERT_TRUE(manager.OnRecordingStart());
     ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
     ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    manager.OnDisconnect();
     auto shutdown = std::async(std::launch::async, [&] {
         const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
         manager.WaitForFinalization();
@@ -880,6 +946,7 @@ TEST(SessionManagerTest, ShutdownDuringAppStopWithoutStreamRetainsAppStopAfterRe
     ASSERT_TRUE(manager.OnRecordingStart());
     ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
     ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    manager.OnDisconnect();
     auto shutdown = std::async(std::launch::async, [&] {
         const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
         manager.WaitForFinalization();
@@ -917,6 +984,7 @@ TEST(SessionManagerTest, ShutdownWaitsForAnExistingStopWithoutFinalizingTwice) {
     ASSERT_TRUE(manager.OnRecordingStart());
     ASSERT_EQ(manager.OnRecordingStopRequested(), sst::session::RecordingStopResult::kStarted);
     ASSERT_EQ(entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    manager.OnDisconnect();
     auto shutdown = std::async(std::launch::async, [&] {
         const bool started = manager.EndSession(sst::session::SessionEndReason::kShutdown);
         manager.WaitForFinalization();
