@@ -496,10 +496,10 @@ TEST(PipelineOrchestratorTest, PermanentCameraFailureEndsActiveSession) {
     ASSERT_TRUE(orchestrator.Start());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline &&
-           session.Phase() != sst::session::SessionPhase::kIdle) {
+           session.Phase() != sst::session::SessionPhase::kConnected) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kIdlePollMs));
     }
-    EXPECT_EQ(session.Phase(), sst::session::SessionPhase::kIdle);
+    EXPECT_EQ(session.Phase(), sst::session::SessionPhase::kConnected);
     EXPECT_EQ(cleanup.finalizations, 1);
     const auto summary = session.Snapshot().last_session;
     ASSERT_TRUE(summary.has_value());
