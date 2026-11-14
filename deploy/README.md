@@ -74,8 +74,9 @@ systemctl status sst-cam-firmware
    defaults the boot target to `multi-user.target` if any are missing. Re-running
    is safe. Skip with `--no-setup`.
    - **Bluetooth boot recovery.** Installs `/usr/local/libexec/sst-bt-recover` and
-     `sst-bt-recover.service`, ordered after `bluetooth.service` and before the
-     firmware. It waits up to 20 seconds for a nonzero HCI address, then, only
+     `sst-bt-recover.service`, ordered after `bluetooth.service` but not blocking
+     firmware startup. It waits up to 20 seconds for a controller reported by
+     `btmgmt` or `hciconfig` with a real address, then, only
      if still absent, rebinds the `13d3:3549` USB Bluetooth interface bound to
      `rtk_btusb` or `btusb` (or a sole BT USB interface on other hardware),
      up to twice with a 20-second check after each rebind. All decisions
