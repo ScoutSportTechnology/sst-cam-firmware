@@ -4,10 +4,12 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "adapters/control/ble/bluez/chunk-assembler.hpp"
@@ -32,8 +34,11 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     // `advertised_name` is the contract `sst-cam-NNNN` name (computed from the
     // device identity in config). It is used both as the LEAdvertisement
     // LocalName and as the adapter Alias.
-    explicit BluezBleTransport(std::string advertised_name,
-                               std::string adapter_path = "/org/bluez/hci0");
+    explicit BluezBleTransport(
+        std::string advertised_name, std::string adapter_path = "/org/bluez/hci0",
+        std::function<std::unique_ptr<sdbus::IConnection>()> connect = [] {
+            return sdbus::createSystemBusConnection();
+        });
     ~BluezBleTransport() override;
 
     BluezBleTransport(const BluezBleTransport&) = delete;
@@ -64,9 +69,7 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     auto BuildAgent() -> void;
     // The central unsubscribed (StopNotify) — BlueZ fires this on disconnect.
     // Fire on_disconnect_ (session cleanup) and resume advertising so the camera
-    // is discoverable again. Invoked on the D-Bus event-loop thread, so it hands
-    // the (blocking) work to a detached worker — running it inline would deadlock
-    // the event loop the re-advertise futures depend on.
+    // is discoverable again.
     auto HandleCentralGone() -> void;
     // Re-register the LE advertisement so BlueZ resumes advertising (it pauses
     // our connectable advert on connect and does not auto-resume on disconnect).
@@ -102,6 +105,9 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     // (the GATT `encrypt-authenticated-write` flag remains the primary gate).
     // Exercised only against real BlueZ; compiles in-container.
     auto WatchBluezDevices() -> void;
+    auto ResolveAdapter() -> void;
+    [[nodiscard]] auto BluezPresent() const -> bool;
+    [[nodiscard]] auto AdapterPresent() const -> bool;
     // Handle a Device1 object appearing (or being seeded from GetManagedObjects):
     // record its link state and attach a PropertiesChanged watcher.
     auto OnDeviceInterfacesAdded(
@@ -128,9 +134,11 @@ class BluezBleTransport final : public sst::control::IBleTransport,
 
     std::string advertised_name_;
     std::string adapter_path_;
+    std::string bluez_owner_;
     std::string app_root_path_;
     std::string adv_path_;
     std::string agent_path_;
+    std::function<std::unique_ptr<sdbus::IConnection>()> connect_;
 
     std::unique_ptr<sdbus::IConnection> connection_;
     std::unique_ptr<sdbus::IObject> adv_obj_;
@@ -150,9 +158,13 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     bool link_encrypted_{false};
     ChunkAssembler assembler_;
     std::atomic<bool> running_{false};
-    bool advertisement_registered_{false};
-    bool application_registered_{false};
+    std::atomic<bool> advertisement_registered_{false};
+    std::atomic<bool> application_registered_{false};
     bool agent_registered_{false};
+    std::atomic<bool> stopping_{false};
+    std::atomic<bool> readvertise_busy_{false};
+    std::mutex worker_mtx_;
+    std::thread readvertise_worker_;
 };
 
 }  // namespace sst::adapters::control
