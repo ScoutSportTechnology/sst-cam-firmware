@@ -1,7 +1,6 @@
 [Unit]
 Description=SST Cam Bluetooth controller boot recovery
 After=bluetooth.service
-Before=sst-cam-firmware.service
 
 [Service]
 Type=oneshot

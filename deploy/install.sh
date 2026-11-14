@@ -254,16 +254,31 @@ sysfs="${SST_BT_SYSFS:-/sys}"
 log() { printf '[sst-bt-recover] %s\n' "$*"; }
 
 controller_ready() {
-  local adapter address
-  for adapter in "$sysfs"/class/bluetooth/hci*/address; do
-    [ -r "$adapter" ] || continue
-    address="$(< "$adapter")"
-    if [ -n "$address" ] && [ "$address" != 00:00:00:00:00:00 ]; then
+  local info
+  if [ -n "$btmgmt" ]; then
+    info="$($btmgmt info 2>/dev/null)"
+    if [[ "$info" =~ addr[[:space:]]+([[:xdigit:]:]{17}) ]] &&
+       [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
       return 0
     fi
-  done
+  fi
+  if [ -n "$hciconfig" ]; then
+    info="$($hciconfig hci0 2>/dev/null)"
+    if [[ "$info" == *'UP RUNNING'* ]] &&
+       [[ "$info" =~ BD[[:space:]]Address:[[:space:]]*([[:xdigit:]:]{17}) ]] &&
+       [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
+      return 0
+    fi
+  fi
   return 1
 }
+
+btmgmt="$(command -v btmgmt || true)"
+hciconfig="$(command -v hciconfig || true)"
+if [ -z "$btmgmt" ] && [ -z "$hciconfig" ]; then
+  log 'no controller diagnostic tool (btmgmt/hciconfig); skipping reset'
+  exit 0
+fi
 
 wait_for_controller() {
   local second
@@ -343,7 +358,6 @@ embedded_bt_recover_unit() {
 [Unit]
 Description=SST Cam Bluetooth controller boot recovery
 After=bluetooth.service
-Before=sst-cam-firmware.service
 
 [Service]
 Type=oneshot
@@ -408,8 +422,8 @@ embedded_unit() {
 [Unit]
 Description=SST Cam firmware runtime
 # Order after boot services and physical NIC discovery; absent hardware stays optional.
-After=network-pre.target bluetooth.service sst-bt-recover.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
-Wants=network-pre.target bluetooth.service sst-bt-recover.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+After=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+Wants=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

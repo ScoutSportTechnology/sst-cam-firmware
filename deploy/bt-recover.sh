@@ -5,16 +5,31 @@ sysfs="${SST_BT_SYSFS:-/sys}"
 log() { printf '[sst-bt-recover] %s\n' "$*"; }
 
 controller_ready() {
-  local adapter address
-  for adapter in "$sysfs"/class/bluetooth/hci*/address; do
-    [ -r "$adapter" ] || continue
-    address="$(< "$adapter")"
-    if [ -n "$address" ] && [ "$address" != 00:00:00:00:00:00 ]; then
+  local info
+  if [ -n "$btmgmt" ]; then
+    info="$($btmgmt info 2>/dev/null)"
+    if [[ "$info" =~ addr[[:space:]]+([[:xdigit:]:]{17}) ]] &&
+       [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
       return 0
     fi
-  done
+  fi
+  if [ -n "$hciconfig" ]; then
+    info="$($hciconfig hci0 2>/dev/null)"
+    if [[ "$info" == *'UP RUNNING'* ]] &&
+       [[ "$info" =~ BD[[:space:]]Address:[[:space:]]*([[:xdigit:]:]{17}) ]] &&
+       [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
+      return 0
+    fi
+  fi
   return 1
 }
+
+btmgmt="$(command -v btmgmt || true)"
+hciconfig="$(command -v hciconfig || true)"
+if [ -z "$btmgmt" ] && [ -z "$hciconfig" ]; then
+  log 'no controller diagnostic tool (btmgmt/hciconfig); skipping reset'
+  exit 0
+fi
 
 wait_for_controller() {
   local second
