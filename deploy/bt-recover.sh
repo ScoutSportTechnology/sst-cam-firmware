@@ -6,17 +6,17 @@ log() { printf '[sst-bt-recover] %s\n' "$*"; }
 
 controller_ready() {
   local info
-  if [ -n "$btmgmt" ]; then
-    info="$($btmgmt info 2>/dev/null)"
-    if [[ "$info" =~ addr[[:space:]]+([[:xdigit:]:]{17}) ]] &&
+  if [ -n "$hciconfig" ]; then
+    info="$(timeout 2 "$hciconfig" hci0 </dev/null 2>/dev/null)"
+    if [[ "$info" == *'UP RUNNING'* ]] &&
+       [[ "$info" =~ BD[[:space:]]Address:[[:space:]]*([[:xdigit:]:]{17}) ]] &&
        [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
       return 0
     fi
   fi
-  if [ -n "$hciconfig" ]; then
-    info="$($hciconfig hci0 2>/dev/null)"
-    if [[ "$info" == *'UP RUNNING'* ]] &&
-       [[ "$info" =~ BD[[:space:]]Address:[[:space:]]*([[:xdigit:]:]{17}) ]] &&
+  if [ -n "$btmgmt" ]; then
+    info="$(timeout 2 "$btmgmt" info </dev/null 2>/dev/null)"
+    if [[ "$info" =~ addr[[:space:]]+([[:xdigit:]:]{17}) ]] &&
        [ "${BASH_REMATCH[1]}" != 00:00:00:00:00:00 ]; then
       return 0
     fi
@@ -26,20 +26,29 @@ controller_ready() {
 
 btmgmt="$(command -v btmgmt || true)"
 hciconfig="$(command -v hciconfig || true)"
+if ! command -v timeout >/dev/null 2>&1; then
+  log 'timeout unavailable; skipping reset'
+  exit 0
+fi
 if [ -z "$btmgmt" ] && [ -z "$hciconfig" ]; then
   log 'no controller diagnostic tool (btmgmt/hciconfig); skipping reset'
   exit 0
 fi
 
 wait_for_controller() {
-  local second
-  for ((second=0; second<20; ++second)); do
+  local deadline=$((SECONDS + 20))
+  while [ "$SECONDS" -lt "$deadline" ]; do
     controller_ready && return 0
-    sleep 1
+    [ "$SECONDS" -lt "$deadline" ] && sleep 1
   done
-  controller_ready
+  return 1
 }
 
+log 'checking controller readiness'
+if controller_ready; then
+  log 'controller ready; no reset needed'
+  exit 0
+fi
 if wait_for_controller; then
   log 'controller ready; no reset needed'
   exit 0
