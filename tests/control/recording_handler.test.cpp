@@ -301,7 +301,7 @@ TEST(RecordingHandlerTest, ConcurrentSessionEndDuringRecorderStartDoesNotLeakPro
     EXPECT_EQ(handler.Handle(Cmd(sst_cam::RECORDING_START)).status(), sst_cam::ERROR);
     session_mgr.WaitForFinalization();
     EXPECT_EQ(proxy.starts, 0);
-    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kConnected);
 }
 
 TEST(RecordingHandlerTest, ProxyStartFailureDoesNotLoseFinalRecordingOrTimeline) {
@@ -478,7 +478,7 @@ TEST(RecordingHandlerTest, StartRolledBackWhenRecorderStartsButSmRejects) {
     EXPECT_EQ(session_mgr.Phase(), SessionPhase::kReady);  // no transition on failed start
 }
 
-TEST(RecordingHandlerTest, StopFinalizesAndReportsIdleSummary) {
+TEST(RecordingHandlerTest, StopFinalizesAndReportsConnectedSummary) {
     FakeCleanup cleanup;
     SessionManager session_mgr(cleanup);
     FakeRecorder recorder;
@@ -500,7 +500,7 @@ TEST(RecordingHandlerTest, StopFinalizesAndReportsIdleSummary) {
     session_mgr.WaitForFinalization();
     EXPECT_EQ(recorder.stop_calls, 1);
     EXPECT_EQ(timeline.stop_calls, 1);
-    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(session_mgr.Phase(), SessionPhase::kConnected);
     ASSERT_TRUE(session_mgr.Snapshot().last_session.has_value());
     EXPECT_TRUE(
         session_mgr.Snapshot().last_session.value_or(sst::session::LastSession{}).file_valid);
@@ -537,7 +537,7 @@ TEST(RecordingHandlerTest, StopRepliesBeforeRecorderFinishesAndDuplicateIsIdempo
     release.set_value();
     manager.WaitForFinalization();
     EXPECT_EQ(recorder.stop_calls, 1);
-    EXPECT_EQ(manager.Phase(), SessionPhase::kIdle);
+    EXPECT_EQ(manager.Phase(), SessionPhase::kConnected);
 }
 
 TEST(RecordingHandlerTest, PauseAndResumeDoNotEnterRecorderDuringFinalization) {

@@ -116,6 +116,7 @@ auto SessionManager::Snapshot() const -> SessionState {
 
 auto SessionManager::OnConnect() -> bool {
     std::lock_guard lock(mtx_);
+    central_connected_ = true;
     if (state_.phase == SessionPhase::kFinalizing) {
         return false;
     }
@@ -259,6 +260,10 @@ auto SessionManager::OnRecordingStopRequested() -> RecordingStopResult {
 
 auto SessionManager::OnDisconnect() -> void {
     std::lock_guard lock(mtx_);
+    central_connected_ = false;
+    if (state_.phase == SessionPhase::kConnected) {
+        state_.phase = SessionPhase::kIdle;
+    }
     if (state_.phase != SessionPhase::kIdle && state_.phase != SessionPhase::kFinalizing &&
         !disconnected_at_) {
         disconnected_at_ = now_();
@@ -315,7 +320,7 @@ auto SessionManager::EndSession(SessionEndReason reason) -> bool {
     }
     if (reason == SessionEndReason::kShutdown) {
         std::lock_guard lock(mtx_);
-        if (state_.phase == SessionPhase::kIdle && state_.last_session &&
+        if (state_.phase <= SessionPhase::kConnected && state_.last_session &&
             state_.last_session->reason == SessionEndReason::kAppStop &&
             state_.last_session->file_valid) {
             (void)PersistStopSummary(*state_.last_session);
@@ -330,7 +335,7 @@ auto SessionManager::BeginFinalization(SessionEndReason reason, bool recording_o
     }
     WaitForFinalization();
     std::lock_guard lock(mtx_);
-    if (state_.phase == SessionPhase::kIdle || state_.phase == SessionPhase::kFinalizing ||
+    if (state_.phase <= SessionPhase::kConnected || state_.phase == SessionPhase::kFinalizing ||
         (recording_only && state_.phase != SessionPhase::kRecording) ||
         (reason == SessionEndReason::kAutoStop &&
          (!disconnected_at_ ||
@@ -386,6 +391,7 @@ auto SessionManager::FinishSession(SessionState ending, SessionEndReason reason,
         safe("ResetSelections", [this] { cleanup_.ResetSelections(); });
         lock.lock();
         state_ = SessionState{};
+        state_.phase = central_connected_ ? SessionPhase::kConnected : SessionPhase::kIdle;
         match_clock_started_at_.reset();
     } else {
         state_.phase = SessionPhase::kReady;
