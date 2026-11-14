@@ -632,7 +632,8 @@ auto RunFirmware(const sigset_t& mask) -> int {
         }
     });
 
-    spdlog::info("startup complete — advertising as {}", advertised_name);
+    spdlog::info(
+        "{}", sst::control::StartupAdvertisingMessage(ble_transport.IsRunning(), advertised_name));
 
     int signo = 0;
     constexpr auto kRetryInterval = std::chrono::seconds{30};

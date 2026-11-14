@@ -5,10 +5,18 @@
 #include <functional>
 #include <mutex>
 #include <stop_token>
+#include <string>
+#include <string_view>
 
 #include "bluetooth.pb.h"
 
 namespace sst::control {
+
+[[nodiscard]] inline auto StartupAdvertisingMessage(bool registered,
+                                                    std::string_view name) -> std::string {
+    return registered ? "startup complete — advertising as " + std::string(name)
+                      : "startup complete — not advertising yet; will retry";
+}
 
 struct StartupProbes {
     sst_cam::CameraHealth camera0;

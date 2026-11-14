@@ -39,6 +39,8 @@ INSTALL_DIR="${INSTALL_ROOT}/bin"
 INSTALL_PATH="${INSTALL_DIR}/sst_cam_firmware"
 BACKUP_PATH="${INSTALL_PATH}.bak"
 STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
+BT_RECOVER_PATH="/usr/local/libexec/sst-bt-recover"
+BT_RECOVER_UNIT_PATH="/etc/systemd/system/sst-bt-recover.service"
 STA_HOOK_DIR="/etc/dhcp/dhclient-enter-hooks.d"
 UNIT_PATH="/etc/systemd/system/${SERVICE}.service"
 XORG_UNIT_PATH="/etc/systemd/system/xorg-headless.service"
@@ -242,14 +244,172 @@ ensure_journald_dropin() {
   fi
 }
 
+# --- bt-recovery:begin
+embedded_bt_recover() {
+  cat <<'SCRIPT'
+#!/usr/bin/env bash
+set -uo pipefail
+
+sysfs="${SST_BT_SYSFS:-/sys}"
+log() { printf '[sst-bt-recover] %s\n' "$*"; }
+
+controller_ready() {
+  local adapter address
+  for adapter in "$sysfs"/class/bluetooth/hci*/address; do
+    [ -r "$adapter" ] || continue
+    address="$(< "$adapter")"
+    if [ -n "$address" ] && [ "$address" != 00:00:00:00:00:00 ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+wait_for_controller() {
+  local second
+  for ((second=0; second<20; ++second)); do
+    controller_ready && return 0
+    sleep 1
+  done
+  controller_ready
+}
+
+if wait_for_controller; then
+  log 'controller ready; no reset needed'
+  exit 0
+fi
+
+for attempt in 1 2; do
+  found=no
+  fallback=''
+  matches=0
+  selected=''
+  for iface in "$sysfs"/bus/usb/devices/*:1.*; do
+    [ -L "$iface/driver" ] || continue
+    driver="$(basename "$(readlink -f "$iface/driver")")"
+    [ "$driver" = rtk_btusb ] || [ "$driver" = btusb ] || continue
+    [ -r "$iface/bInterfaceClass" ] || continue
+    [ "$(< "$iface/bInterfaceClass")" = e0 ] || continue
+    device="${iface%:1.*}"
+    if [ ! -r "$device/idVendor" ] || [ ! -r "$device/idProduct" ] ||
+       [ ! -w "$sysfs/bus/usb/drivers/$driver/unbind" ] ||
+       [ ! -w "$sysfs/bus/usb/drivers/$driver/bind" ]; then
+      continue
+    fi
+    if [ "$(< "$device/idVendor")" = 13d3 ] && [ "$(< "$device/idProduct")" = 3549 ]; then
+      selected="$iface"
+      break
+    fi
+    fallback="$iface"
+    matches=$((matches + 1))
+  done
+  if [ -z "$selected" ] && [ "$matches" -eq 1 ]; then
+    selected="$fallback"
+  fi
+  if [ -n "$selected" ]; then
+    iface="$selected"
+    driver="$(basename "$(readlink -f "$iface/driver")")"
+    device="${iface%:1.*}"
+    found=yes
+    log "reset $attempt/2: rebind $(basename "$iface") ($(< "$device/idVendor"):$(< "$device/idProduct")) via $driver"
+    if ! printf '%s' "${iface##*/}" > "$sysfs/bus/usb/drivers/$driver/unbind"; then
+      log "reset $attempt/2: unbind failed"
+      continue
+    fi
+    if ! printf '%s' "${iface##*/}" > "$sysfs/bus/usb/drivers/$driver/bind"; then
+      log "reset $attempt/2: bind failed; retrying same interface"
+      if ! printf '%s' "${iface##*/}" > "$sysfs/bus/usb/drivers/$driver/bind"; then
+        log 'bind failed twice; controller may be detached'
+        exit 0
+      fi
+    fi
+  fi
+  if [ "$found" = no ]; then
+    log 'no bound Bluetooth USB interface found; leaving boot degraded'
+    exit 0
+  fi
+  if wait_for_controller; then
+    log "controller ready after reset $attempt/2"
+    exit 0
+  fi
+done
+log 'controller still unavailable after 2 resets; firmware will retry BLE'
+exit 0
+SCRIPT
+}
+
+embedded_bt_recover_unit() {
+  cat <<'UNIT'
+[Unit]
+Description=SST Cam Bluetooth controller boot recovery
+After=bluetooth.service
+Before=sst-cam-firmware.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/sst-bt-recover
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+
+ensure_bt_recovery() {
+  local changed=no
+  install -d -o root -g root -m 755 "${BT_RECOVER_PATH%/*}"
+  if [ ! -f "$BT_RECOVER_PATH" ] || ! embedded_bt_recover | cmp -s - "$BT_RECOVER_PATH"; then
+    embedded_bt_recover > "${BT_RECOVER_PATH}.new"
+    bash -n "${BT_RECOVER_PATH}.new" || { rm -f "${BT_RECOVER_PATH}.new"; die 'invalid BT recovery script'; }
+    if [ -f "$BT_RECOVER_PATH" ]; then
+      cp -p "$BT_RECOVER_PATH" "${BT_RECOVER_PATH}.bak-sstcam"
+    fi
+    install -o root -g root -m 755 "${BT_RECOVER_PATH}.new" "$BT_RECOVER_PATH"
+    if ! cmp -s "${BT_RECOVER_PATH}.new" "$BT_RECOVER_PATH"; then
+      if [ -f "${BT_RECOVER_PATH}.bak-sstcam" ]; then
+        cp -p "${BT_RECOVER_PATH}.bak-sstcam" "$BT_RECOVER_PATH"
+      else
+        rm -f "$BT_RECOVER_PATH"
+      fi
+      rm -f "${BT_RECOVER_PATH}.new"
+      die 'invalid BT recovery script install; restored previous script'
+    fi
+    rm -f "${BT_RECOVER_PATH}.new"
+    changed=yes
+  fi
+  if [ ! -f "$BT_RECOVER_UNIT_PATH" ] || ! embedded_bt_recover_unit | cmp -s - "$BT_RECOVER_UNIT_PATH"; then
+    embedded_bt_recover_unit > "${BT_RECOVER_UNIT_PATH}.new"
+    local had_unit=no
+    if [ -f "$BT_RECOVER_UNIT_PATH" ]; then
+      cp -p "$BT_RECOVER_UNIT_PATH" "${BT_RECOVER_UNIT_PATH}.bak-sstcam"
+      had_unit=yes
+    fi
+    mv -f "${BT_RECOVER_UNIT_PATH}.new" "$BT_RECOVER_UNIT_PATH"
+    if command -v systemd-analyze >/dev/null 2>&1 &&
+       ! systemd-analyze verify "$BT_RECOVER_UNIT_PATH" >/dev/null 2>&1; then
+      if [ "$had_unit" = yes ]; then
+        cp -p "${BT_RECOVER_UNIT_PATH}.bak-sstcam" "$BT_RECOVER_UNIT_PATH"
+      else
+        rm -f "$BT_RECOVER_UNIT_PATH"
+      fi
+      die 'invalid BT recovery unit; restored previous unit'
+    fi
+    systemctl daemon-reload
+    changed=yes
+  fi
+  systemctl enable sst-bt-recover.service >/dev/null 2>&1 || log 'warning: could not enable BT recovery'
+  [ "$changed" = no ] || log 'BT recovery: installed boot-time controller check'
+}
+# --- bt-recovery:end
+
 # --- One-time setup (idempotent) ---------------------------------------------
 embedded_unit() {
   cat <<'UNIT'
 [Unit]
 Description=SST Cam firmware runtime
 # Order after boot services and physical NIC discovery; absent hardware stays optional.
-After=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
-Wants=network-pre.target bluetooth.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+After=network-pre.target bluetooth.service sst-bt-recover.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
+Wants=network-pre.target bluetooth.service sst-bt-recover.service nvargus-daemon.service sst-cam-wpa-p2p.service sys-subsystem-net-devices-wlP1p1s0.device sys-subsystem-net-devices-enP8p1s0.device
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -435,6 +595,7 @@ ensure_setup() {
     changed="yes"
   fi
   systemctl enable "$SERVICE" >/dev/null 2>&1 || true
+  ensure_bt_recovery
 
   # BLE-only Bluetooth + device category so the camera pairs cleanly and shows as
   # a paired camera on the phone (see ensure_ble_config).

@@ -73,6 +73,18 @@ systemctl status sst-cam-firmware
    installs + enables the systemd unit, installs a **headless Xorg** unit, and
    defaults the boot target to `multi-user.target` if any are missing. Re-running
    is safe. Skip with `--no-setup`.
+   - **Bluetooth boot recovery.** Installs `/usr/local/libexec/sst-bt-recover` and
+     `sst-bt-recover.service`, ordered after `bluetooth.service` and before the
+     firmware. It waits up to 20 seconds for a nonzero HCI address, then, only
+     if still absent, rebinds the `13d3:3549` USB Bluetooth interface bound to
+     `rtk_btusb` or `btusb` (or a sole BT USB interface on other hardware),
+     up to twice with a 20-second check after each rebind. All decisions
+     appear in `journalctl -b -u sst-bt-recover -o short-monotonic`; exhausted
+     attempts leave boot degraded and firmware continues its own BLE retry.
+     To remove: `sudo systemctl disable --now sst-bt-recover.service` and remove
+     `/etc/systemd/system/sst-bt-recover.service` and
+     `/usr/local/libexec/sst-bt-recover`, then `sudo systemctl daemon-reload`.
+     Re-running the installer restores the unit.
    - **Headless boot (GPU kept alive).** The camera is a headless appliance, so
      setup drops the GNOME desktop to reclaim **~1.6 GB RAM** for the encode/AI
      budget. It does NOT just `set-default multi-user.target` — that alone breaks
