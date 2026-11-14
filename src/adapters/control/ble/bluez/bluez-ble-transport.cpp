@@ -1,15 +1,23 @@
 #include "adapters/control/ble/bluez/bluez-ble-transport.hpp"
 
 #include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <array>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <future>
+#include <limits>
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -327,6 +335,9 @@ auto BluezBleTransport::OnDevicePropertiesChanged(
     if (const auto bonded = ReadBoolProp(changed, "Bonded")) {
         device->second.bonded = *bonded;
     }
+    stale_bonds_.Observe({path, device->second.address, device->second.address_type,
+                          device->second.paired || device->second.bonded,
+                          device->second.connected});
     RecomputeLinkEncryptedLocked();
 }
 
@@ -358,6 +369,9 @@ auto BluezBleTransport::OnDeviceInterfacesAdded(
     watcher->finishRegistration();
 
     std::lock_guard lock(mtx_);
+    if (!dev_path.starts_with(adapter_path_ + "/dev_")) {
+        return;
+    }
     auto& entry = devices_[dev_path];
     if (!entry.watcher) {
         entry.watcher = std::move(watcher);
@@ -365,6 +379,14 @@ auto BluezBleTransport::OnDeviceInterfacesAdded(
     entry.connected = ReadBoolProp(props, "Connected").value_or(entry.connected);
     entry.paired = ReadBoolProp(props, "Paired").value_or(entry.paired);
     entry.bonded = ReadBoolProp(props, "Bonded").value_or(entry.bonded);
+    if (const auto address = props.find("Address"); address != props.end()) {
+        entry.address = address->second.get<std::string>();
+    }
+    if (const auto type = props.find("AddressType"); type != props.end()) {
+        entry.address_type = type->second.get<std::string>() == "random" ? 2 : 1;
+    }
+    stale_bonds_.Observe({dev_path, entry.address, entry.address_type, entry.paired || entry.bonded,
+                          entry.connected});
     RecomputeLinkEncryptedLocked();
 }
 
@@ -377,6 +399,7 @@ auto BluezBleTransport::OnDeviceInterfacesRemoved(
     }
     std::lock_guard lock(mtx_);
     if (devices_.erase(path) != 0U) {
+        stale_bonds_.Forget(path);
         RecomputeLinkEncryptedLocked();
     }
 }
@@ -412,6 +435,150 @@ auto BluezBleTransport::WatchBluezDevices() -> void {
     const ManagedObjects managed = future.get();
     for (const auto& [obj_path, ifaces] : managed) {
         OnDeviceInterfacesAdded(obj_path, ifaces);
+    }
+}
+
+auto DecodeAuthenticationFailure(MgmtPacket packet) -> std::optional<StaleBondRecovery::Failure> {
+    struct MgmtHeader {
+        std::uint16_t opcode;
+        std::uint16_t index;
+        std::uint16_t length;
+    } __attribute__((packed));
+    constexpr std::size_t kAddressBytes = 6;
+    struct MgmtAddress {
+        std::array<std::uint8_t, kAddressBytes> bytes;
+        std::uint8_t type;
+        std::uint8_t status;
+    } __attribute__((packed));
+    constexpr std::uint16_t kAuthenticationFailed = 0x0011;
+    if (packet.size != sizeof(MgmtHeader) + sizeof(MgmtAddress)) {
+        return std::nullopt;
+    }
+    MgmtHeader header{};
+    std::memcpy(&header, packet.data, sizeof(header));
+    if (header.opcode != kAuthenticationFailed || header.index != packet.adapter_index ||
+        header.length != sizeof(MgmtAddress)) {
+        return std::nullopt;
+    }
+    MgmtAddress event{};
+    std::memcpy(&event, packet.data + sizeof(header), sizeof(event));
+    const auto& bytes = event.bytes;
+    constexpr std::size_t kLastByte = kAddressBytes - 1;
+    return StaleBondRecovery::Failure{
+        fmt::format("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", bytes[kLastByte], bytes[4],
+                    bytes[3], bytes[2], bytes[1], bytes[0]),
+        event.type, event.status};
+}
+
+auto BluezBleTransport::RemoveStaleBond(const std::string& path) -> void {
+    spdlog::warn("BluezBleTransport: auth failed for bonded central {}; removing stale bond", path);
+    try {
+        auto adapter = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+        auto future = adapter->callMethodAsync("RemoveDevice")
+                          .onInterface("org.bluez.Adapter1")
+                          .withArguments(sdbus::ObjectPath{path})
+                          .getResultAsFuture<>();
+        if (future.wait_for(kCallTimeout) == std::future_status::ready) {
+            future.get();
+            spdlog::info("BluezBleTransport: removed stale bond {}", path);
+        } else {
+            spdlog::warn("BluezBleTransport: RemoveDevice timed out for {}", path);
+        }
+    } catch (const sdbus::Error& e) {
+        spdlog::warn("BluezBleTransport: could not request stale bond removal for {}: {}", path,
+                     e.what());
+    }
+}
+
+auto ParseAdapterIndex(const std::string& path) -> std::optional<std::uint16_t> {
+    constexpr std::string_view kPrefix = "/org/bluez/hci";
+    if (!path.starts_with(kPrefix)) {
+        return std::nullopt;
+    }
+    const std::string index_text = path.substr(kPrefix.size());
+    std::size_t parsed = 0;
+    try {
+        const std::uint64_t index = std::stoul(index_text, &parsed);
+        if (parsed == index_text.size() && index <= std::numeric_limits<std::uint16_t>::max()) {
+            return static_cast<std::uint16_t>(index);
+        }
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+auto BluezBleTransport::WatchAuthenticationFailures() -> void {
+    struct HciAddress {
+        sa_family_t family;
+        std::uint16_t device;
+        std::uint16_t channel;
+    } address{AF_BLUETOOTH, std::numeric_limits<std::uint16_t>::max(), 3};
+    constexpr std::size_t kMaxEvent = 512;
+    const auto adapter_index = ParseAdapterIndex(adapter_path_);
+    if (!adapter_index) {
+        spdlog::warn("BluezBleTransport: invalid adapter index in {}", adapter_path_);
+        return;
+    }
+    const int socket_fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, 1);
+    if (socket_fd < 0 ||
+        bind(socket_fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+        spdlog::warn("BluezBleTransport: mgmt auth watch unavailable: {}", std::strerror(errno));
+        if (socket_fd >= 0) {
+            close(socket_fd);
+        }
+        return;
+    }
+    const timeval receive_timeout{1, 0};
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &receive_timeout, sizeof(receive_timeout)) !=
+        0) {
+        spdlog::warn("BluezBleTransport: mgmt watch timeout unavailable: {}", std::strerror(errno));
+        close(socket_fd);
+        return;
+    }
+    mgmt_fd_ = socket_fd;
+    mgmt_worker_ = std::thread([this, adapter_index] {
+        std::array<std::uint8_t, kMaxEvent> buffer{};
+        while (!stopping_) {
+            const ssize_t size = recv(mgmt_fd_, buffer.data(), buffer.size(), 0);
+            if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                continue;
+            }
+            if (size <= 0) {
+                if (!stopping_) {
+                    spdlog::warn("BluezBleTransport: mgmt auth watch stopped: {}",
+                                 std::strerror(errno));
+                }
+                break;
+            }
+            HandleAuthenticationFailure(
+                {buffer.data(), static_cast<std::size_t>(size), *adapter_index});
+        }
+    });
+}
+
+auto BluezBleTransport::HandleAuthenticationFailure(MgmtPacket packet) -> void {
+    const auto failure = DecodeAuthenticationFailure(packet);
+    if (!failure) {
+        return;
+    }
+    std::optional<std::string> path;
+    {
+        std::lock_guard lock(mtx_);
+        path = stale_bonds_.AuthenticationFailed(*failure, StaleBondRecovery::Clock::now());
+    }
+    if (path) {
+        RemoveStaleBond(*path);
+    }
+}
+
+auto BluezBleTransport::StopAuthenticationFailures() -> void {
+    if (mgmt_fd_ >= 0) {
+        if (mgmt_worker_.joinable()) {
+            mgmt_worker_.join();
+        }
+        close(mgmt_fd_);
+        mgmt_fd_ = -1;
     }
 }
 
@@ -538,6 +705,7 @@ auto BluezBleTransport::Start() -> void {
         // primary enforcement, this is defense-in-depth.
         try {
             WatchBluezDevices();
+            WatchAuthenticationFailures();
         } catch (const sdbus::Error& e) {
             spdlog::warn(
                 "BluezBleTransport: device link-state watch failed ({}): {} — "
@@ -568,6 +736,7 @@ auto BluezBleTransport::Stop() -> void {
     if (worker.joinable()) {
         worker.join();
     }
+    StopAuthenticationFailures();
     if (!advertisement_registered_ && !application_registered_ && !connection_) {
         return;
     }
@@ -630,6 +799,7 @@ auto BluezBleTransport::Stop() -> void {
         // Drop the per-device PropertiesChanged watchers + cached link state
         // before the connection they ride is torn down.
         devices_.clear();
+        stale_bonds_.ClearDevices();
         link_encrypted_ = false;
     }
     adv_obj_.reset();

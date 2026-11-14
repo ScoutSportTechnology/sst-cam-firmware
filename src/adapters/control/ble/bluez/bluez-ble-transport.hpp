@@ -8,16 +8,26 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "adapters/control/ble/bluez/chunk-assembler.hpp"
 #include "adapters/control/ble/bluez/gatt-application.hpp"
+#include "adapters/control/ble/bluez/stale-bond-recovery.hpp"
 #include "app/control/ports/ble-transport.hpp"
 #include "app/control/ports/link-security.hpp"
 
 namespace sst::adapters::control {
+
+struct MgmtPacket {
+    const std::uint8_t* data;
+    std::size_t size;
+    std::uint16_t adapter_index;
+};
+auto DecodeAuthenticationFailure(MgmtPacket packet) -> std::optional<StaleBondRecovery::Failure>;
+auto ParseAdapterIndex(const std::string& path) -> std::optional<std::uint16_t>;
 
 // BlueZ-via-D-Bus BLE peripheral transport. On Start():
 //   1. Connect to the system bus.
@@ -122,6 +132,10 @@ class BluezBleTransport final : public sst::control::IBleTransport,
                                    const std::map<std::string, sdbus::Variant>& changed) -> void;
     // Recompute link_encrypted_ from the tracked devices. Caller holds mtx_.
     auto RecomputeLinkEncryptedLocked() -> void;
+    auto WatchAuthenticationFailures() -> void;
+    auto HandleAuthenticationFailure(MgmtPacket packet) -> void;
+    auto StopAuthenticationFailures() -> void;
+    auto RemoveStaleBond(const std::string& path) -> void;
 
     // Per-central link state, tracked from org.bluez Device1 properties. `watcher`
     // is the per-device PropertiesChanged subscription that keeps the flags fresh.
@@ -129,6 +143,8 @@ class BluezBleTransport final : public sst::control::IBleTransport,
         bool connected{false};
         bool paired{false};
         bool bonded{false};
+        std::string address;
+        std::uint8_t address_type{0};
         std::unique_ptr<sdbus::IProxy> watcher;
     };
 
@@ -156,6 +172,9 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     // Cached aggregate: any tracked device Connected && (Paired || Bonded).
     // Guarded by mtx_; read by IsLinkEncrypted().
     bool link_encrypted_{false};
+    StaleBondRecovery stale_bonds_;
+    int mgmt_fd_{-1};
+    std::thread mgmt_worker_;
     ChunkAssembler assembler_;
     std::atomic<bool> running_{false};
     std::atomic<bool> advertisement_registered_{false};
