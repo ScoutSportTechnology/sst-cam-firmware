@@ -67,4 +67,15 @@ if ! output="$(PATH="$sandbox/bin:$PATH" SST_BT_SYSFS="$sandbox/sys" SST_TEST_CO
   printf 'FAIL bind failure must stop after same-interface retry\n' >&2
   exit 1
 fi
-printf 'bt-recover-test.sh: 6 passed\n'
+rm "$sandbox/sys/bus/usb/drivers/rtk_btusb/bind"
+: > "$sandbox/sys/bus/usb/drivers/rtk_btusb/bind"
+# shellcheck disable=SC2016
+printf '#!/bin/sh\nexec /bin/sleep 1000\n' > "$sandbox/bin/btmgmt"
+printf '#!/bin/sh\nexec /bin/sleep 1000\n' > "$sandbox/bin/hciconfig"
+chmod +x "$sandbox/bin/btmgmt" "$sandbox/bin/hciconfig"
+if ! output="$(timeout 75 env PATH="$sandbox/bin:$PATH" SST_BT_SYSFS="$sandbox/sys" bash "$here/bt-recover.sh" 2>/dev/null)" ||
+   [[ "$output" != *'controller still unavailable after 2 resets'* ]]; then
+  printf 'FAIL hanging diagnostic tools must be bounded (output=%s)\n' "$output" >&2
+  exit 1
+fi
+printf 'bt-recover-test.sh: 7 passed\n'
