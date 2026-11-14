@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -437,8 +438,7 @@ auto BluezBleTransport::WatchBluezDevices() -> void {
     }
 }
 
-auto DecodeAuthenticationFailure(const std::uint8_t* buffer,
-                                 std::size_t size) -> std::optional<StaleBondRecovery::Failure> {
+auto DecodeAuthenticationFailure(MgmtPacket packet) -> std::optional<StaleBondRecovery::Failure> {
     struct MgmtHeader {
         std::uint16_t opcode;
         std::uint16_t index;
@@ -451,17 +451,17 @@ auto DecodeAuthenticationFailure(const std::uint8_t* buffer,
         std::uint8_t status;
     } __attribute__((packed));
     constexpr std::uint16_t kAuthenticationFailed = 0x0011;
-    if (size != sizeof(MgmtHeader) + sizeof(MgmtAddress)) {
+    if (packet.size != sizeof(MgmtHeader) + sizeof(MgmtAddress)) {
         return std::nullopt;
     }
     MgmtHeader header{};
-    std::memcpy(&header, buffer, sizeof(header));
-    if (header.opcode != kAuthenticationFailed || header.index != 0 ||
+    std::memcpy(&header, packet.data, sizeof(header));
+    if (header.opcode != kAuthenticationFailed || header.index != packet.adapter_index ||
         header.length != sizeof(MgmtAddress)) {
         return std::nullopt;
     }
     MgmtAddress event{};
-    std::memcpy(&event, buffer + sizeof(header), sizeof(event));
+    std::memcpy(&event, packet.data + sizeof(header), sizeof(event));
     const auto& bytes = event.bytes;
     constexpr std::size_t kLastByte = kAddressBytes - 1;
     return StaleBondRecovery::Failure{
@@ -490,6 +490,24 @@ auto BluezBleTransport::RemoveStaleBond(const std::string& path) -> void {
     }
 }
 
+auto ParseAdapterIndex(const std::string& path) -> std::optional<std::uint16_t> {
+    constexpr std::string_view kPrefix = "/org/bluez/hci";
+    if (!path.starts_with(kPrefix)) {
+        return std::nullopt;
+    }
+    const std::string index_text = path.substr(kPrefix.size());
+    std::size_t parsed = 0;
+    try {
+        const std::uint64_t index = std::stoul(index_text, &parsed);
+        if (parsed == index_text.size() && index <= std::numeric_limits<std::uint16_t>::max()) {
+            return static_cast<std::uint16_t>(index);
+        }
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 auto BluezBleTransport::WatchAuthenticationFailures() -> void {
     struct HciAddress {
         sa_family_t family;
@@ -497,6 +515,11 @@ auto BluezBleTransport::WatchAuthenticationFailures() -> void {
         std::uint16_t channel;
     } address{AF_BLUETOOTH, std::numeric_limits<std::uint16_t>::max(), 3};
     constexpr std::size_t kMaxEvent = 512;
+    const auto adapter_index = ParseAdapterIndex(adapter_path_);
+    if (!adapter_index) {
+        spdlog::warn("BluezBleTransport: invalid adapter index in {}", adapter_path_);
+        return;
+    }
     const int socket_fd = socket(PF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, 1);
     if (socket_fd < 0 ||
         bind(socket_fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
@@ -514,7 +537,7 @@ auto BluezBleTransport::WatchAuthenticationFailures() -> void {
         return;
     }
     mgmt_fd_ = socket_fd;
-    mgmt_worker_ = std::thread([this] {
+    mgmt_worker_ = std::thread([this, adapter_index] {
         std::array<std::uint8_t, kMaxEvent> buffer{};
         while (!stopping_) {
             const ssize_t size = recv(mgmt_fd_, buffer.data(), buffer.size(), 0);
@@ -528,21 +551,25 @@ auto BluezBleTransport::WatchAuthenticationFailures() -> void {
                 }
                 break;
             }
-            const auto failure =
-                DecodeAuthenticationFailure(buffer.data(), static_cast<std::size_t>(size));
-            if (!failure) {
-                continue;
-            }
-            std::optional<std::string> path;
-            {
-                std::lock_guard lock(mtx_);
-                path = stale_bonds_.AuthenticationFailed(*failure, StaleBondRecovery::Clock::now());
-            }
-            if (path) {
-                RemoveStaleBond(*path);
-            }
+            HandleAuthenticationFailure(
+                {buffer.data(), static_cast<std::size_t>(size), *adapter_index});
         }
     });
+}
+
+auto BluezBleTransport::HandleAuthenticationFailure(MgmtPacket packet) -> void {
+    const auto failure = DecodeAuthenticationFailure(packet);
+    if (!failure) {
+        return;
+    }
+    std::optional<std::string> path;
+    {
+        std::lock_guard lock(mtx_);
+        path = stale_bonds_.AuthenticationFailed(*failure, StaleBondRecovery::Clock::now());
+    }
+    if (path) {
+        RemoveStaleBond(*path);
+    }
 }
 
 auto BluezBleTransport::StopAuthenticationFailures() -> void {

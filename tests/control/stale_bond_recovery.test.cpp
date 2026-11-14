@@ -11,6 +11,7 @@
 namespace {
 
 using sst::adapters::control::DecodeAuthenticationFailure;
+using sst::adapters::control::ParseAdapterIndex;
 using sst::adapters::control::StaleBondRecovery;
 using Clock = std::chrono::steady_clock;
 constexpr auto kFailure = StaleBondRecovery::kAuthenticationFailed;
@@ -19,15 +20,20 @@ constexpr auto kBeforeCooldown = std::chrono::seconds{StaleBondRecovery::kCooldo
 TEST(StaleBondRecoveryTest, KernelMgmtAuthFailureDecodesTheCentralAndRejectsOtherEvents) {
     const std::vector<std::uint8_t> event{0x11, 0,    0,    0,    8,    0, 0xF5,
                                           0xBE, 0xCC, 0x4B, 0xCF, 0x04, 1, kFailure};
-    const auto failure = DecodeAuthenticationFailure(event.data(), event.size());
+    const auto failure = DecodeAuthenticationFailure({event.data(), event.size(), 0});
     ASSERT_TRUE(failure.has_value());
     EXPECT_EQ(failure.value_or(StaleBondRecovery::Failure{}).address, "04:CF:4B:CC:BE:F5");
     EXPECT_EQ(failure.value_or(StaleBondRecovery::Failure{}).type, 1);
     EXPECT_EQ(failure.value_or(StaleBondRecovery::Failure{}).status, kFailure);
-    EXPECT_FALSE(DecodeAuthenticationFailure(event.data(), event.size() - 1).has_value());
+    EXPECT_FALSE(DecodeAuthenticationFailure({event.data(), event.size() - 1, 0}).has_value());
     auto other_index = event;
     other_index[2] = 1;
-    EXPECT_FALSE(DecodeAuthenticationFailure(other_index.data(), other_index.size()).has_value());
+    EXPECT_TRUE(
+        DecodeAuthenticationFailure({other_index.data(), other_index.size(), 1}).has_value());
+    EXPECT_FALSE(
+        DecodeAuthenticationFailure({other_index.data(), other_index.size(), 0}).has_value());
+    EXPECT_EQ(ParseAdapterIndex("/org/bluez/hci1"), 1);
+    EXPECT_FALSE(ParseAdapterIndex("/org/bluez/hci1/dev_04_CF_4B_CC_BE_F5"));
 }
 
 TEST(StaleBondRecoveryTest, FailedAuthenticationOfBondedConnectedCentralRemovesOnlyItsBond) {

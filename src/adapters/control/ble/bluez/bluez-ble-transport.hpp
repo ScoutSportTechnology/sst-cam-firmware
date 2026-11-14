@@ -21,8 +21,13 @@
 
 namespace sst::adapters::control {
 
-auto DecodeAuthenticationFailure(const std::uint8_t* buffer,
-                                 std::size_t size) -> std::optional<StaleBondRecovery::Failure>;
+struct MgmtPacket {
+    const std::uint8_t* data;
+    std::size_t size;
+    std::uint16_t adapter_index;
+};
+auto DecodeAuthenticationFailure(MgmtPacket packet) -> std::optional<StaleBondRecovery::Failure>;
+auto ParseAdapterIndex(const std::string& path) -> std::optional<std::uint16_t>;
 
 // BlueZ-via-D-Bus BLE peripheral transport. On Start():
 //   1. Connect to the system bus.
@@ -128,6 +133,7 @@ class BluezBleTransport final : public sst::control::IBleTransport,
     // Recompute link_encrypted_ from the tracked devices. Caller holds mtx_.
     auto RecomputeLinkEncryptedLocked() -> void;
     auto WatchAuthenticationFailures() -> void;
+    auto HandleAuthenticationFailure(MgmtPacket packet) -> void;
     auto StopAuthenticationFailures() -> void;
     auto RemoveStaleBond(const std::string& path) -> void;
 
