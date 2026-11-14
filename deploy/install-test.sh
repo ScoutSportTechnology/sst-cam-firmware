@@ -429,5 +429,51 @@ else
   bad "installer embedded unit differs from deploy/sst-cam-firmware.service"
 fi
 
+BT_SANDBOX="$(mktemp -d)"
+trap 'rm -rf "$IDENTITY_SANDBOX" "$BOOT_SANDBOX" "$BT_SANDBOX"' EXIT
+sed -n '/# --- bt-recovery:begin/,/# --- bt-recovery:end/p' "$INSTALL_SH" > "$BT_SANDBOX/install-bt"
+if [ -s "$BT_SANDBOX/install-bt" ]; then
+  if (
+    # shellcheck disable=SC2034
+    BT_RECOVER_PATH="$BT_SANDBOX/libexec/sst-bt-recover"
+    # shellcheck disable=SC2034
+    BT_RECOVER_UNIT_PATH="$BT_SANDBOX/systemd/sst-bt-recover.service"
+    mkdir -p "$BT_SANDBOX/systemd"
+    # shellcheck disable=SC2317,SC2329
+    log() { :; }
+    # shellcheck disable=SC2317,SC2329
+    die() { exit 1; }
+    # shellcheck disable=SC2317,SC2329
+    systemctl() { :; }
+    # shellcheck disable=SC2317,SC2329
+    systemd-analyze() { :; }
+    # shellcheck source=/dev/null
+    . "$BT_SANDBOX/install-bt"
+    ensure_bt_recovery
+    if ! cmp -s "$BT_RECOVER_PATH" "${SCRIPT_DIR}/bt-recover.sh" ||
+       ! cmp -s "$BT_RECOVER_UNIT_PATH" "${SCRIPT_DIR}/sst-bt-recover.service" ||
+       [ "$(stat -c %a "$BT_RECOVER_PATH")" != 755 ]; then
+      exit 1
+    fi
+    touch -d '2001-01-01 UTC' "$BT_RECOVER_PATH" "$BT_RECOVER_UNIT_PATH"
+    ensure_bt_recovery
+    [ "$(stat -c %Y "$BT_RECOVER_PATH")" = 978307200 ] || exit 1
+    [ "$(stat -c %Y "$BT_RECOVER_UNIT_PATH")" = 978307200 ] || exit 1
+    rm "$BT_RECOVER_PATH" "$BT_RECOVER_UNIT_PATH"
+    [ ! -e "$BT_RECOVER_PATH" ] && [ ! -e "$BT_RECOVER_UNIT_PATH" ]
+  ); then
+    ok
+  else
+    bad 'BT recovery install must match deployed files, be idempotent and removable'
+  fi
+else
+  bad 'installer BT recovery function not extractable'
+fi
+if bash "${SCRIPT_DIR}/bt-recover-test.sh"; then
+  ok
+else
+  bad 'BT recovery fake sysfs test failed'
+fi
+
 printf '\ndeploy/install-test.sh: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

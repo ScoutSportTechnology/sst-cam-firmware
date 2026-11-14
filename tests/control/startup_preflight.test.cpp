@@ -147,6 +147,13 @@ TEST(StartupPreflightTest, ProbeChildCrashOrTimeoutNeverStartsCapture) {
     }
 }
 
+TEST(StartupPreflightTest, StartupMessageDoesNotClaimAdvertisingBeforeBleRegisters) {
+    EXPECT_EQ(sst::control::StartupAdvertisingMessage(false, "sst-cam-7967"),
+              "startup complete — not advertising yet; will retry");
+    EXPECT_EQ(sst::control::StartupAdvertisingMessage(true, "sst-cam-7967"),
+              "startup complete — advertising as sst-cam-7967");
+}
+
 TEST(StartupPreflightTest, MissingBluetoothKeepsReadyAndRetriesBle) {
     Fixture fixture;
     fixture.probes.bluetooth = COMPONENT_STATUS_MISSING;
