@@ -1,8 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <stop_token>
 
 #include "bluetooth.pb.h"
 
@@ -30,6 +32,8 @@ class StartupPreflight {
    public:
     StartupPreflight(std::function<StartupProbes()> probe, StartupActions actions);
     auto Poll() -> void;
+    auto RunPeriodically(const std::stop_token& stop, std::chrono::milliseconds interval,
+                         const std::function<void()>& after_poll) -> void;
     [[nodiscard]] auto Ready() const -> bool;
     auto TakeReadyNotification() -> bool;
     [[nodiscard]] auto Components() const -> sst_cam::DeviceComponents;
@@ -39,8 +43,8 @@ class StartupPreflight {
     std::function<StartupProbes()> probe_;
     StartupActions actions_;
     mutable std::mutex mutex_;
+    std::mutex poll_mutex_;
     StartupProbes latest_{};
-    bool ble_up_{false};
     bool network_up_{false};
     bool http_up_{false};
     bool pipeline_up_{false};

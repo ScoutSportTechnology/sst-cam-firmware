@@ -1,5 +1,6 @@
 #include "app/control/services/startup-preflight.hpp"
 
+#include <condition_variable>
 #include <utility>
 
 namespace sst::control {
@@ -8,26 +9,45 @@ StartupPreflight::StartupPreflight(std::function<StartupProbes()> probe, Startup
     : probe_(std::move(probe)), actions_(std::move(actions)) {}
 
 auto StartupPreflight::Poll() -> void {
-    std::lock_guard lock(mutex_);
-    latest_ = probe_();
-    polled_ = true;
-    if (!ble_up_ && latest_.bluetooth == sst_cam::COMPONENT_STATUS_OK) {
-        ble_up_ = actions_.ble();
-    }
+    std::lock_guard poll_lock(poll_mutex_);
+    auto latest = probe_();
+    latest.bluetooth =
+        actions_.ble() ? sst_cam::COMPONENT_STATUS_OK : sst_cam::COMPONENT_STATUS_DEGRADED;
     if (!network_up_) {
         network_up_ = actions_.network();
     }
     if (network_up_ && !http_up_) {
         http_up_ = actions_.http();
     }
-    if (!pipeline_up_ && latest_.gpu == sst_cam::COMPONENT_STATUS_OK &&
-        latest_.camera0 == sst_cam::CAMERA_HEALTH_OK &&
-        latest_.camera1 == sst_cam::CAMERA_HEALTH_OK) {
+    if (!pipeline_up_ && latest.gpu == sst_cam::COMPONENT_STATUS_OK &&
+        latest.camera0 == sst_cam::CAMERA_HEALTH_OK &&
+        latest.camera1 == sst_cam::CAMERA_HEALTH_OK) {
         pipeline_up_ = actions_.pipeline();
         if (!pipeline_up_) {
-            latest_.camera0 = sst_cam::CAMERA_HEALTH_DOWN;
-            latest_.camera1 = sst_cam::CAMERA_HEALTH_DOWN;
+            latest.camera0 = sst_cam::CAMERA_HEALTH_DOWN;
+            latest.camera1 = sst_cam::CAMERA_HEALTH_DOWN;
         }
+    }
+    std::lock_guard lock(mutex_);
+    latest_ = latest;
+    polled_ = true;
+}
+
+auto StartupPreflight::RunPeriodically(const std::stop_token& stop,
+                                       std::chrono::milliseconds interval,
+                                       const std::function<void()>& after_poll) -> void {
+    std::condition_variable_any wake;
+    std::mutex wait_mutex;
+    while (!stop.stop_requested()) {
+        {
+            std::unique_lock wait_lock(wait_mutex);
+            wake.wait_for(wait_lock, stop, interval, [] { return false; });
+        }
+        if (stop.stop_requested()) {
+            break;
+        }
+        Poll();
+        after_poll();
     }
 }
 

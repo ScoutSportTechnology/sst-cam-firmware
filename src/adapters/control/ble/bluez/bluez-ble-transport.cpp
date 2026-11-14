@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <future>
 #include <map>
 #include <optional>
@@ -64,20 +65,45 @@ auto ReadBoolProp(const std::map<std::string, sdbus::Variant>& props,
 
 }  // namespace
 
-BluezBleTransport::BluezBleTransport(std::string advertised_name, std::string adapter_path)
+BluezBleTransport::BluezBleTransport(std::string advertised_name, std::string adapter_path,
+                                     std::function<std::unique_ptr<sdbus::IConnection>()> connect)
     : advertised_name_(std::move(advertised_name)),
       adapter_path_(std::move(adapter_path)),
       app_root_path_("/com/sst/cam/gatt"),
       adv_path_("/com/sst/cam/adv"),
-      agent_path_("/com/sst/cam/agent") {}
+      agent_path_("/com/sst/cam/agent"),
+      connect_(std::move(connect)) {}
 
-BluezBleTransport::~BluezBleTransport() {
-    if (running_) {
-        Stop();
+BluezBleTransport::~BluezBleTransport() { Stop(); }
+
+auto BluezBleTransport::IsRunning() const -> bool {
+    return !stopping_ && running_ && advertisement_registered_ && application_registered_ &&
+           BluezPresent() && AdapterPresent();
+}
+
+auto BluezBleTransport::BluezPresent() const -> bool {
+    try {
+        auto bus = sdbus::createProxy(*connection_, "org.freedesktop.DBus",
+                                      sdbus::ObjectPath{"/org/freedesktop/DBus"});
+        std::string owner;
+        bus->callMethod("GetNameOwner")
+            .onInterface("org.freedesktop.DBus")
+            .withArguments(std::string{kBluezBus})
+            .storeResultsTo(owner);
+        return owner == bluez_owner_;
+    } catch (const sdbus::Error&) {
+        return false;
     }
 }
 
-auto BluezBleTransport::IsRunning() const -> bool { return running_; }
+auto BluezBleTransport::AdapterPresent() const -> bool {
+    try {
+        auto adapter = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+        return adapter->getProperty("Powered").onInterface("org.bluez.Adapter1").get<bool>();
+    } catch (const sdbus::Error&) {
+        return false;
+    }
+}
 
 auto BluezBleTransport::SetOnCommand(CommandHandler handler) -> void {
     std::lock_guard lock(mtx_);
@@ -187,7 +213,8 @@ auto BluezBleTransport::BuildAdvertisement() -> void {
         return std::vector<std::string>{"tx-power"};
     });
 
-    adv_obj_->registerMethod("Release").onInterface(kIfaceLeAdv).implementedAs([] {
+    adv_obj_->registerMethod("Release").onInterface(kIfaceLeAdv).implementedAs([this] {
+        advertisement_registered_ = false;
         spdlog::info("LEAdvertisement1.Release called");
     });
 
@@ -388,19 +415,38 @@ auto BluezBleTransport::WatchBluezDevices() -> void {
     }
 }
 
+auto BluezBleTransport::ResolveAdapter() -> void {
+    auto bluez = sdbus::createProxy(*connection_, kBluezBus, sdbus::ObjectPath{"/"});
+    ManagedObjects objects;
+    bluez->callMethod("GetManagedObjects").onInterface(kIfaceObjectManager).storeResultsTo(objects);
+    for (const auto& [path, interfaces] : objects) {
+        if (interfaces.contains("org.bluez.Adapter1") && interfaces.contains(kIfaceGattManager) &&
+            interfaces.contains(kIfaceLeAdvManager)) {
+            adapter_path_ = path;
+            return;
+        }
+    }
+    throw sdbus::Error("org.sst.cam.AdapterUnavailable", "No BLE-capable BlueZ adapter");
+}
+
 auto BluezBleTransport::Start() -> void {
-    if (running_) {
+    if (IsRunning()) {
         return;
     }
 
-    try {
-        connection_ = sdbus::createSystemBusConnection();
-    } catch (const sdbus::Error& e) {
-        spdlog::error("BluezBleTransport: createSystemBusConnection failed: {}", e.what());
-        return;
+    if (connection_) {
+        Stop();
     }
-
+    stopping_ = false;
     try {
+        connection_ = connect_();
+        ResolveAdapter();
+        auto bus = sdbus::createProxy(*connection_, "org.freedesktop.DBus",
+                                      sdbus::ObjectPath{"/org/freedesktop/DBus"});
+        bus->callMethod("GetNameOwner")
+            .onInterface("org.freedesktop.DBus")
+            .withArguments(std::string{kBluezBus})
+            .storeResultsTo(bluez_owner_);
         gatt_app_ = std::make_unique<GattApplication>(
             *connection_, app_root_path_,
             std::string{sst::control::BootstrapDefaults::kGattServiceUuid},
@@ -422,12 +468,14 @@ auto BluezBleTransport::Start() -> void {
         // passphrase (INV6/AE7).
         try {
             auto adapter = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
+            adapter->setProperty("Powered").onInterface("org.bluez.Adapter1").toValue(true);
             adapter->setProperty("Alias")
                 .onInterface("org.bluez.Adapter1")
                 .toValue(advertised_name_);
             adapter->setProperty("Pairable").onInterface("org.bluez.Adapter1").toValue(true);
         } catch (const sdbus::Error& e) {
-            spdlog::warn("BluezBleTransport: could not set adapter Alias/Pairable: {}", e.what());
+            spdlog::warn("BluezBleTransport: could not power/configure adapter: {}", e.what());
+            throw;
         }
 
         // Register the Just Works pairing agent so a bond completes without a UI.
@@ -455,8 +503,6 @@ auto BluezBleTransport::Start() -> void {
         // Start dispatching the connection BEFORE the Register* calls so the
         // event-loop thread can service the callbacks BlueZ makes back into us.
         connection_->enterEventLoopAsync();
-        running_ = true;
-
         auto bluez = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
 
         // RegisterAdvertisement and RegisterApplication MUST be asynchronous.
@@ -483,6 +529,7 @@ auto BluezBleTransport::Start() -> void {
         CallManagerAsync(*bluez, kIfaceGattManager, "RegisterApplication",
                          sdbus::ObjectPath{app_root_path_});
         application_registered_ = true;
+        running_ = true;
 
         // Track org.bluez Device1 link state (Connected/Paired/Bonded) so the
         // app-layer credential gate (ILinkSecurity, INV6/AE7) can reject
@@ -508,7 +555,20 @@ auto BluezBleTransport::Start() -> void {
 }
 
 auto BluezBleTransport::Stop() -> void {
-    if (!running_ && !advertisement_registered_ && !application_registered_ && !connection_) {
+    {
+        std::lock_guard worker_lock(worker_mtx_);
+        stopping_ = true;
+        running_ = false;
+    }
+    std::thread worker;
+    {
+        std::lock_guard worker_lock(worker_mtx_);
+        worker = std::move(readvertise_worker_);
+    }
+    if (worker.joinable()) {
+        worker.join();
+    }
+    if (!advertisement_registered_ && !application_registered_ && !connection_) {
         return;
     }
     spdlog::info("BluezBleTransport::Stop");
@@ -526,7 +586,8 @@ auto BluezBleTransport::Stop() -> void {
         on_disconnect();
     }
 
-    if (connection_ && (advertisement_registered_ || application_registered_)) {
+    if (connection_ && (advertisement_registered_ || application_registered_) && BluezPresent() &&
+        AdapterPresent()) {
         try {
             auto proxy = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
             if (advertisement_registered_) {
@@ -554,14 +615,10 @@ auto BluezBleTransport::Stop() -> void {
         }
     }
 
-    if (connection_) {
-        try {
-            connection_->leaveEventLoop();
-        } catch (const sdbus::Error& e) {
-            spdlog::warn("BluezBleTransport: leaveEventLoop failed: {}", e.what());
-        }
-    }
-
+    device_watcher_.reset();
+    advertisement_registered_ = false;
+    application_registered_ = false;
+    agent_registered_ = false;
     {
         // Drop assembler state under the lock BEFORE clearing gatt_app_ so no
         // half-assembled inbound message or stale outbound flow-control survives
@@ -575,9 +632,15 @@ auto BluezBleTransport::Stop() -> void {
         devices_.clear();
         link_encrypted_ = false;
     }
-    device_watcher_.reset();
     adv_obj_.reset();
     agent_obj_.reset();
+    if (connection_) {
+        try {
+            connection_->leaveEventLoop();
+        } catch (const sdbus::Error& e) {
+            spdlog::warn("BluezBleTransport: leaveEventLoop failed: {}", e.what());
+        }
+    }
     connection_.reset();
     running_ = false;
 }
@@ -586,28 +649,46 @@ auto BluezBleTransport::HandleCentralGone() -> void {
     ConnectionHandler on_disc;
     {
         std::lock_guard lock(mtx_);
-        if (!central_present_) {
+        if (!central_present_ || stopping_) {
             return;  // never connected this session, or already handled
         }
         central_present_ = false;
         on_disc = on_disconnect_;
     }
-    // This runs on the D-Bus event-loop thread (a GATT StopNotify callback).
-    // Both the session cleanup and the re-advertise wait on work the event loop
-    // itself must service, so they cannot run inline — hand off to a worker. The
-    // transport lives for the process lifetime, so capturing `this` is safe.
-    std::thread([this, on_disc] {
-        if (on_disc) {
-            on_disc();
+    std::thread finished;
+    {
+        std::lock_guard worker_lock(worker_mtx_);
+        if (stopping_ || readvertise_busy_.exchange(true)) {
+            return;
         }
-        ReAdvertise();
-    }).detach();
+        finished = std::move(readvertise_worker_);
+    }
+    if (finished.joinable()) {
+        finished.join();
+    }
+    std::lock_guard worker_lock(worker_mtx_);
+    if (stopping_) {
+        readvertise_busy_ = false;
+        return;
+    }
+    readvertise_worker_ = std::thread([this, on_disc] {
+        try {
+            if (on_disc) {
+                on_disc();
+            }
+            ReAdvertise();
+        } catch (const std::exception& e) {
+            spdlog::warn("BluezBleTransport: disconnect worker failed: {}", e.what());
+        }
+        readvertise_busy_ = false;
+    });
 }
 
 auto BluezBleTransport::ReAdvertise() -> void {
-    if (!running_ || !connection_) {
+    if (!IsRunning() || stopping_) {
         return;
     }
+    advertisement_registered_ = false;
     try {
         auto bluez = sdbus::createProxy(*connection_, kBluezBus, adapter_path_);
         // BlueZ pauses a connectable advertisement while a central is connected
@@ -621,21 +702,36 @@ auto BluezBleTransport::ReAdvertise() -> void {
                               .onInterface(kIfaceLeAdvManager)
                               .withArguments(sdbus::ObjectPath{adv_path_})
                               .getResultAsFuture<>();
-            if (future.wait_for(kCallTimeout) == std::future_status::ready) {
-                future.get();
+            if (future.wait_for(kCallTimeout) != std::future_status::ready) {
+                throw sdbus::Error("org.sst.cam.BleTimeout", "UnregisterAdvertisement timed out");
             }
+            future.get();
         } catch (const sdbus::Error& e) {
             // Not currently registered (teardown race) — fine, just register.
             spdlog::debug("BluezBleTransport: UnregisterAdvertisement before re-advertise: {}",
                           e.what());
         }
+        if (stopping_) {
+            return;
+        }
         CallManagerAsync(*bluez, kIfaceLeAdvManager, "RegisterAdvertisement",
                          sdbus::ObjectPath{adv_path_});
+        if (stopping_) {
+            try {
+                bluez->callMethod("UnregisterAdvertisement")
+                    .onInterface(kIfaceLeAdvManager)
+                    .withArguments(sdbus::ObjectPath{adv_path_});
+            } catch (const sdbus::Error& e) {
+                spdlog::warn("BluezBleTransport: unregister after stop failed: {}", e.what());
+            }
+            return;
+        }
         advertisement_registered_ = true;
         spdlog::info("BluezBleTransport: re-advertising as \"{}\" after central disconnect",
                      advertised_name_);
     } catch (const sdbus::Error& e) {
         spdlog::warn("BluezBleTransport: re-advertise failed: {}", e.what());
+        running_ = false;
     }
 }
 

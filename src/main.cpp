@@ -573,9 +573,7 @@ auto RunFirmware(const sigset_t& mask) -> int {
                 .gpu = gpu ? sst_cam::COMPONENT_STATUS_OK : sst_cam::COMPONENT_STATUS_MISSING,
                 .wifi = sst::adapters::control::ProbeUplinkHealth(wifi),
                 .ethernet = sst::adapters::control::ProbeUplinkHealth(ethernet),
-                .bluetooth = std::filesystem::exists("/sys/class/bluetooth/hci0")
-                                 ? sst_cam::COMPONENT_STATUS_OK
-                                 : sst_cam::COMPONENT_STATUS_MISSING,
+                .bluetooth = sst_cam::COMPONENT_STATUS_DEGRADED,
                 .storage = disk_guard.IsWritable() ? sst_cam::COMPONENT_STATUS_OK
                                                    : sst_cam::COMPONENT_STATUS_MISSING,
                 .clock_synced = clock_monitor.IsSynced()};
@@ -639,7 +637,9 @@ auto RunFirmware(const sigset_t& mask) -> int {
     int signo = 0;
     constexpr auto kRetryInterval = std::chrono::seconds{30};
     constexpr auto kWatchdogInterval = std::chrono::seconds{5};
-    auto next_probe = std::chrono::steady_clock::now() + kRetryInterval;
+    std::jthread preflight_thread([&](const std::stop_token& stop) {
+        startup.RunPeriodically(stop, kRetryInterval, [&] { log_components(); });
+    });
     while (true) {
         timespec wait{.tv_sec = kWatchdogInterval.count(), .tv_nsec = 0};
         signo = sigtimedwait(&mask, nullptr, &wait);
@@ -647,15 +647,11 @@ auto RunFirmware(const sigset_t& mask) -> int {
             break;
         }
         sst::adapters::control::NotifySystemd("WATCHDOG=1");
-        if (std::chrono::steady_clock::now() >= next_probe) {
-            clock_monitor.CheckAndLog();
-            startup.Poll();
-            log_components();
-            next_probe = std::chrono::steady_clock::now() + kRetryInterval;
-        }
     }
     spdlog::info("signal {} received — shutting down", signo);
 
+    preflight_thread.request_stop();
+    preflight_thread.join();
     clock_running.store(false);
     clock_thread.join();
     telemetry_probe.Stop();
