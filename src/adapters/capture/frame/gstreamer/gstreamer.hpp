@@ -31,6 +31,7 @@ class GStreamerAdapter final : public ICaptureFrame {
     auto Stop() -> void override;
     auto IsRunning() const -> bool override;
     auto Capture() -> std::optional<Frame> override;
+    auto CreatePipeline() -> std::string;
 
    private:
     CameraConfig camera_config_;
@@ -48,7 +49,6 @@ class GStreamerAdapter final : public ICaptureFrame {
     auto CleanupPipeline() -> void;
     auto HandleBusMessages() -> bool;
     auto CreateFrameFromSample(GstSample* gst_sample) -> std::optional<Frame>;
-    auto CreatePipeline() -> std::string;
 
     mutable std::mutex last_frame_mtx_;
     std::optional<sst::capture::Frame> last_frame_;
