@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -18,6 +19,31 @@ namespace {
 constexpr const char* kConfigDir = SST_REPO_ROOT_DIR "/tests/config/config_files";
 
 }  // namespace
+
+TEST(GstreamerAdapter, DefaultPipelineUses60HzAntibandingForBothSensors) {
+    const char* previous = ::getenv("SST_ISP_TUNING");
+    const std::string saved = previous == nullptr ? "" : previous;
+    ASSERT_EQ(::unsetenv("SST_ISP_TUNING"), 0);
+    for (int sensor_id : {0, 1}) {
+        sst::capture::GStreamerAdapter adapter({}, "v1", static_cast<std::uint16_t>(sensor_id));
+        const std::string pipeline = adapter.CreatePipeline();
+        EXPECT_NE(pipeline.find("nvarguscamerasrc sensor-id=" + std::to_string(sensor_id) +
+                                " aeantibanding=3 "),
+                  std::string::npos);
+        EXPECT_NE(pipeline.find("tnr-mode=2 tnr-strength=0.5 ee-mode=1 ee-strength=0.4"),
+                  std::string::npos);
+    }
+    ASSERT_EQ(::setenv("SST_ISP_TUNING", "tnr-mode=1", 1), 0);
+    sst::capture::GStreamerAdapter override_adapter({}, "v1", 0);
+    const std::string override_pipeline = override_adapter.CreatePipeline();
+    EXPECT_NE(override_pipeline.find("sensor-id=0 tnr-mode=1 !"), std::string::npos);
+    EXPECT_EQ(override_pipeline.find("aeantibanding=3"), std::string::npos);
+    if (previous == nullptr) {
+        EXPECT_EQ(::unsetenv("SST_ISP_TUNING"), 0);
+    } else {
+        EXPECT_EQ(::setenv("SST_ISP_TUNING", saved.c_str(), 1), 0);
+    }
+}
 
 // Capture test runs against real Jetson hardware (IMX477 via nvarguscamerasrc).
 // Build in dev container, scp the test binary to the Jetson, run with:
