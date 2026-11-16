@@ -64,7 +64,7 @@ auto GStreamerAdapter::CreatePipeline() -> std::string {
     const std::string isp_tuning =
         (isp_env != nullptr)
             ? isp_env
-            : "aeantibanding=3 tnr-mode=2 tnr-strength=0.5 ee-mode=1 ee-strength=0.4";
+            : "tnr-mode=2 tnr-strength=0.9 ee-mode=1 ee-strength=0.4 aeantibanding=3";
 
     // Downstream frame-rate cap. The sensor runs 4K mode 0 at 30fps (VIC-
     // downscaled to the delivered 1080p in the caps above), so the whole CPU-side

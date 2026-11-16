@@ -28,9 +28,8 @@ TEST(GstreamerAdapter, DefaultPipelineUses60HzAntibandingForBothSensors) {
         sst::capture::GStreamerAdapter adapter({}, "v1", static_cast<std::uint16_t>(sensor_id));
         const std::string pipeline = adapter.CreatePipeline();
         EXPECT_NE(pipeline.find("nvarguscamerasrc sensor-id=" + std::to_string(sensor_id) +
-                                " aeantibanding=3 "),
-                  std::string::npos);
-        EXPECT_NE(pipeline.find("tnr-mode=2 tnr-strength=0.5 ee-mode=1 ee-strength=0.4"),
+                                " tnr-mode=2 tnr-strength=0.9 ee-mode=1 ee-strength=0.4 "
+                                "aeantibanding=3 !"),
                   std::string::npos);
     }
     ASSERT_EQ(::setenv("SST_ISP_TUNING", "tnr-mode=1", 1), 0);
