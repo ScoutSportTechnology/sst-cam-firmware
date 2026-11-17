@@ -22,10 +22,10 @@ jobs:
       - id: tag
         run: |
           set -euo pipefail
-          tag="$(tr -d '[:space:]' < compiler-image/VERSION)"
-          dev="$(sed -n 's#^FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:\([^ ]*\).*#\1#p' .devcontainer/Dockerfile)"
-          test "$tag" = "$dev"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          digest="$(tr -d '[:space:]' < compiler-image/DIGEST)"
+          dev="$(sed -n 's#^FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler@\([^ ]*\).*#\1#p' .devcontainer/Dockerfile)"
+          test "$digest" = "$dev"
+          echo "tag=$digest" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -33,7 +33,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: docker buildx imagetools inspect "${IMAGE}:${TAG}" >/dev/null
+        run: docker buildx imagetools inspect "${IMAGE}@${TAG}" >/dev/null
 
   lint:
     needs: image
@@ -63,4 +63,4 @@ jobs:
         run: |
           docker run --rm --user root -v "$PWD":/workspace -w /workspace \
             -e BASE -e BASE_REF \
-            "${IMAGE}:${TAG}" bash -lc 'set -euo pipefail; just lint full'
+            "${IMAGE}@${TAG}" bash -lc 'set -euo pipefail; just lint full'

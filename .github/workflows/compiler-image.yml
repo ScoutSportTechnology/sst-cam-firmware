@@ -8,7 +8,7 @@
 #
 # Tags are immutable. The image (single manifest: no provenance/SBOM
 # attestations, so the label below is readable) carries a label with the hash of its recipe
-# (every file in compiler-image/ except VERSION):
+# (every file in compiler-image/ except DIGEST):
 #   - VERSION tag not published yet          -> build + push VERSION and latest
 #   - published with the same recipe hash    -> nothing to do
 #   - published with a different recipe hash -> FAIL: bump compiler-image/VERSION
@@ -58,7 +58,7 @@ jobs:
             echo "::error::compiler-image/VERSION '${version}' must look like jetpack_7.2-jetson_r39.2-v1"
             exit 1
           fi
-          recipe="$(git ls-files -s compiler-image conanfile.py conan.lock conan/profiles | grep -v ' compiler-image/VERSION$' | sha256sum | cut -d' ' -f1)"
+          recipe="$(git ls-files -s compiler-image conanfile.py conan.lock conan/profiles | grep -v 'compiler-image/DIGEST$' | sha256sum | cut -d' ' -f1)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "recipe=${recipe}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${version} recipe=${recipe}"
