@@ -3,8 +3,8 @@
 # The sysroot, cross toolchain, cmake/conan/protoc/qemu all come from
 # ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler (recipe: compiler-image/).
 # Nothing heavy is built locally; this only adds the tools used while editing.
-# Keep the tag equal to compiler-image/VERSION (CI checks it).
-FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:jetpack_7.2-jetson_r39.2-v4
+# Keep the digest equal to compiler-image/DIGEST (CI checks it).
+FROM ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler@sha256:75b5b0b55e5b93c61281abe57f4d41c0e79a87fb214a0912b741e075b3f97ee8
 
 USER root
 

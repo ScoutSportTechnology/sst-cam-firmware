@@ -7,7 +7,7 @@
 # hardware-bound tests (real IMX477 / BlueZ / radio / live GStreamer) only pass
 # on-device and are expected to fail in the container.
 #
-# Host requires `just` + Docker; compiler-image/VERSION pins the image.
+# Host requires `just` + Docker; compiler-image/DIGEST pins the image.
 
 set shell := ["bash", "-uc"]
 
@@ -19,11 +19,11 @@ default:
 
 # Check the pinned compiler image is available locally.
 up:
-    @docker image inspect "ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)" >/dev/null
+    @docker image inspect "ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler@$(tr -d '[:space:]' < compiler-image/DIGEST)" >/dev/null
 
 # Open an interactive shell in the pinned compiler image.
 shell:
-    @image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)"; \
+    @image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler@$(tr -d '[:space:]' < compiler-image/DIGEST)"; \
       git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
       docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
       test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \
@@ -86,7 +86,7 @@ _run +cmd:
     @if [ -f /.dockerenv ]; then \
         bash -lc "{{cmd}}"; \
     else \
-        image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler:$(tr -d '[:space:]' < compiler-image/VERSION)"; \
+        image="ghcr.io/scoutsporttechnology/sst-cam-firmware-compiler@$(tr -d '[:space:]' < compiler-image/DIGEST)"; \
         git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"; \
         docker image inspect "$image" >/dev/null || { echo "Pinned compiler image not present: $image" >&2; exit 1; }; \
         test "$(df -BG --output=avail / | tr -dc '0-9')" -ge 10 || { echo 'Need 10 GB free before running compiler image' >&2; exit 1; }; \

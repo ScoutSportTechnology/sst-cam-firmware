@@ -1,4 +1,4 @@
-# Pull the published compiler image `${image}:${tag}` (see compiler-image/ and
+# Pull the pinned compiler image `${image}@${tag}` (see compiler-image/ and
 # .github/workflows/compiler-image.yml) so the caller can `docker run` it.
 # No local fallback build: if the tag is not published, run the compiler-image
 # workflow first. Records pull time and free disk before/after.
@@ -25,6 +25,6 @@ runs:
         set -euo pipefail
         echo "::group::disk before pull"; df -h /; echo "::endgroup::"
         start=$(date +%s)
-        docker pull "${IMAGE}:${TAG}"
+        docker pull "${IMAGE}@${TAG}"
         echo "image pull took $(( $(date +%s) - start ))s"
         echo "::group::disk after pull"; df -h /; echo "::endgroup::"
