@@ -216,6 +216,7 @@ file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
 )
 
 list(FILTER CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
+list(FILTER CORE_SOURCES EXCLUDE REGEX ".*/capture/frame/argus/argus-hardware\\.cpp$")
 
 add_library(sst_cam_firmware_internal_libs STATIC ${CORE_SOURCES})
 
@@ -223,6 +224,27 @@ target_link_libraries(sst_cam_firmware_internal_libs PUBLIC
     sst_cam_firmware_external_libs
     sst_proto
 )
+
+find_path(SST_ARGUS_INCLUDE Argus/Argus.h REQUIRED)
+find_path(SST_NVBUF_INCLUDE nvbufsurface.h REQUIRED)
+find_path(SST_CUDA_INCLUDE cudaEGL.h PATHS "${CMAKE_SYSROOT}/usr/local/cuda-13.2/include" NO_DEFAULT_PATH REQUIRED)
+find_library(SST_ARGUS_LIBRARY NAMES nvargus_socketclient PATHS "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-gnu/tegra" NO_DEFAULT_PATH REQUIRED)
+find_library(SST_NVBUF_LIBRARY NAMES nvbufsurface PATHS "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-gnu/tegra" NO_DEFAULT_PATH REQUIRED)
+find_library(SST_CUDA_LIBRARY NAMES cuda PATHS "${CMAKE_SYSROOT}/usr/local/cuda-13.2/targets/sbsa-linux/lib/stubs" NO_DEFAULT_PATH REQUIRED)
+find_library(SST_CUDART_LIBRARY NAMES cudart PATHS "${CMAKE_SYSROOT}/usr/local/cuda-13.2/lib64" NO_DEFAULT_PATH REQUIRED)
+find_library(SST_EGL_LIBRARY NAMES EGL REQUIRED)
+
+add_library(sst_argus_hardware SHARED src/adapters/capture/frame/argus/argus-hardware.cpp)
+set_target_properties(sst_argus_hardware PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+target_include_directories(sst_argus_hardware PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(sst_argus_hardware SYSTEM PRIVATE
+    ${SST_ARGUS_INCLUDE} ${SST_NVBUF_INCLUDE} ${SST_CUDA_INCLUDE})
+target_link_directories(sst_argus_hardware PRIVATE "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-gnu/tegra")
+target_link_options(sst_argus_hardware PRIVATE
+    "-Wl,-rpath-link,${CMAKE_SYSROOT}/usr/lib/aarch64-linux-gnu/tegra")
+target_link_libraries(sst_argus_hardware PRIVATE
+    ${SST_ARGUS_LIBRARY} ${SST_NVBUF_LIBRARY} ${SST_CUDA_LIBRARY}
+    ${SST_CUDART_LIBRARY} ${SST_EGL_LIBRARY})
 
 target_include_directories(sst_cam_firmware_internal_libs PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src

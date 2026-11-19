@@ -11,6 +11,7 @@ set(_hardware_tests
     RawCaptureSinkE2E.StartWhileCapturingIsRejected
     RawCaptureSinkE2E.StopIsIdempotentlySafe
     GstreamerAdapter.CaptureSingleFrameAndLog
+    DirectArgusHardware.CapturesComparableSensorTimestampsWithoutCpuMaps
     BleAdvertisementTest.AdvertisesOnRealBluez
     WpaWifiManagerE2E.FormsAutonomousGroupOwner
     StreamingE2E.AppStreamServerStartsAndAcceptsPushes
