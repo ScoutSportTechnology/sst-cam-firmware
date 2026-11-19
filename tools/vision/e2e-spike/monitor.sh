@@ -22,6 +22,9 @@ for ((second=0; second<seconds; second++)); do
   awk '/MemAvailable:/ {printf "MemAvailable_kib=%s ", $2}' /proc/meminfo >>"$logdir/monitor.log"
   ps -p "$pid" -o 'pid=,pcpu=,rss=,nlwp=,stat=' >>"$logdir/monitor.log" || true
   ps -L -p "$pid" -o 'tid=,pcpu=,comm=' >>"$logdir/threads.log" || true
+  # /proc/stat preserves per-core busy and idle ticks for interval-by-interval CPU accounting.
+  printf '%s\n' "$(date -Ins)" >>"$logdir/cores.log"
+  grep '^cpu[0-9]' /proc/stat >>"$logdir/cores.log"
   sleep 1
 done
 # Existing kernel logs are read only. Keep timestamps for correlations to frame counters.
