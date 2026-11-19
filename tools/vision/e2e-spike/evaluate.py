@@ -7,28 +7,28 @@ from pathlib import Path
 
 
 def fields(line):
-    return dict(re.findall(r'([a-z_]+)=([^\s]+)', line))
+    return dict(re.findall(r'([a-z_][a-z_0-9]*)=([^\s]+)', line))
 
 
 def summarize(root, mode):
-    source = root / f'vision-e2e-{mode}'
+    source = root / mode
     lines = (source / 'e2e.log').read_text().splitlines()
     steady = next((fields(line) for line in lines if line.startswith('window=steady ')), {})
     final = next((fields(line) for line in lines if line.startswith('final ')), {})
     monitor = (source / 'monitor.log').read_text().splitlines()
     memory = [int(value) for line in monitor for value in re.findall(r'MemAvailable_kib=(\d+)', line)]
-    probe = json.loads((root / f'{mode}-ffprobe.json').read_text())
-    streams = probe.get('streams', [])
-    stream = streams[0] if streams else {}
-    frame_count = int(stream.get('nb_read_frames') or 0)
-    duration = float(stream.get('duration') or 0)
+    measurement = json.loads((root / 'recorded-mp4.json').read_text())[mode]
+    frame_count = int(measurement['nb_read_frames'])
+    duration = float(measurement['duration_seconds'])
     record_fps = frame_count / duration if duration else 0
-    viewer = json.loads((root / f'{mode}-viewer.log').read_text())
+    viewer_file = root / f'{mode}-viewer.log'
+    viewer = json.loads(viewer_file.read_text()) if viewer_file.exists() and viewer_file.stat().st_size else {}
     limits = {
-        'ten_minutes': float(final.get('elapsed_s', 0)) >= 600,
+        'ten_minutes': float(steady.get('elapsed_s', 0)) >= 600,
         'capture_no_drops': steady.get('no_drop') == 'PASS',
         'inference_15hz': float(steady.get('infer_hz', 0)) >= 15,
         'record_29_5fps': record_fps >= 29.5,
+        'record_ten_minutes': duration >= 600,
         'stream_29_5fps': viewer.get('decoded_fps', 0) >= 29.5 and viewer.get('full_window', False),
         'memory_1gib': bool(memory) and min(memory) >= 1048576,
     }
