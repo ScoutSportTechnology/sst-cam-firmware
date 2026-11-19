@@ -1,0 +1,3 @@
+trt_tensor=input elements=1572864 role=input
+trt_tensor=dets elements=2400 role=output
+trt_tensor=labels elements=54600 role=output

@@ -1,0 +1,6 @@
+e2e spike failed: NVRTC compile: virtual-camera.cu(12): error: A function without execution space annotations (__host__/__device__/__global__) is considered a host function, and host functions are not allowed in JIT mode. Consider using -default-device flag to process unannotated functions as __device__ functions in JIT mode
+  struct Visibility { float weight; bool left; bool right; }; Visibility visibility(float az, float yaw0, float yaw1) { float overlap = 4.f * .01745329252f; float limit = 38.f * .01745329252f; float weight = fminf(1.f, fmaxf(0.f, (az + overlap) / (2.f * overlap))); if (fabsf(az - yaw0) > limit && fabsf(az - yaw1) <= limit) weight = 1.f; if (fabsf(az - yaw1) > limit && fabsf(az - yaw0) <= limit) weight = 0.f; return {weight, weight < 1.f, weight > 0.f}; }
+                                                                         ^
+
+1 error detected in the compilation of "virtual-camera.cu".
+
