@@ -29,20 +29,23 @@ def summarize(root, mode):
     record_fps = frame_count / duration if duration else 0
     viewer_file = root / f'{mode}-viewer.log'
     viewer = json.loads(viewer_file.read_text()) if viewer_file.exists() and viewer_file.stat().st_size else {}
+    # Conservative viewer rate: wall clock is biased up by the startup backlog, PTS hides delivery stalls.
+    viewer_fps = min(viewer.get('decoded_fps', 0), viewer.get('pts_fps', 0))
     limits = {
         'ten_minutes': float(steady.get('elapsed_s', 0)) >= 600,
         'capture_no_drops': steady.get('no_drop') == 'PASS',
         'inference_15hz': float(steady.get('infer_hz', 0)) >= 15,
         'record_29_5fps': record_fps >= 29.5,
         'record_ten_minutes': duration >= 600,
-        'stream_29_5fps': viewer.get('decoded_fps', 0) >= 29.5 and viewer.get('full_window', False),
+        'stream_29_5fps': viewer_fps >= 29.5 and viewer.get('full_window', False)
+            and not viewer.get('missed_segments', 1) and not viewer.get('pts_discontinuities', 1),
         'memory_1gib': bool(memory) and min(memory) >= 1048576,
     }
     return {'mode': mode, 'limits': limits, 'status': 'NOT_VERIFIED' if not all(limits.values()) else 'PENDING_THERMAL_REVIEW',
             'capture_fps': steady.get('capture_fps'), 'paired_pct': steady.get('paired_pct'),
             'infer_hz': steady.get('infer_hz'), 'infer_p99_ms': steady.get('inference_latency_ms_p99'),
             'render_fps': steady.get('render_fps'), 'encode_fps': final.get('steady_encoded_fps'),
-            'record_fps': record_fps, 'viewer_fps': viewer.get('decoded_fps'),
+            'record_fps': record_fps, 'viewer_fps': viewer_fps if viewer else None,
             'mem_available_min_kib': min(memory) if memory else None,
             'tegrastats_log': str(source / 'tegrastats.log'),
             'throttling': 'UNREVIEWED', 'cpu_per_core': str(source / 'cores.log')}

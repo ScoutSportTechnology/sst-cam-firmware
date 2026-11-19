@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/root/.paseo/worktrees/3qlepqsk/spike-vision-e2e-feasibility/tools/vision/e2e-spike/viewer-hls.py", line 57, in <module>
+    main()
+  File "/root/.paseo/worktrees/3qlepqsk/spike-vision-e2e-feasibility/tools/vision/e2e-spike/viewer-hls.py", line 35, in main
+    with open_live(args.playlist, 30) as container:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.paseo/worktrees/3qlepqsk/spike-vision-e2e-feasibility/tools/vision/e2e-spike/viewer-hls.py", line 14, in open_live
+    return av.open(playlist, options={'rw_timeout': '15000000'})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "av/container/core.py", line 564, in av.container.core.open
+  File "av/container/core.py", line 336, in av.container.core.Container.__cinit__
+  File "av/container/core.py", line 361, in av.container.core.Container.err_check
+  File "av/error.py", line 354, in av.error.err_check
+av.error.OSError: [Errno 5] Input/output error: 'https://rtmp.internal.rsantamaria.xyz/hls/vision-e2e-s2-1080.m3u8'
