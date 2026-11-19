@@ -1,0 +1,24 @@
+{
+  "measurement": "Host PyAV/FFmpeg decode of complete MP4, independently of prototype counters; target ffprobe was absent (see *-ffprobe.err)",
+  "4k": {
+    "path": "logs/4k/output.mp4",
+    "sha256": "ace8c334e1467a4b101e532a1a8aa10de028187061d223651c01f379f4c44ad6",
+    "source_capture_mode": "3840x2160@30 dual cameras",
+    "output_width": 1920,
+    "output_height": 1080,
+    "nb_read_frames": 17926,
+    "duration_seconds": 597.531,
+    "recorded_fps": 30.000117
+  },
+  "1080": {
+    "path": "logs/1080/output.mp4",
+    "sha256": "3f8b7c843602e5dc5908a5fda9825a35ba7859105218dd6a690dab6bfff0154e",
+    "source_capture_mode": "1920x1080@30 dual cameras",
+    "output_width": 1920,
+    "output_height": 1080,
+    "nb_read_frames": 17929,
+    "duration_seconds": 597.6183333333333,
+    "recorded_fps": 30.000753
+  },
+  "limitation": "Both recordings end below 600 seconds because the 1.5-second ring warms and its final 45 pairs are not encoded. No independent HLS viewer count succeeded. MP4 binaries are stored locally outside git, not deleted."
+}
