@@ -17,9 +17,15 @@ def summarize(root, mode):
     final = next((fields(line) for line in lines if line.startswith('final ')), {})
     monitor = (source / 'monitor.log').read_text().splitlines()
     memory = [int(value) for line in monitor for value in re.findall(r'MemAvailable_kib=(\d+)', line)]
-    measurement = json.loads((root / 'recorded-mp4.json').read_text())[mode]
-    frame_count = int(measurement['nb_read_frames'])
-    duration = float(measurement['duration_seconds'])
+    measurement_file = root / 'recorded-mp4.json'
+    if measurement_file.exists():
+        measurement = json.loads(measurement_file.read_text())[mode]
+        frame_count = int(measurement['nb_read_frames'])
+        duration = float(measurement['duration_seconds'])
+    else:
+        measurement = json.loads((root / f'{mode}-ffprobe.json').read_text())['streams'][0]
+        frame_count = int(measurement['nb_read_frames'])
+        duration = float(measurement['duration'])
     record_fps = frame_count / duration if duration else 0
     viewer_file = root / f'{mode}-viewer.log'
     viewer = json.loads(viewer_file.read_text()) if viewer_file.exists() and viewer_file.stat().st_size else {}

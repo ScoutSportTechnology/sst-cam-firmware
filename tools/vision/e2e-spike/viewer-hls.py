@@ -7,6 +7,17 @@ import time
 import av
 
 
+def open_live(playlist, startup_seconds):
+    deadline = time.monotonic() + startup_seconds
+    while True:
+        try:
+            return av.open(playlist, options={'rw_timeout': '15000000'})
+        except (OSError, av.FFmpegError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('playlist', help='Full HTTPS URL to the stream-specific .m3u8')
@@ -21,7 +32,7 @@ def main():
     last_pts = None
     discontinuities = 0
     # Do not pass credentials or secrets to the demuxer. Fail if the stream stalls/exits.
-    with av.open(args.playlist, options={'rw_timeout': '15000000'}) as container:
+    with open_live(args.playlist, 30) as container:
         for frame in container.decode(video=0):
             if first is None:
                 first = time.monotonic()
