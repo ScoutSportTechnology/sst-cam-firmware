@@ -2,6 +2,7 @@
 """Fail-closed checks for the 90-minute stress evidence (synthetic, no hardware)."""
 import importlib.util
 import json
+import re
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,7 @@ class StressEvaluateTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.mode = self.root / 'veryfast'
         self.mode.mkdir()
-        start = datetime(2026, 11, 19, tzinfo=timezone.utc)
+        start = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
         (self.mode / 'e2e.log').write_text(''.join(
             f'minute={minute} elapsed_s={minute * 60 + 5} capture_fps=30,30 paired_pct=100 '
             'render_fps=30 render_ms_mean=20 infer_hz=15 infer_batches=900 analysis_skipped=0 '
@@ -59,6 +60,74 @@ class StressEvaluateTest(unittest.TestCase):
         self.assertEqual(result['cpu_per_core']['cpu0']['mean_pct'], 40)
         self.assertEqual(result['gpu']['p95_pct'], 55)
         self.assertTrue(result['headroom'])
+
+    def make_90_minute_evidence(self, gap=False, hot_tail=False):
+        start = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
+        log = self.mode / 'e2e.log'
+        minute_line = log.read_text().splitlines()[0]
+        log.write_text(''.join(
+            minute_line.replace('minute=1 elapsed_s=65',
+                                f'minute={minute} elapsed_s={minute * 60 + 5}') + '\n'
+            for minute in range(1, 91)) + 'final acceptance=PASS\n')
+        seconds = [second for second in range(5401)
+                   if not gap or not 1200 <= second < 1680]
+        (self.mode / 'monitor.log').write_text(''.join(
+            f'{(start + timedelta(seconds=second)).isoformat()} MemAvailable_kib=3000000 pid\n'
+            for second in seconds))
+        (self.mode / 'cores.log').write_text(''.join(
+            f'{(start + timedelta(seconds=second)).isoformat()}\n'
+            f'cpu0 {40 * second} 0 0 {60 * second} 0 0 0 0 0 0\n'
+            f'cpu1 {30 * second} 0 0 {70 * second} 0 0 0 0 0 0\n'
+            for second in seconds))
+        (self.mode / 'tegrastats.log').write_text(''.join(
+            f'{(start + timedelta(seconds=second)).strftime("%m-%d-%Y %H:%M:%S")} '
+            f'RAM 2000/7485MB GR3D_FREQ 55% tj@{55 if hot_tail and second >= 4500 else 50}C/60C\n'
+            for second in seconds for _ in range(2 if hot_tail and second >= 4500 else 1)))
+        viewer = self.root / 'veryfast-viewer.log'
+        viewer.write_text(json.dumps({**json.loads(viewer.read_text()),
+                                      'decoded_frames': 162000, 'elapsed_s': 5400}))
+        mp4 = self.root / 'veryfast-mp4.json'
+        mp4.write_text(json.dumps({**json.loads(mp4.read_text()),
+                                   'nb_read_frames': 162000, 'duration': 5400}))
+
+    def test_eight_minute_gap_in_each_telemetry_feed_fails_despite_high_sample_count(self):
+        names = ('monitor.log', 'cores.log', 'tegrastats.log')
+        self.make_90_minute_evidence()
+        complete = {name: (self.mode / name).read_text() for name in names}
+        self.assertEqual(module.summarize(self.root, 'veryfast', minutes=90)['status'], 'PASS')
+        self.make_90_minute_evidence(gap=True)
+        missing = {name: (self.mode / name).read_text() for name in names}
+        for name in names:
+            with self.subTest(feed=name):
+                for feed in names:
+                    (self.mode / feed).write_text(missing[feed] if feed == name else complete[feed])
+                result = module.summarize(self.root, 'veryfast', minutes=90)
+                self.assertGreater(result['telemetry_samples']['memory'], 4860)
+                self.assertGreater(result['telemetry_samples']['gpu'], 4860)
+                self.assertFalse(result['limits']['telemetry_coverage'])
+                self.assertEqual(result['status'], 'FAIL')
+
+    def test_missing_telemetry_timestamps_do_not_count_as_coverage(self):
+        monitor = self.mode / 'monitor.log'
+        monitor.write_text(''.join(line.split(' ', 1)[1] + '\n'
+                                   for line in monitor.read_text().splitlines()))
+        self.assertFalse(self.evaluate()['limits']['telemetry_coverage'])
+
+    def test_cpu_guest_ticks_are_not_double_counted(self):
+        cores = self.mode / 'cores.log'
+        cores.write_text(re.sub(r'^cpu0 (\d+) 0 0 (\d+) 0 0 0 0 0 0$',
+                                lambda match: f'cpu0 {match[1]} 0 0 {match[2]} 0 0 0 0 {match[1]} 0',
+                                cores.read_text(), flags=re.MULTILINE))
+        result = self.evaluate()
+        self.assertEqual(result['cpu_per_core']['cpu0']['mean_pct'], 40)
+        self.assertTrue(result['limits']['telemetry_coverage'])
+
+    def test_last_15_minute_thermal_trend_uses_time_not_last_900_samples(self):
+        self.make_90_minute_evidence(hot_tail=True)
+        result = module.summarize(self.root, 'veryfast', minutes=90)
+        self.assertTrue(result['limits']['telemetry_coverage'])
+        self.assertEqual(result['thermal']['last_15m_delta_c'], 5)
+        self.assertFalse(result['limits']['thermal'])
 
     def test_first_window_cannot_be_startup_period(self):
         log = self.mode / 'e2e.log'

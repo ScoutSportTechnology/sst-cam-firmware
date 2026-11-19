@@ -9,7 +9,7 @@ import math
 import re
 import statistics
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -31,7 +31,8 @@ def number(data, key):
 
 
 def cpu_stats(path):
-    previous, samples, stamps = {}, {}, []
+    previous, samples, times = {}, {}, {}
+    stamp = None
     for line in path.read_text().splitlines():
         if line.startswith('cpu'):
             parts = line.split()
@@ -45,15 +46,30 @@ def cpu_stats(path):
                 old_busy, old_total = previous[parts[0]]
                 if total > old_total:
                     samples.setdefault(parts[0], []).append(100 * (busy - old_busy) / (total - old_total))
+                    if stamp is not None:
+                        times.setdefault(parts[0], []).append(stamp)
             previous[parts[0]] = busy, total
         else:
-            try:
-                stamps.append(datetime.fromisoformat(line.strip()).timestamp())
-            except ValueError:
-                pass
+            stamp = parse_time(line.strip())
     return ({core: {'mean_pct': round(statistics.mean(vals), 2), 'p95_pct': round(percentile(vals, .95), 2),
-                    'samples': len(vals)} for core, vals in samples.items() if vals},
-            stamps[-1] - stamps[0] if len(stamps) > 1 else 0)
+                    'samples': len(vals)} for core, vals in samples.items() if vals}, times)
+
+
+def parse_time(value, tegra=False):
+    try:
+        return (datetime.strptime(value[:19], '%m-%d-%Y %H:%M:%S') if tegra else
+                datetime.fromisoformat(value.split()[0]).replace(tzinfo=None))
+    except ValueError:
+        return None
+
+
+def covered(times, start, minutes):
+    counts = [0] * minutes
+    for stamp in times:
+        minute = int((stamp - start).total_seconds() // 60)
+        if 0 <= minute < minutes:
+            counts[minute] += 1
+    return all(count >= 54 for count in counts)
 
 
 def summarize(root, preset='veryfast', minutes=90):
@@ -87,17 +103,29 @@ def summarize(root, preset='veryfast', minutes=90):
             bad_minutes.append(minute if math.isfinite(minute) else window.get('minute', '?'))
         seen.add(minute)
     missing_minutes = sorted(set(range(1, minutes + 1)) - seen)
-    memory = [int(value) for line in (source / 'monitor.log').read_text().splitlines()
-              for value in re.findall(r'MemAvailable_kib=(\d+)', line)]
-    cores, cpu_span = cpu_stats(source / 'cores.log')
+    monitor = [(parse_time(line), int(match[1]))
+               for line in (source / 'monitor.log').read_text().splitlines()
+               if (match := re.search(r'MemAvailable_kib=(\d+)', line))]
+    memory = [value for _, value in monitor]
+    cores, cpu_times = cpu_stats(source / 'cores.log')
     tegra_path = source / 'tegrastats.log'
     tegra_lines = tegra_path.read_text().splitlines() if tegra_path.exists() else []
-    gpu = [int(match.group(1)) for line in tegra_lines
-           if (match := re.search(r'\bGR3D_FREQ (\d+)%', line))]
-    tj = [float(match.group(1)) for line in tegra_lines
-          if (match := re.search(r'\btj@([\d.]+)C', line))]
+    gpu_samples = [(parse_time(line, tegra=True), int(match[1])) for line in tegra_lines
+                   if (match := re.search(r'\bGR3D_FREQ (\d+)%', line))]
+    tj_samples = [(parse_time(line, tegra=True), float(match[1])) for line in tegra_lines
+                  if (match := re.search(r'\btj@([\d.]+)C', line))]
+    gpu = [value for _, value in gpu_samples]
+    tj = [value for _, value in tj_samples]
     gpu_stats = {'mean_pct': round(statistics.mean(gpu), 2), 'p95_pct': percentile(gpu, .95)} if gpu else {}
-    slice_samples = min(900, seconds // 2)
+    slice_seconds = min(900, seconds // 2)
+    stamps = [stamp for stamp in ([time for time, _ in monitor] +
+              [time for times in cpu_times.values() for time in times] +
+              [time for time, _ in gpu_samples] + [time for time, _ in tj_samples]) if stamp is not None]
+    start = min(stamps) if stamps else None
+    def times_covered(times):
+        times = [stamp for stamp in times if stamp is not None]
+        return (start is not None and times and (max(times) - min(times)).total_seconds() >= seconds - 3 and
+                covered(times, start, minutes))
     trips_path = source / 'thermal-trips.log'
     trips = []
     sensor = ''
@@ -108,18 +136,25 @@ def summarize(root, preset='veryfast', minutes=90):
         if match and ('gpu' in sensor or 'tj' in sensor or 'junction' in sensor) and match[1] in ('passive', 'hot', 'critical'):
             trips.append(int(match[2]) / 1000)
     trip_c = min(trips) if trips else None
-    thermal = {'max_c': max(tj), 'last_15m_delta_c': round(statistics.mean(tj[-slice_samples:]) -
-                statistics.mean(tj[-2 * slice_samples:-slice_samples]), 2),
+    first_slice = [value for stamp, value in tj_samples if stamp is not None and start is not None and
+                   start + timedelta(seconds=seconds - 2 * slice_seconds) <= stamp <
+                   start + timedelta(seconds=seconds - slice_seconds)]
+    last_slice = [value for stamp, value in tj_samples if stamp is not None and start is not None and
+                  start + timedelta(seconds=seconds - slice_seconds) <= stamp <
+                  start + timedelta(seconds=seconds)]
+    thermal = {'max_c': max(tj), 'last_15m_delta_c': round(statistics.mean(last_slice) -
+                statistics.mean(first_slice), 2),
                 'trip_c': trip_c, 'trip_margin_c': round(trip_c - max(tj), 2) if trip_c is not None else None
-                } if len(tj) >= 2 * slice_samples else {'trip_c': trip_c}
+                } if first_slice and last_slice else {'trip_c': trip_c}
     kernel_path = source / 'kernel.log'
     kernel = kernel_path.read_text() if kernel_path.exists() else ''
     viewer = json.loads((root / f'{preset}-viewer.log').read_text())
     mp4 = json.loads((root / f'{preset}-mp4.json').read_text())
     # The 90-minute thermal trend needs two complete 15-minute steady-state slices.
-    telemetry_ok = (len(memory) >= seconds * .9 and cpu_span >= seconds - 3 and
-                    bool(cores) and all(stat['samples'] >= seconds * .9 for stat in cores.values()) and
-                    len(gpu) >= seconds * .9 and len(tj) >= seconds * .9)
+    telemetry_ok = (times_covered([stamp for stamp, _ in monitor]) and bool(cores) and
+                    all(times_covered(cpu_times.get(core, [])) for core in cores) and
+                    times_covered([stamp for stamp, _ in gpu_samples]) and
+                    times_covered([stamp for stamp, _ in tj_samples]))
     limits = {
         'all_minutes': len(windows) == minutes and not missing_minutes and not bad_minutes,
         'final_acceptance': bool(final) and final[-1].get('acceptance') == 'PASS' and
