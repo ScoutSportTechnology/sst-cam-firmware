@@ -24,6 +24,15 @@ class EvaluateTest(unittest.TestCase):
                 self.assertGreater(float(result['infer_p99_ms']), 30)
                 self.assertIsNone(result['viewer_fps'])
 
+    def test_session2_detector_kept_its_15hz_schedule_but_viewer_unproven(self):
+        # Both modes ran 9150 batches with no skipped slot; 4K's 14.999 Hz is window-edge quantization.
+        for mode in ('4k', '1080'):
+            with self.subTest(mode=mode):
+                result = summarize(ROOT / 'logs-session2', mode)
+                self.assertTrue(result['limits']['inference_15hz'])
+                self.assertFalse(result['limits']['stream_29_5fps'])
+                self.assertEqual(result['status'], 'NOT_VERIFIED')
+
     def test_cli_reads_actual_mode_directories(self):
         output = subprocess.check_output([sys.executable, str(ROOT / 'evaluate.py')], text=True)
         results = [json.loads(line) for line in output.splitlines()]

@@ -34,7 +34,9 @@ def summarize(root, mode):
     limits = {
         'ten_minutes': float(steady.get('elapsed_s', 0)) >= 600,
         'capture_no_drops': steady.get('no_drop') == 'PASS',
-        'inference_15hz': float(steady.get('infer_hz', 0)) >= 15,
+        # Detection is scheduled at exactly 15 Hz: allow one batch of window-edge quantization, no skipped slot.
+        'inference_15hz': steady.get('analysis_skipped') == '0'
+            and int(steady.get('infer_batches', 0)) + 1 >= 15 * float(steady.get('elapsed_s', 0)),
         'record_29_5fps': record_fps >= 29.5,
         'record_ten_minutes': duration >= 600,
         'stream_29_5fps': viewer_fps >= 29.5 and viewer.get('full_window', False)

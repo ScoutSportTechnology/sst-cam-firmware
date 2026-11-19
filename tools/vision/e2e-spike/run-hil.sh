@@ -14,8 +14,8 @@ root="$(dirname "$(realpath "$0")")"
 SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -i /root/.ssh/jetson_ed25519)
 SCP=(scp -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -i /root/.ssh/jetson_ed25519)
 remote=sst@10.10.1.30
-run=/home/sst/vision-e2e-spike-20261119-session2
-out="$root/logs-session2"
+run=/home/sst/vision-e2e-spike-20261119-session3
+out="$root/logs-session3"
 [[ ! -e "$out" ]] || { echo "Existing logs: $out" >&2; exit 1; }
 mkdir "$out"
 stopped=0
@@ -40,9 +40,9 @@ stopped=1
 failed=0
 for mode in 4k 1080; do
   "${SSH[@]}" "$remote" "mkdir $run/$mode"
-  (sleep 2; timeout 720 /root/setup/vision/.venv/bin/python "$root/viewer-hls.py" "https://rtmp.internal.rsantamaria.xyz/hls/vision-e2e-s2-$mode.m3u8" --seconds 600 >"$out/$mode-viewer.log" 2>"$out/$mode-viewer.err") &
+  (sleep 2; timeout 720 /root/setup/vision/.venv/bin/python "$root/viewer-hls.py" "https://rtmp.internal.rsantamaria.xyz/hls/vision-e2e-s3-$mode.m3u8" --seconds 600 >"$out/$mode-viewer.log" 2>"$out/$mode-viewer.err") &
   viewer=$!
-  if ! "${SSH[@]}" "$remote" "bash -lc 'cd $run/$mode; set -uo pipefail; stdbuf -oL -eL $run/e2e-aarch64 --mode $mode --seconds 615 --engine $run/rfdetr-small.engine --record $run/$mode/output.mp4 --rtmp rtmp://10.10.1.96/live/vision-e2e-s2-$mode >e2e.log 2>e2e.err & pid=\$!; (sleep 690; kill -TERM \$pid 2>/dev/null || true) & watchdog=\$!; $run/monitor.sh \$pid 650 . & monitor=\$!; wait \$pid; result=\$?; kill \$watchdog \$monitor 2>/dev/null || true; wait \$monitor 2>/dev/null || true; exit \$result'" >"$out/$mode-run.log" 2>&1; then failed=1; fi
+  if ! "${SSH[@]}" "$remote" "bash -lc 'cd $run/$mode; set -uo pipefail; stdbuf -oL -eL $run/e2e-aarch64 --mode $mode --seconds 630 --engine $run/rfdetr-small.engine --record $run/$mode/output.mp4 --rtmp rtmp://10.10.1.96/live/vision-e2e-s3-$mode >e2e.log 2>e2e.err & pid=\$!; (sleep 690; kill -TERM \$pid 2>/dev/null || true) & watchdog=\$!; $run/monitor.sh \$pid 665 . & monitor=\$!; wait \$pid; result=\$?; kill \$watchdog \$monitor 2>/dev/null || true; wait \$monitor 2>/dev/null || true; exit \$result'" >"$out/$mode-run.log" 2>&1; then failed=1; fi
   if ! wait "$viewer"; then failed=1; fi
   "${SSH[@]}" "$remote" 'sudo -n journalctl -k -b -o short-monotonic --no-pager' >"$out/$mode-kernel.log" 2>"$out/$mode-kernel.err" || failed=1
   if ! "${SCP[@]}" -r "$remote:$run/$mode/" "$out/"; then failed=1; fi

@@ -16,10 +16,14 @@ bool noDropVerdict(uint64_t timestampGaps, uint64_t captureGaps, uint64_t intern
     return !(timestampGaps || captureGaps || internalGaps || reordered || queueDrops ||
              unmatched || renderMisses);
 }
+// Detection is scheduled at exactly 15 Hz, so a window can hold one batch fewer than 15 x seconds.
+bool inferenceKeptUp(uint64_t batches, uint64_t skipped, double seconds) {
+    return !skipped && batches + 1 >= 15.0 * seconds;
+}
 bool steadyAcceptance(bool noCaptureDrops, double leftFps, double rightFps,
-                      double inferenceHz, double renderFps, double encodedFps) {
+                      bool inferenceOk, double renderFps, double encodedFps) {
     return noCaptureDrops && leftFps >= 29.5 && rightFps >= 29.5 &&
-           inferenceHz >= 15.0 && renderFps >= 29.5 && encodedFps >= 29.5;
+           inferenceOk && renderFps >= 29.5 && encodedFps >= 29.5;
 }
 size_t windowFor(Clock::duration elapsed) {
     return elapsed < std::chrono::seconds(kStartupSeconds) ? 0 : 1;
@@ -68,12 +72,16 @@ int main() {
     assert(percentile({}, .99) == 0);
     assert(!noDropVerdict(0, 0, 0, 0, 0, 0, 1));
     assert(noDropVerdict(0, 0, 0, 0, 0, 0, 0));
-    assert(steadyAcceptance(true, 30.0, 30.0, 15.0, 29.5, 29.5));
-    assert(!steadyAcceptance(false, 30.0, 30.0, 15.0, 30.0, 30.0));
-    assert(!steadyAcceptance(true, 29.4, 30.0, 15.0, 30.0, 30.0));
-    assert(!steadyAcceptance(true, 30.0, 30.0, 14.99, 30.0, 30.0));
-    assert(!steadyAcceptance(true, 30.0, 30.0, 15.0, 29.49, 30.0));
-    assert(!steadyAcceptance(true, 30.0, 30.0, 15.0, 30.0, 29.49));
+    assert(steadyAcceptance(true, 30.0, 30.0, true, 29.5, 29.5));
+    assert(!steadyAcceptance(false, 30.0, 30.0, true, 30.0, 30.0));
+    assert(!steadyAcceptance(true, 29.4, 30.0, true, 30.0, 30.0));
+    assert(!steadyAcceptance(true, 30.0, 30.0, false, 30.0, 30.0));
+    assert(!steadyAcceptance(true, 30.0, 30.0, true, 29.49, 30.0));
+    assert(!steadyAcceptance(true, 30.0, 30.0, true, 30.0, 29.49));
+    // Session 2 4K steady window: 9150 batches in 610.027 s with no skipped slot.
+    assert(inferenceKeptUp(9150, 0, 610.027));
+    assert(!inferenceKeptUp(9149, 0, 610.027));
+    assert(!inferenceKeptUp(9150, 1, 610.027));
     std::puts("pair selection, window and latency statistics passed");
 }
 #else
@@ -745,7 +753,6 @@ int run(int argc, char** argv) {
     std::exception_ptr failure;
     const auto started = Clock::now(), deadline = started + std::chrono::seconds(options.seconds);
     auto nextReport = started + std::chrono::seconds(1);
-    auto nextTick = started + std::chrono::nanoseconds(kRingPairs * kFrameNs);
     auto nextAnalysis = started;
     shared.started = started;
     shared.internalAvailable = api->supportsExtension(EXT_INTERNAL_FRAME_COUNT);
@@ -795,7 +802,7 @@ int run(int argc, char** argv) {
             {
                 std::unique_lock<std::mutex> lock(shared.mutex);
                 if (shared.queued[0].empty() || shared.queued[1].empty())
-                    shared.ready.wait_until(lock, std::min(nextTick, Clock::now() + std::chrono::milliseconds(33)), [&] {
+                    shared.ready.wait_until(lock, Clock::now() + std::chrono::milliseconds(33), [&] {
                         return shared.failed || shared.exited[0] || shared.exited[1] ||
                                (!shared.queued[0].empty() && !shared.queued[1].empty());
                     });
@@ -845,20 +852,9 @@ int run(int argc, char** argv) {
                     }
                     analysisReady.notify_one();
                 }
-                // A 46th pair is one output opportunity; only a further overrun drops history.
-                if (ring.size() > kRingPairs + 1) {
-                    ring.pop_front();
-                    ++renderMisses;
-                    ++windowMisses[windowFor(Clock::now() - started)];
-                }
-            } else if (action >= 0) {
-                check(cameras[action].output->releaseBuffer(pair[action].buffer) == STATUS_OK,
-                      "unmatched frame release failed");
-            }
-            if (Clock::now() >= nextTick) {
-                if (!filled && Clock::now() >= started + std::chrono::seconds(3))
-                    throw std::runtime_error("45-pair delay ring did not warm within three seconds");
-                if (filled && ring.size() >= kRingPairs) {
+                // Render is paced by sensor pairs: a free-running 30.000 Hz timer drifted against
+                // the 30.009 fps 1080 sensor and overflowed the ring (session 1 and 2 misses).
+                if (filled) {
                     auto frame = ring.front();
                     ring.pop_front();
                     if (!firstPts) firstPts = (*frame)[0].ts;
@@ -866,19 +862,13 @@ int run(int argc, char** argv) {
                                  panForTick(rendered), renderMs);
                     ++rendered;
                     ++windowRendered[windowFor(Clock::now() - started)];
-                } else if (filled) {
-                    ++renderMisses;
-                    ++windowMisses[windowFor(Clock::now() - started)];
                 }
-                nextTick += std::chrono::nanoseconds(kFrameNs);
-                while (nextTick <= Clock::now()) {
-                    if (filled) {
-                        ++renderMisses;
-                        ++windowMisses[windowFor(Clock::now() - started)];
-                    }
-                    nextTick += std::chrono::nanoseconds(kFrameNs);
-                }
+            } else if (action >= 0) {
+                check(cameras[action].output->releaseBuffer(pair[action].buffer) == STATUS_OK,
+                      "unmatched frame release failed");
             }
+            if (!filled && Clock::now() >= started + std::chrono::seconds(3))
+                throw std::runtime_error("45-pair delay ring did not warm within three seconds");
             if (Clock::now() >= nextReport) {
                 encoder.errors();
                 if (!steadyBaselineSet && Clock::now() - started >= std::chrono::seconds(kStartupSeconds)) {
@@ -967,7 +957,7 @@ int run(int argc, char** argv) {
                           windowUnmatched[1], windowMisses[1]),
             shared.windowReceived[1][0] / steadySeconds,
             shared.windowReceived[1][1] / steadySeconds,
-            windowInferred[1].load() / steadySeconds,
+            inferenceKeptUp(windowInferred[1].load(), windowAnalysisSkipped[1], steadySeconds),
             windowRendered[1] / steadySeconds,
             steadyEncodedFps);
     for (size_t window = 0; window < 2; ++window) {
