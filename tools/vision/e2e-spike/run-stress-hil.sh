@@ -13,14 +13,18 @@ SSH=(ssh -n -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept
 SCP=(scp -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -i /root/.ssh/jetson_ed25519)
 remote=sst@10.10.1.30
 run="/home/sst/vision-e2e-stress-$(date -u +%Y%m%dT%H%M%SZ)"
-out="$root/logs-stress"
+stream="${run##*/}"
+out="$root/logs-stress/session2"
 clip=/root/setup/vision-e2e-footage.webm
 python=/root/setup/vision/.venv/bin/python
 [[ ! -e "$out" ]] || { echo "Existing logs: $out" >&2; exit 1; }
 [[ -s "$clip" && -s "$root/e2e-aarch64" && -s "$root/engine-build-aarch64" ]] || {
   echo 'Missing licensed source clip or cross-built binaries' >&2; exit 1;
 }
-mkdir "$out"
+[[ $(sha256sum "$clip" | cut -d' ' -f1) == 64282779e7258654bc8dc227eafb64f8d4e6c98ff5b9eb994dcd177e24d30c96 ]] || {
+  echo 'Soccer clip does not match documented licensed source' >&2; exit 1;
+}
+mkdir -p "$out"
 stopped=0
 restore() {
   local rc=$?
@@ -39,16 +43,16 @@ trap restore EXIT
 stopped=1
 "${SSH[@]}" "$remote" 'sudo -n systemctl stop sst-cam-firmware; systemctl is-active sst-cam-firmware || test "$?" -eq 3' >"$out/service-stopped.log" 2>&1
 "${SCP[@]}" "$root/e2e-aarch64" "$root/engine-build-aarch64" "$root/monitor.sh" /root/setup/vision/rfdetr-export/rfdetr-small.onnx "$clip" "$remote:$run/"
-"${SSH[@]}" "$remote" "cd $run; timeout 420 ./engine-build-aarch64 ./rfdetr-small.onnx ./rfdetr-small.engine" >"$out/engine-small.log" 2>&1
+"${SSH[@]}" "$remote" "chmod +x $run/monitor.sh; cd $run; timeout 420 ./engine-build-aarch64 ./rfdetr-small.onnx ./rfdetr-small.engine" >"$out/engine-small.log" 2>&1
 
 trial() {
   local preset=$1 seconds=$2 viewer_seconds=$3 viewer failed=0
   "${SSH[@]}" "$remote" "mkdir $run/$preset"
   (sleep 2; timeout "$((seconds + 120))" "$python" "$root/viewer-hls.py" \
-    "https://rtmp.internal.rsantamaria.xyz/hls/vision-e2e-stress-$preset.m3u8" \
+    "https://rtmp.internal.rsantamaria.xyz/hls/$stream-$preset.m3u8" \
     --seconds "$viewer_seconds" >"$out/$preset-viewer.log" 2>"$out/$preset-viewer.err") &
   viewer=$!
-  if ! "${SSH[@]}" "$remote" "bash -lc 'cd $run/$preset; set -uo pipefail; stdbuf -oL -eL $run/e2e-aarch64 --clip $run/vision-e2e-footage.webm --preset $preset --seconds $seconds --engine $run/rfdetr-small.engine --record $run/$preset/output.mp4 --rtmp rtmp://10.10.1.96/live/vision-e2e-stress-$preset >e2e.log 2>e2e.err & pid=\$!; (sleep $((seconds + 90)); kill -TERM \$pid 2>/dev/null || true) & watchdog=\$!; $run/monitor.sh \$pid $((seconds + 60)) . & monitor=\$!; wait \$pid; result=\$?; kill \$watchdog \$monitor 2>/dev/null || true; wait \$monitor 2>/dev/null || true; exit \$result'" >"$out/$preset-run.log" 2>&1; then failed=1; fi
+  if ! "${SSH[@]}" "$remote" "bash -lc 'cd $run/$preset; set -uo pipefail; stdbuf -oL -eL $run/e2e-aarch64 --clip $run/vision-e2e-footage.webm --preset $preset --seconds $seconds --engine $run/rfdetr-small.engine --record $run/$preset/output.mp4 --rtmp rtmp://10.10.1.96/live/$stream-$preset >e2e.log 2>e2e.err & pid=\$!; (sleep $((seconds + 90)); kill -TERM \$pid 2>/dev/null || true) & watchdog=\$!; $run/monitor.sh \$pid $((seconds + 60)) . & monitor=\$!; wait \$pid; result=\$?; kill \$watchdog \$monitor 2>/dev/null || true; wait \$monitor 2>/dev/null || true; exit \$result'" >"$out/$preset-run.log" 2>&1; then failed=1; fi
   if ! wait "$viewer"; then failed=1; fi
   if ! "${SSH[@]}" "$remote" "sudo -n journalctl -k -b -o short-monotonic --no-pager >$run/$preset/kernel.log"; then failed=1; fi
   if ! "${SCP[@]}" -r "$remote:$run/$preset/" "$out/"; then failed=1; fi

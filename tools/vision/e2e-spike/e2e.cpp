@@ -35,6 +35,20 @@ double percentile(std::vector<double> values, double fraction) {
 }
 float panForTick(uint64_t tick) { return .5f + .5f * std::sin(tick * .015f); }
 float zoomForTick(uint64_t tick) { return 2.f - std::cos(tick * 3.141592653589793 / 1500.); }
+// Shared with the NVRTC kernel so the host test checks the renderer's visibility decision.
+#define E2E_VISIBILITY(qualifier) \
+    struct Visibility { float weight; bool left; bool right; }; \
+    qualifier Visibility visibility(float az, float yaw0, float yaw1) { \
+        float overlap = 4.f * .01745329252f; \
+        float limit = 38.f * .01745329252f; \
+        float weight = fminf(1.f, fmaxf(0.f, (az + overlap) / (2.f * overlap))); \
+        if (fabsf(az - yaw0) > limit && fabsf(az - yaw1) <= limit) weight = 1.f; \
+        if (fabsf(az - yaw1) > limit && fabsf(az - yaw0) <= limit) weight = 0.f; \
+        return {weight, weight < 1.f, weight > 0.f}; \
+    }
+E2E_VISIBILITY()
+#define E2E_STRINGIFY_INNER(...) #__VA_ARGS__
+#define E2E_STRINGIFY(...) E2E_STRINGIFY_INNER(__VA_ARGS__)
 struct Ray { float yaw; };
 Ray projectRay(float x, float width, int camera) {
     return {static_cast<float>(std::atan((x - width / 2) / (width * .5)) * 180 / 3.141592653589793 +
@@ -81,6 +95,15 @@ int main() {
     assert(std::abs(zoomForTick(3000) - 1.f) < .001f);
     assert(std::abs(projectRay(960.f, 1920.f, 0).yaw + 36.f) < .01f);
     assert(std::abs(projectRay(960.f, 1920.f, 1).yaw - 36.f) < .01f);
+    const float yaw0 = -36.f * .01745329252f, yaw1 = 36.f * .01745329252f;
+    const auto edge = visibility(std::atan2(1.5f, 1.f), yaw0, yaw1);
+    assert(!edge.left && edge.right && edge.weight == 1.f);
+    const auto otherEdge = visibility(std::atan2(-1.5f, 1.f), yaw0, yaw1);
+    assert(otherEdge.left && !otherEdge.right && otherEdge.weight == 0.f);
+    const auto center = visibility(0.f, yaw0, yaw1);
+    assert(center.left && center.right && std::abs(center.weight - .5f) < .001f);
+    const auto feather = visibility(.02f, yaw0, yaw1);
+    assert(feather.left && feather.right && feather.weight > .5f && feather.weight < 1.f);
     assert(!steadyAcceptance(true, 30., 30., true, 30., 29.4));
     assert(!noDropVerdict(0, 0, 0, 0, 0, 0, 1));
     assert(noDropVerdict(0, 0, 0, 0, 0, 0, 0));
@@ -382,6 +405,7 @@ __device__ float bilinear(const unsigned char* p, int pitch, int width, int heig
  float bottom = p[jy * pitch + ix * stride + channel] * (1.f-a) + p[jy * pitch + jx * stride + channel] * a;
  return top * (1.f-b) + bottom * b;
 }
+)CUDA" E2E_STRINGIFY(E2E_VISIBILITY(__device__)) R"CUDA(
 struct Rgb { float x, y, z; };
 __device__ Rgb cameraRgb(const unsigned char* yy, const unsigned char* uv, int yp, int up,
                             int sw, int sh, float rayX, float rayY, float rayZ,
@@ -408,21 +432,23 @@ __device__ Rgb pixel(const unsigned char* y0, const unsigned char* uv0,
  float rx = ((x+.5f-960.f)/960.f + pan) / zoom;
  float ry = (row+.5f-540.f)/960.f/zoom;
  float az = atan2f(rx, 1.f);
- // Calibrated placeholder: yaw +/-36 degrees; relative pitch and roll +/-2 degrees.
+ // Placeholder geometry: approximate yaw +/-36 degrees; pitch and roll +/-2 degrees.
  float yaw0 = -36.f*.01745329252f, yaw1 = 36.f*.01745329252f;
- Rgb a = cameraRgb(y0, uv0, py0, puv0, sw, sh, rx, ry, 1.f, yaw0, .025f, -.017f);
- Rgb b = cameraRgb(y1, uv1, py1, puv1, sw, sh, rx, ry, 1.f, yaw1, -.025f, .017f);
- float overlap = 4.f*.01745329252f;
- float weight = fminf(1.f, fmaxf(0.f, (az+overlap)/(2.f*overlap)));
- // Outside one camera's field of view use the other, never a clamped border strip.
- float limit = 38.f*.01745329252f;
- if (fabsf(az-yaw0) > limit && fabsf(az-yaw1) <= limit) weight = 1.f;
- if (fabsf(az-yaw1) > limit && fabsf(az-yaw0) <= limit) weight = 0.f;
- // Per-camera color matrix and gain, blended in the same feather as geometry.
- Rgb rgb;
- rgb.x = (a.x*1.02f+a.y*.005f)*(1-weight) + (b.x*.99f+b.y*.004f)*weight;
- rgb.y = (a.y*.995f+a.z*.003f)*(1-weight) + (b.y*1.01f+b.z*.002f)*weight;
- rgb.z = (a.z*1.01f+a.x*.002f)*(1-weight) + (b.z*.98f+b.x*.003f)*weight;
+ // Only project a contributing camera; at a pan edge the other ray may point behind it.
+ Visibility visible = visibility(az, yaw0, yaw1);
+ Rgb rgb = {0.f, 0.f, 0.f};
+ if (visible.left) {
+  Rgb a = cameraRgb(y0, uv0, py0, puv0, sw, sh, rx, ry, 1.f, yaw0, .025f, -.017f);
+  rgb.x += (a.x*1.02f+a.y*.005f)*(1.f-visible.weight);
+  rgb.y += (a.y*.995f+a.z*.003f)*(1.f-visible.weight);
+  rgb.z += (a.z*1.01f+a.x*.002f)*(1.f-visible.weight);
+ }
+ if (visible.right) {
+  Rgb b = cameraRgb(y1, uv1, py1, puv1, sw, sh, rx, ry, 1.f, yaw1, -.025f, .017f);
+  rgb.x += (b.x*.99f+b.y*.004f)*visible.weight;
+  rgb.y += (b.y*1.01f+b.z*.002f)*visible.weight;
+  rgb.z += (b.z*.98f+b.x*.003f)*visible.weight;
+ }
  int i = row*1920+x;
  float cy = clip[i], cu = clip[1920*1080 + (row/2)*960+x/2]-128.f;
  float cv = clip[1920*1080*5/4 + (row/2)*960+x/2]-128.f;
@@ -1262,7 +1288,7 @@ int run(int argc, char** argv) {
                             (encoded[3] - reportCounts[3]) / reportSeconds);
                 reportCounts = encoded;
                 reportAt = Clock::now();
-                std::printf("encoded_frames=%llu encoded_fps=%.3f mp4_frames=%llu mp4_fps=%.3f rtmp_frames=%llu rtmp_fps=%.3f render_misses=%llu analysis_skipped=%llu timestamp_gaps=%llu,%llu capture_id_gaps=%llu,%llu internal_gaps=%llu,%llu reordered=%llu,%llu\n",
+                std::printf("encoded_frames=%llu encoded_fps=%.3f rtmp_input_frames=%llu rtmp_input_fps=%.3f rtmp_frames=%llu rtmp_fps=%.3f render_misses=%llu analysis_skipped=%llu timestamp_gaps=%llu,%llu capture_id_gaps=%llu,%llu internal_gaps=%llu,%llu reordered=%llu,%llu\n",
                             static_cast<unsigned long long>(encoded[1]), encoded[1] / seconds,
                             static_cast<unsigned long long>(encoded[2]), encoded[2] / seconds,
                             static_cast<unsigned long long>(encoded[3]), encoded[3] / seconds,
@@ -1369,7 +1395,7 @@ int run(int argc, char** argv) {
                     static_cast<unsigned long long>(windowMisses[window]),
                     static_cast<unsigned long long>(windowAnalysisSkipped[window]), noDrops ? "PASS" : "FAIL");
     }
-    std::printf("final elapsed_s=%.3f mode=%dx%d encoded_frames=%llu encoded_fps=%.3f steady_encoded_fps=%.3f mp4_frames=%llu rtmp_frames=%llu encoder_queue_or_branch_gap=%llu render=%llu infer_batches=%llu infer_latency_ms_p99=%.3f max_ring=%llu tail_ring_omitted=%zu tail_policy=not_encoded encoded_before_eos=%llu acceptance=%s\n",
+    std::printf("final elapsed_s=%.3f mode=%dx%d encoded_frames=%llu encoded_fps=%.3f steady_encoded_fps=%.3f rtmp_input_frames=%llu rtmp_frames=%llu encoder_queue_or_branch_gap=%llu render=%llu infer_batches=%llu infer_latency_ms_p99=%.3f max_ring=%llu tail_ring_omitted=%zu tail_policy=not_encoded encoded_before_eos=%llu acceptance=%s\n",
                 seconds, options.width, options.height, static_cast<unsigned long long>(encoded[1]),
                 seconds ? encoded[1] / seconds : 0.0, steadyEncodedFps,
                 static_cast<unsigned long long>(encoded[2]), static_cast<unsigned long long>(encoded[3]),
