@@ -1,0 +1,81 @@
+OFParserListModules: module list: /proc/device-tree/tegra-camera-platform/modules/module0
+OFParserListModules: module list: /proc/device-tree/tegra-camera-platform/modules/module1
+NvPclHwGetModuleList: No module data found
+NvPclHwGetModuleList: No module data found
+OFParserGetVirtualDevice: NVIDIA Camera virtual enumerator not found in proc device-tree
+---- imager: No override file found. ----
+NvCameraIspGetNitoFilename: nito file /var/nvidia/nvcam/settings/imx477.nito found. Badge "jakku_front_RBPCV3" SensorModel "imx477" Modulename "RBPCV3"
+NvCameraIspInitialize: Using NITO /var/nvidia/nvcam/settings/imx477.nito
+NvCameraIspLoadAllNito: NvCameraIspLoadAllConfigFiles and LoadNvCameraKnobFromFile success
+BuildSensorModeInfoList: Sensor mode list from Static properties. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: NITO Knobset list. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: Sensor mode index 0, knobSetId found 0, knobSetLutIndex 0
+BuildSensorModeInfoList: Sensor mode index 1, knobSetId found 0, knobSetLutIndex 1
+loadIspConfigFromControlKnob: Nito mode. Using cfgData.Common.lensShading
+
+---- Finished loading config data from NITO knobset /var/nvidia/nvcam/settings/imx477.nito using knobSetID 0
+	sensorModeIndex 0 knobSetLutIndex 0 lastKnobSetId -1
+---- imager: No override file found. ----
+NvCameraIspGetNitoFilename: nito file /var/nvidia/nvcam/settings/imx477.nito found. Badge "jakku_rear_RBPCV3" SensorModel "imx477" Modulename "RBPCV3"
+NvCameraIspInitialize: Using NITO /var/nvidia/nvcam/settings/imx477.nito
+NvCameraIspLoadAllNito: NvCameraIspLoadAllConfigFiles and LoadNvCameraKnobFromFile success
+BuildSensorModeInfoList: Sensor mode list from Static properties. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: NITO Knobset list. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: Sensor mode index 0, knobSetId found 0, knobSetLutIndex 0
+BuildSensorModeInfoList: Sensor mode index 1, knobSetId found 0, knobSetLutIndex 1
+loadIspConfigFromControlKnob: Nito mode. Using cfgData.Common.lensShading
+
+---- Finished loading config data from NITO knobset /var/nvidia/nvcam/settings/imx477.nito using knobSetID 0
+	sensorModeIndex 0 knobSetLutIndex 0 lastKnobSetId -1
+NvCameraIspGetNitoFilename: nito file /var/nvidia/nvcam/settings/imx477.nito found. Badge "jakku_front_RBPCV3" SensorModel "imx477" Modulename "RBPCV3"
+NvCameraIspInitialize: Using NITO /var/nvidia/nvcam/settings/imx477.nito
+NvCameraIspLoadAllNito: NvCameraIspLoadAllConfigFiles and LoadNvCameraKnobFromFile success
+BuildSensorModeInfoList: Sensor mode list from Static properties. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: NITO Knobset list. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: Sensor mode index 0, knobSetId found 0, knobSetLutIndex 0
+BuildSensorModeInfoList: Sensor mode index 1, knobSetId found 0, knobSetLutIndex 1
+loadIspConfigFromControlKnob: Nito mode. Using cfgData.Common.lensShading
+
+---- Finished loading config data from NITO knobset /var/nvidia/nvcam/settings/imx477.nito using knobSetID 0
+	sensorModeIndex 0 knobSetLutIndex 0 lastKnobSetId -1
+NvCameraIspGetNitoFilename: nito file /var/nvidia/nvcam/settings/imx477.nito found. Badge "jakku_rear_RBPCV3" SensorModel "imx477" Modulename "RBPCV3"
+NvCameraIspInitialize: Using NITO /var/nvidia/nvcam/settings/imx477.nito
+NvCameraIspLoadAllNito: NvCameraIspLoadAllConfigFiles and LoadNvCameraKnobFromFile success
+BuildSensorModeInfoList: Sensor mode list from Static properties. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: NITO Knobset list. Count 2
+	 index 0 Res 3840 x 2160 type 4 BPS 10 FPS 30.00
+	 index 1 Res 1920 x 1080 type 4 BPS 10 FPS 60.00
+BuildSensorModeInfoList: Sensor mode index 0, knobSetId found 0, knobSetLutIndex 0
+BuildSensorModeInfoList: Sensor mode index 1, knobSetId found 0, knobSetLutIndex 1
+loadIspConfigFromControlKnob: Nito mode. Using cfgData.Common.lensShading
+
+---- Finished loading config data from NITO knobset /var/nvidia/nvcam/settings/imx477.nito using knobSetID 0
+	sensorModeIndex 0 knobSetLutIndex 0 lastKnobSetId -1
+NvMMLiteOpen : Block : BlockType = 280 
+NvMMLiteBlockCreate : Block : BlockType = 280 
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+(Argus) Error 0x00000005:  (propagating from src/api/BufferOutputStreamImpl.cpp, function acquireBuffer(), line 264)
+NVMMLITE_NVVIDEODEC, <cbAllocPictureBuffer, 5194> ErrorInfo = VideoErrorInfo_OutputBufferUnavailable cctx = 0xe006bb30
+WARNING: Failed to allocate frame buffer picture
+CaptureService:stop: is requested --------------------------

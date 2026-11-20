@@ -1,0 +1,568 @@
+[   24.655892] sst-cam kernel: tegra194-isp5 14800000.isp: [PIPELINE 0] ISP capture setup complete (channel_id=0)
+[   25.530887] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[   25.549400] sst-cam kernel: [RCE] VM0 deactivatingVM0 activating===== NVCSI Stream Configuration =====
+[   25.549411] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[   25.549413] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[   25.549415] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[   25.549417] sst-cam kernel: [RCE] Clock information:
+[   25.549418] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   25.549420] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   25.549421] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   25.549423] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   25.549426] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   25.549428] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[   25.549430] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   25.549431] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[   25.549433] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[   25.549435] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   25.549437] sst-cam kernel: [RCE] CSI port AB
+[   25.549438] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   25.549440] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   25.549441] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   25.549443] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   25.549444] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   25.549445] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   25.874391] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[   25.885393] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   25.885408] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   25.885410] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   25.885412] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   25.885414] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   25.885415] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   25.885417] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   25.885419] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[   25.885420] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[   25.885421] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[   25.885423] sst-cam kernel: [RCE] Clock information:
+[   25.885424] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   25.885425] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   25.885427] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   25.885428] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   25.885430] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   25.885432] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   25.885434] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   25.885436] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   25.885437] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   25.885439] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   25.885441] sst-cam kernel: [RCE] CSI port AB
+[   25.885443] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   25.885444] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   25.885445] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   25.885447] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   25.885448] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   25.885449] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   26.277393] sst-cam kernel: [RCE] VI ch[11] frame configuration: 1920x1080 
+[   26.277408] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[   26.277412] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[   26.277416] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[   26.501408] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   26.501425] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   26.501428] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   26.501431] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   26.501433] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   26.501436] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   27.423750] sst-cam kernel: tegra194-isp5 14800000.isp: [PIPELINE 0] ISP capture setup complete (channel_id=0)
+[   27.796910] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=2, vc=0)
+[   27.849417] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   27.849433] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[   27.849435] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[   27.849436] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[   27.849437] sst-cam kernel: [RCE] Clock information:
+[   27.849439] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   27.849441] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   27.849442] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   27.849444] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   27.849446] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   27.849447] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[   27.849449] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000001)
+[   27.849450] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[   27.849452] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[   27.849453] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   27.849455] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   27.849457] sst-cam kernel: [RCE]   Trio A0 rxab=19 rxbc=13 rxca=14
+[   27.849458] sst-cam kernel: [RCE]   Trio A1 rxab=21 rxbc=24 rxca=15
+[   27.849459] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   27.849461] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[   27.849462] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[   27.849463] sst-cam kernel: [RCE] CSI port CD
+[   27.849465] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   27.849466] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   27.849467] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   27.849469] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   27.849470] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   27.849471] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   28.090116] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=2, vc=0)
+[   28.129400] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   28.129415] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   28.129417] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   28.129419] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   28.129421] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   28.129423] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   28.129425] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   28.129427] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[   28.129428] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[   28.129430] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[   28.129432] sst-cam kernel: [RCE] Clock information:
+[   28.129433] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   28.129435] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   28.129436] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   28.129438] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   28.129440] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   28.129442] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   28.129443] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   28.129445] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   28.129446] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   28.129448] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   28.129450] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   28.129451] sst-cam kernel: [RCE]   Trio A0 rxab=19 rxbc=13 rxca=14
+[   28.129453] sst-cam kernel: [RCE]   Trio A1 rxab=21 rxbc=24 rxca=15
+[   28.129454] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   28.129456] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[   28.129457] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[   28.129459] sst-cam kernel: [RCE] CSI port CD
+[   28.129460] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   28.129461] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   28.129463] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   28.129464] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   28.129466] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   28.129467] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   28.521395] sst-cam kernel: [RCE] VI ch[11] frame configuration: 1920x1080 
+[   28.521415] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[   28.521420] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[   28.521423] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[   28.745422] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   28.745442] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   28.745445] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   28.745448] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   28.745451] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   28.745454] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   29.467731] sst-cam kernel: tegra194-isp5 14800000.isp: [PIPELINE 0] ISP capture setup complete (channel_id=0)
+[   29.852707] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[   29.865400] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   29.865414] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[   29.865415] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[   29.865417] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[   29.865419] sst-cam kernel: [RCE] Clock information:
+[   29.865420] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   29.865421] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   29.865423] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   29.865424] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   29.865426] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   29.865428] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   29.865429] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   29.865431] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   29.865432] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   29.865434] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   29.865436] sst-cam kernel: [RCE] CSI port AB
+[   29.865437] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   29.865438] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   29.865440] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   29.865441] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   29.865442] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   29.865444] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   30.192039] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[   30.201410] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   30.201431] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   30.201434] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   30.201437] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   30.201440] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   30.201442] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   30.201445] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   30.201447] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[   30.201449] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[   30.201451] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[   30.201453] sst-cam kernel: [RCE] Clock information:
+[   30.201454] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   30.201456] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   30.201459] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   30.201460] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   30.201463] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   30.201465] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   30.201467] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   30.201469] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   30.201471] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   30.201473] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   30.201476] sst-cam kernel: [RCE] CSI port AB
+[   30.201477] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   30.201479] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   30.201481] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   30.201483] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   30.201485] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   30.201486] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   30.593392] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[   30.593408] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[   30.593411] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[   30.593414] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[   30.804688] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[   30.817410] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   30.817424] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[   30.817426] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[   30.817428] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[   30.817429] sst-cam kernel: [RCE] Clock information:
+[   30.817431] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   30.817432] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   30.817434] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   30.817435] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   30.817437] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   30.817439] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   30.817440] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   30.817442] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   30.817443] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   30.817445] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   30.817446] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   30.817448] sst-cam kernel: [RCE]   Trio A0 rxab=19 rxbc=13 rxca=14
+[   30.817449] sst-cam kernel: [RCE]   Trio A1 rxab=21 rxbc=24 rxca=15
+[   30.817450] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   30.817452] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[   30.817453] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[   30.817455] sst-cam kernel: [RCE] CSI port CD
+[   30.817456] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   30.817457] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   30.817459] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   30.817460] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   30.817461] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   30.817463] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   31.019672] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[   31.041409] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   31.041423] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   31.041425] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   31.041426] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   31.041428] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   31.041429] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   31.041431] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[   31.041433] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[   31.041434] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[   31.041436] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[   31.041437] sst-cam kernel: [RCE] Clock information:
+[   31.041438] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[   31.041440] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[   31.041441] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[   31.041443] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[   31.041445] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[   31.041446] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   31.041448] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   31.041449] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   31.041451] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   31.041452] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   31.041454] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   31.041455] sst-cam kernel: [RCE]   Trio A0 rxab=19 rxbc=13 rxca=14
+[   31.041457] sst-cam kernel: [RCE]   Trio A1 rxab=21 rxbc=24 rxca=15
+[   31.041458] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[   31.041460] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[   31.041461] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[   31.041462] sst-cam kernel: [RCE] CSI port CD
+[   31.041464] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[   31.041465] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[   31.041466] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[   31.041467] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[   31.041469] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[   31.041470] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[   31.433414] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[   31.433428] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[   31.433433] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[   31.433437] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[   32.155873] sst-cam kernel: pwm-tegra-tachometer 39c0000.tachometer: Tachometer Overflow is detected
+[   33.481820] sst-cam kernel: Bluetooth: hci0: Unexpected advertising set terminated event
+[   33.676616] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   33.676842] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   33.676845] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   33.676846] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   33.676848] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   33.676849] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   33.897430] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[   33.897454] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[   33.897460] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[   33.897464] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[   33.897467] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[   33.897471] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[   52.156023] sst-cam kernel: pwm-tegra-tachometer 39c0000.tachometer: Tachometer Overflow is detected
+[  208.642016] sst-cam kernel: tegra194-isp5 14800000.isp: [PIPELINE 0] ISP capture setup complete (channel_id=0)
+[  209.050913] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[  209.071229] sst-cam kernel: [RCE] VM0 deactivatingVM0 activating===== NVCSI Stream Configuration =====
+[  209.071241] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[  209.071243] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[  209.071245] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[  209.071246] sst-cam kernel: [RCE] Clock information:
+[  209.071248] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[  209.071249] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[  209.071251] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[  209.071253] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[  209.071255] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[  209.071257] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[  209.071258] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[  209.071260] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[  209.071262] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[  209.071264] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  209.071266] sst-cam kernel: [RCE] CSI port AB
+[  209.071267] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[  209.071268] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[  209.071270] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[  209.071271] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[  209.071273] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[  209.071274] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[  209.294904] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[  209.295238] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[  209.295245] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[  209.295247] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[  209.295249] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[  209.295250] sst-cam kernel: [RCE] Clock information:
+[  209.295251] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[  209.295253] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[  209.295254] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[  209.351270] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[  209.351283] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[  209.351285] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[  209.351287] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000001)
+[  209.351288] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[  209.351290] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[  209.351292] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  209.351294] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[  209.351295] sst-cam kernel: [RCE]   Trio A0 rxab=31 rxbc=31 rxca=31
+[  209.351297] sst-cam kernel: [RCE]   Trio A1 rxab=31 rxbc=31 rxca=31
+[  209.351298] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[  209.351300] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=20
+[  209.351301] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[  209.351303] sst-cam kernel: [RCE] CSI port CD
+[  209.351304] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[  209.351306] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[  209.351307] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[  209.351308] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[  209.351309] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[  209.351311] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[  209.828405] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[  209.855226] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[  209.855243] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[  209.855247] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[  209.855251] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[  209.855254] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[  209.855256] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  209.855260] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[  209.855262] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[  209.855265] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[  209.855267] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[  209.855269] sst-cam kernel: [RCE] Clock information:
+[  209.855272] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[  209.855274] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[  209.855277] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[  209.855279] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[  209.855282] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[  209.855285] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[  209.855288] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[  209.855290] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[  209.855293] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[  209.855295] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  209.855298] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[  209.855300] sst-cam kernel: [RCE]   Trio A0 rxab=31 rxbc=31 rxca=31
+[  209.855303] sst-cam kernel: [RCE]   Trio A1 rxab=31 rxbc=31 rxca=31
+[  209.855305] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[  209.855307] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=20
+[  209.855309] sst-cam kernel: [RCE]   Trio B1 rxab=16 rxbc=23 rxca=20
+[  209.855312] sst-cam kernel: [RCE] CSI port CD
+[  209.855314] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[  209.855316] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[  209.855319] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[  209.855321] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[  209.855323] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[  209.855325] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[  210.247208] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[  210.247223] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[  210.247227] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[  210.247231] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[  210.270176] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[  210.303231] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[  210.303249] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[  210.303257] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[  210.303264] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[  210.303271] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[  210.303278] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  210.303286] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[  210.303292] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[  210.303299] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[  210.303305] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[  210.303311] sst-cam kernel: [RCE] Clock information:
+[  210.303318] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[  210.303324] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[  210.303330] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[  210.303337] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[  210.303343] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[  210.303347] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[  210.303351] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[  210.303354] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[  210.303358] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[  210.303361] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[  210.303365] sst-cam kernel: [RCE] CSI port AB
+[  210.303368] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[  210.303371] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[  210.303374] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[  210.303377] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[  210.303380] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[  210.303383] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[  210.695249] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[  210.695267] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[  210.695271] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[  210.695275] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[ 5699.900412] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 5699.900432] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 5699.900437] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 5699.900441] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 5699.900446] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 5699.900451] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 5700.348398] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 5700.348421] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 5700.348426] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 5700.348430] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 5700.348435] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 5700.348439] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7131.419998] sst-cam kernel: tegra194-isp5 14800000.isp: [PIPELINE 0] ISP capture setup complete (channel_id=0)
+[ 7131.887892] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[ 7131.932257] sst-cam kernel: [RCE] VM0 deactivatingVM0 activating===== NVCSI Stream Configuration =====
+[ 7131.932273] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[ 7131.932276] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[ 7131.932278] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[ 7131.932280] sst-cam kernel: [RCE] Clock information:
+[ 7131.932283] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[ 7131.932285] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[ 7131.932287] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[ 7131.932290] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[ 7131.932294] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[ 7131.932296] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[ 7131.932299] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 7131.932301] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[ 7131.932303] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[ 7131.932306] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7131.932308] sst-cam kernel: [RCE] CSI port AB
+[ 7131.932310] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[ 7131.932311] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[ 7131.932313] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[ 7131.932315] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[ 7131.932316] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[ 7131.932318] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[ 7132.304101] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[ 7132.324237] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[ 7132.324250] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[ 7132.324252] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[ 7132.324254] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[ 7132.324256] sst-cam kernel: [RCE] Clock information:
+[ 7132.324258] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[ 7132.324259] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[ 7132.324261] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[ 7132.324263] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[ 7132.324266] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[ 7132.324268] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000777)
+[ 7132.324269] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000001)
+[ 7132.324271] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000555)
+[ 7132.324273] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007411)
+[ 7132.324275] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7132.324277] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[ 7132.324279] sst-cam kernel: [RCE]   Trio A0 rxab=31 rxbc=31 rxca=31
+[ 7132.324280] sst-cam kernel: [RCE]   Trio A1 rxab=31 rxbc=31 rxca=31
+[ 7132.324282] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[ 7132.324284] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[ 7132.324285] sst-cam kernel: [RCE]   Trio B1 rxab=15 rxbc=23 rxca=20
+[ 7132.324287] sst-cam kernel: [RCE] CSI port CD
+[ 7132.324288] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[ 7132.324290] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[ 7132.324292] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[ 7132.324293] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[ 7132.324295] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[ 7132.324296] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[ 7132.895009] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi0@15c00000: [PIPELINE 0] VI capture setup complete (channel_id=1, csi_stream=1, vc=0)
+[ 7132.940211] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 7132.940227] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 7132.940232] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 7132.940237] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 7132.940241] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 7132.940246] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7132.940251] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[ 7132.940255] sst-cam kernel: [RCE] stream_id: PP 1, csi_port: PORT B
+[ 7132.940259] sst-cam kernel: [RCE] Brick: PHY 0, Mode: D-PHY
+[ 7132.940262] sst-cam kernel: [RCE] Partition: CIL B, LP bypass: Enabled, Lanes: 2
+[ 7132.940265] sst-cam kernel: [RCE] Clock information:
+[ 7132.940268] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[ 7132.940270] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[ 7132.940273] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[ 7132.940275] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[ 7132.940278] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[ 7132.940281] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 7132.940284] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 7132.940287] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 7132.940290] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 7132.940292] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7132.940295] sst-cam kernel: [RCE] CSI port AB
+[ 7132.940298] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[ 7132.940300] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[ 7132.940303] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[ 7132.940305] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[ 7132.940307] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[ 7132.940309] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[ 7133.332198] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[ 7133.332214] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[ 7133.332218] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[ 7133.332221] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[ 7133.332225] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 7133.332229] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 7133.332233] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 7133.332236] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 7133.332240] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 7133.332243] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7133.335276] sst-cam kernel: tegra194-vi5 13e00000.host1x:vi1@14c00000: [PIPELINE 0] VI capture setup complete (channel_id=2, csi_stream=2, vc=0)
+[ 7133.388192] sst-cam kernel: [RCE] ===== NVCSI Stream Configuration =====
+[ 7133.388208] sst-cam kernel: [RCE] stream_id: PP 2, csi_port: PORT C
+[ 7133.388212] sst-cam kernel: [RCE] Brick: PHY 1, Mode: D-PHY
+[ 7133.388215] sst-cam kernel: [RCE] Partition: CIL A, LP bypass: Enabled, Lanes: 2
+[ 7133.388219] sst-cam kernel: [RCE] Clock information:
+[ 7133.388222] sst-cam kernel: [RCE] CIL rate: 204000000 Hz
+[ 7133.388225] sst-cam kernel: [RCE] MIPI clock rate: 750000 kHz
+[ 7133.388228] sst-cam kernel: [RCE] Physical rate: 1500000 Kbps
+[ 7133.388231] sst-cam kernel: [RCE] T_HS settle: autoconfigured, T_CLK settle: autoconfigured
+                               ======================================
+[ 7133.388236] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020100)
+[ 7133.388240] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 7133.388244] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 7133.388247] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 7133.388251] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 7133.388254] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 7133.388258] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[ 7133.388261] sst-cam kernel: [RCE]   Trio A0 rxab=31 rxbc=31 rxca=31
+[ 7133.388264] sst-cam kernel: [RCE]   Trio A1 rxab=31 rxbc=31 rxca=31
+[ 7133.388268] sst-cam kernel: [RCE] CSI port CD IDAC calibration result with freqband=0:
+[ 7133.388271] sst-cam kernel: [RCE]   Trio B0 rxab=20 rxbc=18 rxca=21
+[ 7133.388274] sst-cam kernel: [RCE]   Trio B1 rxab=15 rxbc=23 rxca=20
+[ 7133.388277] sst-cam kernel: [RCE] CSI port CD
+[ 7133.388280] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_A=6
+[ 7133.388283] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_A=6
+[ 7133.388286] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_A=6
+[ 7133.388289] sst-cam kernel: [RCE]   AFE_HFGAIN_IO0_B=6
+[ 7133.388292] sst-cam kernel: [RCE]   AFE_HFGAIN_IO1_B=6
+[ 7133.388295] sst-cam kernel: [RCE]   AFE_HFGAIN_CLK_B=6
+[ 7133.728172] sst-cam kernel: [RCE] VI ch[11] frame configuration: 3840x2160 
+[ 7133.728185] sst-cam kernel: [RCE]     left skip pixels=0 top skip lines=0
+[ 7133.728188] sst-cam kernel: [RCE]     right crop pixels=0 bottom crop lines=0
+[ 7133.728190] sst-cam kernel: [RCE]     pixel format=VI_PIXFMT_FORMAT_T_R16 fmt=196
+[ 8423.147086] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 8423.147108] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 8423.147115] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 8423.147122] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 8423.147126] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021ce4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 8423.147130] sst-cam kernel: [RCE] NVCSI prod write phy: 1 cil: 0 reg=0x00021c84 mask=0x00000fff value=0x00000666 (was 0x00000555)
+[ 8423.594592] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c18 mask=0x06070000 value=0x04020000 (was 0x04020000)
+[ 8423.594614] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000555 (was 0x00000666)
+[ 8423.594619] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011c00 mask=0x00000001 value=0x00000000 (was 0x00000000)
+[ 8423.594622] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d88 mask=0x0000003c value=0x00000000 (was 0x00000541)
+[ 8423.594625] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011de4 mask=0x000000ff value=0x00000027 (was 0x00007427)
+[ 8423.594628] sst-cam kernel: [RCE] NVCSI prod write phy: 0 cil: 1 reg=0x00011d84 mask=0x00000fff value=0x00000666 (was 0x00000555)

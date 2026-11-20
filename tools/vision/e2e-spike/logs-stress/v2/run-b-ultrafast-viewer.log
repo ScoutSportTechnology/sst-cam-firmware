@@ -1,0 +1,1 @@
+{"decoded_fps": 30.017957804610635, "decoded_frames": 36030, "elapsed_s": 1200.281519299955, "full_window": true, "missed_segments": 0, "playlist": "https://rtmp.internal.rsantamaria.xyz/hls/vision-e2e-stress-v2-20261120T152654Z-272594-run-b-ultrafast.m3u8", "pts_discontinuities": 0, "pts_fps": 30.000016653260793}
