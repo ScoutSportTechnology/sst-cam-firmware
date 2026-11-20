@@ -25,6 +25,28 @@ bool steadyAcceptance(bool noCaptureDrops, double leftFps, double rightFps,
     return noCaptureDrops && leftFps >= 29.5 && rightFps >= 29.5 &&
            inferenceOk && renderFps >= 29.5 && encodedFps >= 29.5;
 }
+bool encoderFramesIntact(uint64_t rendered, uint64_t cleanIn, uint64_t mp4Frames,
+                         uint64_t overlayIn, uint64_t rtmpFrames, bool overlay) {
+    return rendered && rendered == cleanIn && rendered == mp4Frames &&
+           rendered == rtmpFrames && (!overlay || rendered == overlayIn);
+}
+std::string encoderLaunch(bool overlay, const std::string& preset,
+                          const std::string& overlayPreset) {
+    const std::string raw = " format=time is-live=true block=false caps=video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ";
+    const std::string encode = " ! queue name=cleanqueue max-size-buffers=3 max-size-bytes=0 max-size-time=0 leaky=downstream ! x264enc speed-preset=" +
+        preset + " tune=zerolatency key-int-max=30 bitrate=8000 name=mp4encoder ";
+    if (!overlay)
+        return "appsrc name=clean" + raw + encode +
+            " ! h264parse ! tee name=encoded "
+            "encoded. ! queue name=mp4queue ! h264parse name=mp4parse ! mp4mux ! filesink name=record "
+            "encoded. ! queue name=rtmpqueue ! h264parse name=netparse ! flvmux streamable=true ! rtmpsink name=network sync=false";
+    return "appsrc name=clean" + raw + encode +
+        " ! h264parse name=mp4parse ! mp4mux ! filesink name=record "
+        "appsrc name=overlay" + raw +
+        " ! queue name=overlayqueue max-size-buffers=3 max-size-bytes=0 max-size-time=0 leaky=downstream ! x264enc speed-preset=" +
+        overlayPreset + " tune=zerolatency key-int-max=30 bitrate=8000 name=rtmpencoder "
+        " ! h264parse name=netparse ! flvmux streamable=true ! rtmpsink name=network sync=false";
+}
 size_t windowFor(Clock::duration elapsed) {
     return elapsed < std::chrono::seconds(kStartupSeconds) ? 0 : 1;
 }
@@ -117,7 +139,31 @@ int main() {
     assert(inferenceKeptUp(9150, 0, 610.027));
     assert(!inferenceKeptUp(9149, 0, 610.027));
     assert(!inferenceKeptUp(9150, 1, 610.027));
-    std::puts("pair selection, window and latency statistics passed");
+    assert(encoderFramesIntact(100, 100, 100, 100, 100, false));
+    assert(!encoderFramesIntact(100, 100, 99, 100, 100, false));
+    assert(!encoderFramesIntact(100, 99, 99, 99, 99, false));
+    assert(encoderFramesIntact(100, 100, 100, 100, 100, true));
+    assert(!encoderFramesIntact(100, 100, 100, 99, 99, true));
+    assert(!encoderFramesIntact(100, 100, 100, 100, 99, true));
+    assert(!encoderFramesIntact(100, 100, 100, 100, 99, false));
+    const auto clean = encoderLaunch(false, "veryfast", "");
+    assert(clean.find("x264enc") == clean.rfind("x264enc"));
+    assert(clean.find("name=encoded") != std::string::npos);
+    assert(clean.find("name=overlay") == std::string::npos);
+    assert(clean.find("name=mp4parse") != std::string::npos);
+    assert(clean.find("name=netparse") != std::string::npos);
+    assert(clean.find("name=cleanqueue") != std::string::npos);
+    assert(clean.find("name=mp4queue") != std::string::npos);
+    assert(clean.find("name=rtmpqueue") != std::string::npos);
+    const auto overlaid = encoderLaunch(true, "veryfast", "superfast");
+    assert(overlaid.find("name=encoded") == std::string::npos);
+    assert(overlaid.find("speed-preset=superfast") != std::string::npos);
+    assert(overlaid.find("name=overlay") != std::string::npos);
+    assert(overlaid.find("name=overlayqueue") != std::string::npos);
+    assert(overlaid.find("name=rtmpencoder") != std::string::npos);
+    assert(overlaid.find("x264enc") != overlaid.rfind("x264enc"));
+    assert(encoderLaunch(true, "veryfast", "ultrafast").find("speed-preset=ultrafast") != std::string::npos);
+    std::puts("pair selection, window, encoder topology and frame accounting passed");
 }
 #else
 #ifdef E2E_NVRTC_TEST
@@ -181,7 +227,8 @@ void rtcCheck(nvrtcResult code, const char* action) {
 }
 struct Options {
     int width = 3840, height = 2160, seconds = 5400;
-    std::string engine, mp4, rtmp, clip, preset = "veryfast";
+    std::string engine, mp4, rtmp, clip, preset = "veryfast", overlayPreset;
+    bool overlay = false;
 };
 Options parse(int argc, char** argv) {
     Options o;
@@ -194,16 +241,25 @@ Options parse(int argc, char** argv) {
             const auto n = std::stol(value);
             check(n > 0 && n <= 5490, "seconds must be 1..5490");
             o.seconds = static_cast<int>(n);
+        } else if (key == "--overlay") {
+            check(value == "on" || value == "off", "overlay must be on or off");
+            o.overlay = value == "on";
+        } else if (key == "--overlay-preset") {
+            check(value == "superfast" || value == "ultrafast",
+                  "overlay-preset must be superfast or ultrafast");
+            o.overlayPreset = value;
         } else if (key == "--engine") o.engine = value;
         else if (key == "--record") o.mp4 = value;
         else if (key == "--rtmp") o.rtmp = value;
         else if (key == "--clip") o.clip = value;
         else if (key == "--preset") {
-            check(value == "veryfast" || value == "faster", "preset must be veryfast or faster");
+            check(value == "veryfast", "preset must be veryfast");
             o.preset = value;
         }
         else throw std::runtime_error("unknown option: " + key);
     }
+    check(o.overlay == !o.overlayPreset.empty(),
+          "--overlay-preset required only with --overlay on");
     check(!o.clip.empty(), "decoded soccer clip required (--clip); no synthetic fallback");
     check(!o.engine.empty(), "real RF-DETR TensorRT engine required (--engine); no synthetic fallback");
     check(!o.mp4.empty() && !o.rtmp.empty(), "both --record path and --rtmp URL required");
@@ -849,7 +905,12 @@ public:
         decodeMs_ += std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     }
 };
-struct GstCounts { std::atomic<uint64_t> mp4In{0}, mp4Out{0}, rtmpIn{0}, rtmpOut{0}; };
+struct GstCounts {
+    std::atomic<uint64_t> cleanIn{0}, mp4Frames{0}, overlayIn{0}, rtmpFrames{0};
+    std::atomic<uint64_t> cleanQueued{0}, overlayQueued{0};
+    std::atomic<uint64_t> mp4Queued{0}, rtmpQueued{0};
+    std::atomic<uint64_t> mp4QueueIn{0}, rtmpQueueIn{0};
+};
 GstPadProbeReturn countBuffer(GstPad*, GstPadProbeInfo* info, gpointer data) {
     if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER)
         ++(*static_cast<std::atomic<uint64_t>*>(data));
@@ -861,6 +922,7 @@ class Encoder {
     GstElement* overlay_ = nullptr;
     GstBus* bus_ = nullptr;
     GstCounts counts_;
+    bool overlayEnabled_ = false;
     static void probe(GstElement* pipeline, const char* name, const char* pad,
                       std::atomic<uint64_t>& target) {
         GstElement* element = gst_bin_get_by_name(GST_BIN(pipeline), name);
@@ -872,15 +934,10 @@ class Encoder {
         gst_object_unref(element);
     }
 public:
-    Encoder(const Options& options, int* argc, char*** argv) {
+    Encoder(const Options& options, int* argc, char*** argv) : overlayEnabled_(options.overlay) {
         gst_init(argc, argv);
         GError* error = nullptr;
-        const std::string raw = " format=time is-live=true block=false caps=video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 ";
-        const std::string preset = " ! queue max-size-buffers=3 max-size-bytes=0 max-size-time=0 leaky=downstream ! x264enc speed-preset=" + options.preset + " tune=zerolatency key-int-max=30 bitrate=8000 ";
-        const std::string launch = "appsrc name=clean" + raw + preset +
-            "name=mp4encoder ! h264parse name=mp4parse ! mp4mux ! filesink name=record "
-            "appsrc name=overlay" + raw + preset +
-            "name=rtmpencoder ! h264parse name=netparse ! flvmux streamable=true ! rtmpsink name=network sync=false";
+        const std::string launch = encoderLaunch(options.overlay, options.preset, options.overlayPreset);
         pipeline_ = gst_parse_launch(launch.c_str(), &error);
         if (error) {
             std::string message(error->message);
@@ -889,19 +946,32 @@ public:
         }
         check(pipeline_ != nullptr, "GStreamer pipeline unavailable (x264enc/rtmpsink required)");
         clean_ = gst_bin_get_by_name(GST_BIN(pipeline_), "clean");
-        overlay_ = gst_bin_get_by_name(GST_BIN(pipeline_), "overlay");
+        if (options.overlay) overlay_ = gst_bin_get_by_name(GST_BIN(pipeline_), "overlay");
         GstElement* record = gst_bin_get_by_name(GST_BIN(pipeline_), "record");
         GstElement* network = gst_bin_get_by_name(GST_BIN(pipeline_), "network");
-        check(clean_ && overlay_ && record && network, "GStreamer sink lookup failed");
+        check(clean_ && (!options.overlay || overlay_) && record && network, "GStreamer sink lookup failed");
         g_object_set(record, "location", options.mp4.c_str(), nullptr);
         g_object_set(network, "location", options.rtmp.c_str(), nullptr);
         gst_object_unref(record);
         gst_object_unref(network);
-        probe(pipeline_, "mp4encoder", "sink", counts_.mp4In);
-        probe(pipeline_, "mp4encoder", "src", counts_.mp4Out);
-        probe(pipeline_, "rtmpencoder", "sink", counts_.rtmpIn);
-        probe(pipeline_, "rtmpencoder", "src", counts_.rtmpOut);
-        std::printf("encoders=independent preset=%s bitrate_kbps=8000,8000 overlay=raw_rfdetr_person_boxes_approximate_coordinates\n", options.preset.c_str());
+        probe(pipeline_, "mp4encoder", "sink", counts_.cleanIn);
+        probe(pipeline_, "cleanqueue", "src", counts_.cleanQueued);
+        probe(pipeline_, "mp4parse", "src", counts_.mp4Frames);
+        probe(pipeline_, "netparse", "src", counts_.rtmpFrames);
+        if (options.overlay) {
+            probe(pipeline_, "overlayqueue", "src", counts_.overlayQueued);
+            probe(pipeline_, "rtmpencoder", "sink", counts_.overlayIn);
+        } else {
+            probe(pipeline_, "mp4queue", "sink", counts_.mp4QueueIn);
+            probe(pipeline_, "mp4queue", "src", counts_.mp4Queued);
+            probe(pipeline_, "rtmpqueue", "sink", counts_.rtmpQueueIn);
+            probe(pipeline_, "rtmpqueue", "src", counts_.rtmpQueued);
+        }
+        std::printf("encoders=%s preset=%s overlay=%s overlay_preset=%s bitrate_kbps=8000%s overlay_geometry=%s\n",
+                    options.overlay ? "independent" : "shared", options.preset.c_str(),
+                    options.overlay ? "on" : "off", options.overlay ? options.overlayPreset.c_str() : "none",
+                    options.overlay ? ",8000" : "",
+                    options.overlay ? "raw_rfdetr_person_boxes_approximate_coordinates" : "none");
         bus_ = gst_element_get_bus(pipeline_);
         check(gst_element_set_state(pipeline_, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE,
               "GStreamer encoder startup failed");
@@ -914,8 +984,20 @@ public:
         if (pipeline_) gst_object_unref(pipeline_);
     }
     std::array<uint64_t, 4> counts() const {
-        return {counts_.mp4In.load(), counts_.mp4Out.load(),
-                counts_.rtmpIn.load(), counts_.rtmpOut.load()};
+        return {counts_.cleanIn.load(), counts_.mp4Frames.load(),
+                counts_.overlayIn.load(), counts_.rtmpFrames.load()};
+    }
+    // In-flight queue depth at a snapshot; after EOS all residual differences are drops.
+    std::array<uint64_t, 3> queueBacklog() const {
+        const auto counted = counts();
+        const auto cleanQueued = counts_.cleanQueued.load();
+        const auto overlayQueued = counts_.overlayQueued.load();
+        const auto mp4In = counts_.mp4QueueIn.load(), mp4Out = counts_.mp4Queued.load();
+        const auto rtmpIn = counts_.rtmpQueueIn.load(), rtmpOut = counts_.rtmpQueued.load();
+        return {counted[0] - std::min(counted[0], cleanQueued),
+                overlayEnabled_ ? 0 : mp4In - std::min(mp4In, mp4Out),
+                overlayEnabled_ ? counted[2] - std::min(counted[2], overlayQueued) :
+                    rtmpIn - std::min(rtmpIn, rtmpOut)};
     }
     void errors() {
         GstMessage* message = gst_bus_pop_filtered(bus_, GST_MESSAGE_ERROR);
@@ -945,43 +1027,52 @@ public:
         const GstClockTime pts = presentationNs(pair[0].ts, first);
         GST_BUFFER_PTS(buffer) = pts;
         GST_BUFFER_DURATION(buffer) = kFrameNs;
-        GstBuffer* overlay = gst_buffer_copy_deep(buffer);
-        if (!overlay) {
-            gst_buffer_unref(buffer);
-            throw std::runtime_error("allocate overlay frame failed");
+        GstBuffer* overlay = nullptr;
+        if (overlayEnabled_) {
+            overlay = gst_buffer_new_allocate(nullptr, size, nullptr);
+            if (!overlay) {
+                gst_buffer_unref(buffer);
+                throw std::runtime_error("allocate overlay frame failed");
+            }
+            GstMapInfo cleanMap{}, overlayMap{};
+            if (!gst_buffer_map(buffer, &cleanMap, GST_MAP_READ) ||
+                !gst_buffer_map(overlay, &overlayMap, GST_MAP_WRITE)) {
+                if (cleanMap.data) gst_buffer_unmap(buffer, &cleanMap);
+                if (overlayMap.data) gst_buffer_unmap(overlay, &overlayMap);
+                gst_buffer_unref(overlay); gst_buffer_unref(buffer);
+                throw std::runtime_error("map overlay frame failed");
+            }
+            std::memcpy(overlayMap.data, cleanMap.data, size);
+            gst_buffer_unmap(buffer, &cleanMap);
+            // RF-DETR boxes are real tensor output; mapping via placeholder geometry is uncalibrated.
+            for (const auto& box : boxes) {
+                const float yaw = box.camera ? 36.f : -36.f;
+                const auto mapX = [&](float u) {
+                    const float angle = std::atan((u-.5f)*2.f*std::tan(38.f*.01745329252f)) + yaw*.01745329252f;
+                    const float virtualX = (std::tan(angle)*zoom - pan)*960.f + 960.f;
+                    return std::clamp(static_cast<int>(virtualX), 0, kOutputWidth-1);
+                };
+                const int bx = mapX(box.cx - box.w*.5f);
+                const int ex = mapX(box.cx + box.w*.5f);
+                const int by = std::clamp(static_cast<int>((box.cy-box.h*.5f)*kOutputHeight), 0, kOutputHeight-1);
+                const int ey = std::clamp(static_cast<int>((box.cy+box.h*.5f)*kOutputHeight), 0, kOutputHeight-1);
+                for (int y = by; y <= ey; ++y)
+                    for (int x = bx; x <= ex; ++x)
+                        if (y < by+3 || y > ey-3 || x < bx+3 || x > ex-3)
+                            overlayMap.data[y*kOutputWidth+x] = 235;
+            }
+            gst_buffer_unmap(overlay, &overlayMap);
+            GST_BUFFER_PTS(overlay) = pts;
+            GST_BUFFER_DURATION(overlay) = kFrameNs;
         }
-        if (!gst_buffer_map(overlay, &map, GST_MAP_WRITE)) {
-            gst_buffer_unref(overlay); gst_buffer_unref(buffer);
-            throw std::runtime_error("map overlay frame failed");
-        }
-        // RF-DETR boxes are real tensor output; mapping via placeholder geometry is uncalibrated.
-        for (const auto& box : boxes) {
-            const float yaw = box.camera ? 36.f : -36.f;
-            const auto mapX = [&](float u) {
-                const float angle = std::atan((u-.5f)*2.f*std::tan(38.f*.01745329252f)) + yaw*.01745329252f;
-                const float virtualX = (std::tan(angle)*zoom - pan)*960.f + 960.f;
-                return std::clamp(static_cast<int>(virtualX), 0, kOutputWidth-1);
-            };
-            const int bx = mapX(box.cx - box.w*.5f);
-            const int ex = mapX(box.cx + box.w*.5f);
-            const int by = std::clamp(static_cast<int>((box.cy-box.h*.5f)*kOutputHeight), 0, kOutputHeight-1);
-            const int ey = std::clamp(static_cast<int>((box.cy+box.h*.5f)*kOutputHeight), 0, kOutputHeight-1);
-            for (int y = by; y <= ey; ++y)
-                for (int x = bx; x <= ex; ++x)
-                    if (y < by+3 || y > ey-3 || x < bx+3 || x > ex-3)
-                        map.data[y*kOutputWidth+x] = 235;
-        }
-        gst_buffer_unmap(overlay, &map);
-        GST_BUFFER_PTS(overlay) = pts;
-        GST_BUFFER_DURATION(overlay) = kFrameNs;
         const auto cleanResult = gst_app_src_push_buffer(GST_APP_SRC(clean_), buffer);
-        const auto overlayResult = gst_app_src_push_buffer(GST_APP_SRC(overlay_), overlay);
+        const auto overlayResult = overlay ? gst_app_src_push_buffer(GST_APP_SRC(overlay_), overlay) : GST_FLOW_OK;
         check(cleanResult == GST_FLOW_OK && overlayResult == GST_FLOW_OK, "encoder input rejected frame");
         errors();
     }
     void finish() {
         const auto cleanResult = gst_app_src_end_of_stream(GST_APP_SRC(clean_));
-        const auto overlayResult = gst_app_src_end_of_stream(GST_APP_SRC(overlay_));
+        const auto overlayResult = overlay_ ? gst_app_src_end_of_stream(GST_APP_SRC(overlay_)) : GST_FLOW_OK;
         check(cleanResult == GST_FLOW_OK && overlayResult == GST_FLOW_OK,
               "encoder EOS request failed");
         GstMessage* message = gst_bus_timed_pop_filtered(bus_, 300 * GST_SECOND,
@@ -998,11 +1089,13 @@ public:
             throw std::runtime_error("MP4 finalization: " + text);
         }
         gst_message_unref(message);
-        std::printf("mp4_encoder_in=%llu mp4_encoded=%llu rtmp_encoder_in=%llu rtmp_encoded=%llu mp4_eos=ok\n",
-                    static_cast<unsigned long long>(counts_.mp4In.load()),
-                    static_cast<unsigned long long>(counts_.mp4Out.load()),
-                    static_cast<unsigned long long>(counts_.rtmpIn.load()),
-                    static_cast<unsigned long long>(counts_.rtmpOut.load()));
+        const auto done = counts();
+        const auto drops = queueBacklog();
+        std::printf("clean_encoder_in=%llu overlay_encoder_in=%llu mp4_frames=%llu rtmp_frames=%llu encoder_queue_drops=%llu mp4_branch_drops=%llu rtmp_branch_drops=%llu mp4_eos=ok\n",
+                    static_cast<unsigned long long>(done[0]), static_cast<unsigned long long>(done[2]),
+                    static_cast<unsigned long long>(done[1]), static_cast<unsigned long long>(done[3]),
+                    static_cast<unsigned long long>(drops[0]), static_cast<unsigned long long>(drops[1]),
+                    static_cast<unsigned long long>(drops[2]));
     }
 };
 
@@ -1047,8 +1140,8 @@ int run(int argc, char** argv) {
     std::array<std::atomic<uint64_t>, 2> windowInferred{};
     std::array<uint64_t, 2> windowPairs{}, windowRendered{}, windowMisses{}, windowUnmatched{}, windowAnalysisSkipped{};
     std::array<uint64_t, 4> reportCounts{}, minuteEncoded{};
-    uint64_t minuteEncodePending = 0, minuteEncodedPending = 0;
     std::array<uint64_t, 2> minuteCaptured{}, minuteDrops{}, minuteGaps{};
+    uint64_t minuteTimestampGaps = 0, minuteCaptureIdGaps = 0;
     uint64_t minutePairs = 0, minuteRendered = 0, minuteClipFrames = 0;
     uint64_t minuteInferred = 0, minuteSkipped = 0, minuteUnmatched = 0;
     uint64_t minuteMisses = 0;
@@ -1207,14 +1300,14 @@ int run(int argc, char** argv) {
                 for (int i = 0; i < 2; ++i)
                     minuteGaps[i] = shared.captureGaps[i] + shared.timestampGaps[i] +
                                     shared.internalGaps[i] + shared.reordered[i];
+                minuteTimestampGaps = shared.timestampGaps[0] + shared.timestampGaps[1];
+                minuteCaptureIdGaps = shared.captureGaps[0] + shared.captureGaps[1];
                 minutePairs = paired; minuteRendered = rendered;
                 minuteInferred = inferred.load(); minuteSkipped = analysisSkipped.load();
                 minuteUnmatched = unmatched[0] + unmatched[1]; minuteMisses = renderMisses;
                 minuteClipFrames = clip.frames(); minuteClipMs = clip.decodeMs();
                 minuteLatencyStart = minuteLatencies.size();
                 minuteEncoded = encoder.counts();
-                minuteEncodePending = rendered - std::min(rendered, minuteEncoded[1]);
-                minuteEncodedPending = rendered - std::min(rendered, minuteEncoded[3]);
                 minuteAt = now;
                 minuteBaselineSet = true;
                 std::printf("startup_elapsed_s=%.3f ring=%zu rendered=%llu\n",
@@ -1226,8 +1319,10 @@ int run(int argc, char** argv) {
                 const auto now = Clock::now();
                 const double dt = std::chrono::duration<double>(now - minuteAt).count();
                 const auto counts = encoder.counts();
+                const auto queueBacklog = encoder.queueBacklog();
                 encoder.errors();
                 std::array<uint64_t, 2> captured{}, drops{}, gaps{};
+                uint64_t timestampGaps = 0, captureIdGaps = 0;
                 size_t queue = 0;
                 {
                     std::lock_guard<std::mutex> lock(shared.mutex);
@@ -1242,6 +1337,12 @@ int run(int argc, char** argv) {
                         minuteGaps[i] = total;
                         queue += shared.queued[i].size();
                     }
+                    const auto ts = shared.timestampGaps[0] + shared.timestampGaps[1];
+                    const auto ids = shared.captureGaps[0] + shared.captureGaps[1];
+                    timestampGaps = ts - minuteTimestampGaps;
+                    captureIdGaps = ids - minuteCaptureIdGaps;
+                    minuteTimestampGaps = ts;
+                    minuteCaptureIdGaps = ids;
                 }
                 const uint64_t pairs = paired - minutePairs, produced = rendered - minuteRendered;
                 minutePairs = paired; minuteRendered = rendered;
@@ -1265,20 +1366,17 @@ int run(int argc, char** argv) {
                 minuteMisses = renderMisses;
                 const double mp4 = (counts[1] - minuteEncoded[1]) / dt;
                 const double rtmp = (counts[3] - minuteEncoded[3]) / dt;
-                const uint64_t mp4Pending = rendered - std::min(rendered, counts[1]);
-                const uint64_t rtmpPending = rendered - std::min(rendered, counts[3]);
+                // Branch probes are asynchronous; minute FPS is measured at sinks, while
+                // exact drop accounting is checked after EOS drains both branches.
                 const bool noDrops = !(drops[0] || drops[1] || gaps[0] || gaps[1] ||
                                        skipped || unpaired || missed) &&
                                      pairs == produced && coverage >= 99.5 &&
-                                     mp4Pending <= 3 && rtmpPending <= 3 &&
-                                     mp4Pending <= minuteEncodePending + 3 &&
-                                     rtmpPending <= minuteEncodedPending + 3 &&
                                      steadyAcceptance(true, captured[0] / dt,
                                          captured[1] / dt, inferenceKeptUp(batches, skipped, dt),
                                          produced / dt, std::min(mp4, rtmp));
                 allMinutesPassed &= noDrops;
                 ++minute;
-                std::printf("minute=%u elapsed_s=%.3f capture_fps=%.3f,%.3f paired_pct=%.3f render_fps=%.3f render_ms_mean=%.3f infer_hz=%.3f infer_batches=%llu infer_p99_ms=%.3f mp4_fps=%.3f rtmp_fps=%.3f no_drop=%s capture_drops=%llu,%llu capture_gaps=%llu,%llu queues=%zu,%zu analysis_skipped=%llu clip_decode_ms_mean=%.3f clip_frames=%llu\n",
+                std::printf("minute=%u elapsed_s=%.3f capture_fps=%.3f,%.3f paired_pct=%.3f render_fps=%.3f render_ms_mean=%.3f infer_hz=%.3f infer_batches=%llu infer_p99_ms=%.3f mp4_fps=%.3f rtmp_fps=%.3f no_drop=%s capture_drops=%llu,%llu capture_gaps=%llu,%llu queues=%zu,%zu analysis_skipped=%llu clip_decode_ms_mean=%.3f clip_frames=%llu render=%llu mp4_frames=%llu rtmp_frames=%llu timestamp_gaps=%llu capture_id_gaps=%llu encoder_queue_pending=%llu mp4_branch_pending=%llu rtmp_branch_pending=%llu\n",
                     minute, std::chrono::duration<double>(now-started).count(), captured[0]/dt, captured[1]/dt,
                     coverage, produced/dt, minuteRenderCount ? minuteRenderMs/minuteRenderCount : 0., batches/dt,
                     static_cast<unsigned long long>(batches), percentile(latencies, .99), mp4, rtmp,
@@ -1287,12 +1385,18 @@ int run(int argc, char** argv) {
                     static_cast<unsigned long long>(gaps[1]), queue, ring.size(),
                     static_cast<unsigned long long>(skipped),
                     clip.frames() > 0 ? (clip.decodeMs()-minuteClipMs)/std::max<uint64_t>(1, clip.frames()-minuteClipFrames) : 0.,
-                    static_cast<unsigned long long>(clip.frames()));
+                    static_cast<unsigned long long>(clip.frames()),
+                    static_cast<unsigned long long>(produced),
+                    static_cast<unsigned long long>(counts[1] - minuteEncoded[1]),
+                    static_cast<unsigned long long>(counts[3] - minuteEncoded[3]),
+                    static_cast<unsigned long long>(timestampGaps),
+                    static_cast<unsigned long long>(captureIdGaps),
+                    static_cast<unsigned long long>(queueBacklog[0]),
+                    static_cast<unsigned long long>(queueBacklog[1]),
+                    static_cast<unsigned long long>(queueBacklog[2]));
                 std::fflush(stdout);
                 minuteClipFrames = clip.frames(); minuteClipMs = clip.decodeMs();
                 minuteEncoded = counts;
-                minuteEncodePending = mp4Pending;
-                minuteEncodedPending = rtmpPending;
                 minuteAt = now;
                 minuteRenderMs = 0; minuteRenderCount = 0;
                 nextMinute = started + std::chrono::seconds(kStartupSeconds + (minute + 1) * 60);
@@ -1314,7 +1418,8 @@ int run(int argc, char** argv) {
                 reportAt = Clock::now();
                 std::printf("encoded_frames=%llu encoded_fps=%.3f rtmp_input_frames=%llu rtmp_input_fps=%.3f rtmp_frames=%llu rtmp_fps=%.3f render_misses=%llu analysis_skipped=%llu timestamp_gaps=%llu,%llu capture_id_gaps=%llu,%llu internal_gaps=%llu,%llu reordered=%llu,%llu\n",
                             static_cast<unsigned long long>(encoded[1]), encoded[1] / seconds,
-                            static_cast<unsigned long long>(encoded[2]), encoded[2] / seconds,
+                            static_cast<unsigned long long>(options.overlay ? encoded[2] : encoded[0]),
+                            (options.overlay ? encoded[2] : encoded[0]) / seconds,
                             static_cast<unsigned long long>(encoded[3]), encoded[3] / seconds,
                             static_cast<unsigned long long>(renderMisses),
                             static_cast<unsigned long long>(analysisSkipped.load()),
@@ -1369,14 +1474,16 @@ int run(int argc, char** argv) {
     try { encoder.finish(); }
     catch (...) { if (!failure) failure = std::current_exception(); }
     const auto encoded = encoder.counts();
+    const auto encoderDrops = encoder.queueBacklog();
     const double steadySeconds = std::max(0.0, seconds - kStartupSeconds);
     const double steadyEncodedFps = steadySeconds && steadyBaselineSet ?
         (encoded[1] - std::min(encoded[1], steadyEncodedBaseline)) / steadySeconds : 0.0;
     const bool valid = !failure && seconds >= options.seconds && steadySeconds > 0 &&
         minute >= static_cast<unsigned>(std::max(0, (options.seconds - kStartupSeconds) / 60)) &&
         (options.seconds < 5400 || minute >= 90) && allMinutesPassed &&
-        maxRing >= kRingPairs && encoded[1] > 0 && encoded[1] == rendered &&
-        encoded[3] == rendered && encoded[0] == rendered && encoded[2] == rendered &&
+        maxRing >= kRingPairs &&
+        encoderFramesIntact(rendered, encoded[0], encoded[1], encoded[2], encoded[3], options.overlay) &&
+        !(encoderDrops[0] || encoderDrops[1] || encoderDrops[2]) &&
         steadyAcceptance(
             noDropVerdict(shared.windowTimestampGaps[1][0] + shared.windowTimestampGaps[1][1],
                           shared.windowCaptureGaps[1][0] + shared.windowCaptureGaps[1][1],
@@ -1419,16 +1526,22 @@ int run(int argc, char** argv) {
                     static_cast<unsigned long long>(windowMisses[window]),
                     static_cast<unsigned long long>(windowAnalysisSkipped[window]), noDrops ? "PASS" : "FAIL");
     }
-    std::printf("final elapsed_s=%.3f mode=%dx%d encoded_frames=%llu encoded_fps=%.3f steady_encoded_fps=%.3f rtmp_input_frames=%llu rtmp_frames=%llu encoder_queue_or_branch_gap=%llu render=%llu infer_batches=%llu infer_latency_ms_p99=%.3f max_ring=%llu tail_ring_omitted=%zu tail_policy=not_encoded encoded_before_eos=%llu acceptance=%s\n",
+    std::printf("final elapsed_s=%.3f mode=%dx%d encoded_frames=%llu encoded_fps=%.3f steady_encoded_fps=%.3f rtmp_input_frames=%llu rtmp_frames=%llu encoder_queue_or_branch_gap=%llu render=%llu infer_batches=%llu infer_latency_ms_p99=%.3f max_ring=%llu tail_ring_omitted=%zu tail_policy=not_encoded encoded_before_eos=%llu mp4_frames=%llu mp4_branch_frames=%llu rtmp_branch_frames=%llu clean_encoder_in=%llu overlay_encoder_in=%llu encoder_queue_drops=%llu mp4_branch_drops=%llu rtmp_branch_drops=%llu acceptance=%s\n",
                 seconds, options.width, options.height, static_cast<unsigned long long>(encoded[1]),
                 seconds ? encoded[1] / seconds : 0.0, steadyEncodedFps,
-                static_cast<unsigned long long>(encoded[2]), static_cast<unsigned long long>(encoded[3]),
+                static_cast<unsigned long long>(options.overlay ? encoded[2] : encoded[0]), static_cast<unsigned long long>(encoded[3]),
                 static_cast<unsigned long long>(rendered > encoded[1] ? rendered - encoded[1] : 0),
                 static_cast<unsigned long long>(rendered), static_cast<unsigned long long>(inferred.load()),
                 percentile(inferenceLatencies[1], .99), static_cast<unsigned long long>(maxRing), tailOmitted,
-                static_cast<unsigned long long>(beforeEos[1]), valid ? "PASS" : "FAIL");
+                static_cast<unsigned long long>(beforeEos[1]),
+                static_cast<unsigned long long>(encoded[1]), static_cast<unsigned long long>(encoded[1]),
+                static_cast<unsigned long long>(encoded[3]), static_cast<unsigned long long>(encoded[0]),
+                static_cast<unsigned long long>(encoded[2]),
+                static_cast<unsigned long long>(encoderDrops[0]),
+                static_cast<unsigned long long>(encoderDrops[1]),
+                static_cast<unsigned long long>(encoderDrops[2]), valid ? "PASS" : "FAIL");
     if (failure) std::rethrow_exception(failure);
-    check(valid, "full-duration capture/render/inference/two-encoder acceptance failed; inspect minute counters");
+    check(valid, "full-duration capture/render/inference/branch acceptance failed; inspect minute counters");
     return 0;
 }
 int main(int argc, char** argv) {
