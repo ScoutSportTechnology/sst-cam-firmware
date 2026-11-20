@@ -1,0 +1,4 @@
+input: type=0 dims=2x3x512x512
+dets: type=0 dims=2x300x4
+labels: type=0 dims=2x300x91
+wrote 62537012-byte FP16 engine to ./rfdetr-small.engine
