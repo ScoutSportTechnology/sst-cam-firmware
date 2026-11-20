@@ -120,6 +120,11 @@ int main() {
     std::puts("pair selection, window and latency statistics passed");
 }
 #else
+#ifdef E2E_NVRTC_TEST
+#include <cuda_runtime_api.h>
+#include <nvrtc.h>
+#include <cstdio>
+#else
 #include <Argus/Argus.h>
 #include <Argus/Ext/InternalFrameCount.h>
 #include <cuda.h>
@@ -149,7 +154,9 @@ int main() {
 #include <mutex>
 #include <thread>
 #include <vector>
+#endif
 
+#ifndef E2E_NVRTC_TEST
 using namespace Argus;
 using Clock = std::chrono::steady_clock;
 constexpr int kOutputWidth = 1920, kOutputHeight = 1080;
@@ -393,8 +400,10 @@ void release(const Pair& pair, std::array<Camera, 2>& cameras) {
         check(cameras[i].output->releaseBuffer(pair[i].buffer) == STATUS_OK, "Argus releaseBuffer failed");
 }
 
+#endif
 // Compiled on the Jetson by NVRTC: avoids a host-side nvcc/toolchain and never maps a source pixel on CPU.
 constexpr const char* kKernels = R"CUDA(
+#define E2E_DEVICE __device__
 __device__ float bilinear(const unsigned char* p, int pitch, int width, int height,
                            float x, float y, int stride, int channel) {
  x = fminf(width - 1.f, fmaxf(0.f, x));
@@ -405,7 +414,7 @@ __device__ float bilinear(const unsigned char* p, int pitch, int width, int heig
  float bottom = p[jy * pitch + ix * stride + channel] * (1.f-a) + p[jy * pitch + jx * stride + channel] * a;
  return top * (1.f-b) + bottom * b;
 }
-)CUDA" E2E_STRINGIFY(E2E_VISIBILITY(__device__)) R"CUDA(
+)CUDA" E2E_STRINGIFY(E2E_VISIBILITY(E2E_DEVICE)) R"CUDA(
 struct Rgb { float x, y, z; };
 __device__ Rgb cameraRgb(const unsigned char* yy, const unsigned char* uv, int yp, int up,
                             int sw, int sh, float rayX, float rayY, float rayZ,
@@ -484,6 +493,21 @@ extern "C" __global__ void prepare(const unsigned char* y, const unsigned char* 
  tensor[offset + 2 * w * h] = (fminf(255.f, fmaxf(0.f, Y + 1.772f * U)) / 255.f - .406f) / .225f;
 }
 )CUDA";
+#ifdef E2E_NVRTC_TEST
+int main() {
+    nvrtcProgram program = nullptr;
+    if (nvrtcCreateProgram(&program, kKernels, "virtual-camera.cu", 0, nullptr, nullptr) != NVRTC_SUCCESS) return 1;
+    const char* flags[] = {"--gpu-architecture=compute_87", "--std=c++14"};
+    const auto result = nvrtcCompileProgram(program, 2, flags);
+    size_t size = 0;
+    nvrtcGetProgramLogSize(program, &size);
+    std::string log(size, '\0');
+    nvrtcGetProgramLog(program, log.data());
+    if (result != NVRTC_SUCCESS) std::fprintf(stderr, "NVRTC compile: %s\n", log.c_str());
+    nvrtcDestroyProgram(&program);
+    return result == NVRTC_SUCCESS ? 0 : 1;
+}
+#else
 struct Mapped {
     CUgraphicsResource resource = nullptr;
     CUeglFrame frame{};
@@ -1411,4 +1435,5 @@ int main(int argc, char** argv) {
     try { return run(argc, argv); }
     catch (const std::exception& e) { std::fprintf(stderr, "e2e spike failed: %s\n", e.what()); return 1; }
 }
+#endif
 #endif

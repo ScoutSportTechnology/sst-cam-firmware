@@ -14,7 +14,7 @@ SCP=(scp -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-ne
 remote=sst@10.10.1.30
 run="/home/sst/vision-e2e-stress-$(date -u +%Y%m%dT%H%M%SZ)"
 stream="${run##*/}"
-out="$root/logs-stress/session2"
+out="$root/logs-stress/session3"
 clip=/root/setup/vision-e2e-footage.webm
 python=/root/setup/vision/.venv/bin/python
 [[ ! -e "$out" ]] || { echo "Existing logs: $out" >&2; exit 1; }

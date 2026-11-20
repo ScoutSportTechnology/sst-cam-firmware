@@ -9,6 +9,8 @@ docker run --rm --network none --user 0:0 --mount "type=bind,src=$root,dst=/spik
   common=(-std=c++17 -O2 -Wall -Wextra -Werror -pthread -I"$sysroot/usr/include" -I"$sysroot/usr/include/aarch64-linux-gnu" -I"$cuda/include")
   aarch64-linux-gnu-g++-13 --sysroot="$sysroot" "${common[@]}" -DE2E_SELF_TEST -ffunction-sections -fdata-sections -Wl,--gc-sections e2e.cpp -o e2e-self-test-aarch64
   qemu-aarch64-static -L "$sysroot" ./e2e-self-test-aarch64
+  aarch64-linux-gnu-g++-13 --sysroot="$sysroot" "${common[@]}" -DE2E_NVRTC_TEST e2e.cpp -o /tmp/e2e-nvrtc-test-aarch64 -L"$cuda/lib" -lnvrtc
+  LD_LIBRARY_PATH="$cuda/lib" qemu-aarch64-static -L "$sysroot" /tmp/e2e-nvrtc-test-aarch64
   aarch64-linux-gnu-g++-13 --sysroot="$sysroot" "${common[@]}" e2e.cpp -o e2e-aarch64 \
     $(pkg-config --cflags --libs gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-1.0) \
     -L"$sysroot/usr/lib/aarch64-linux-gnu/tegra" -L"$sysroot/usr/lib/aarch64-linux-gnu" -L"$cuda/lib" -L"$cuda/lib/stubs" \
