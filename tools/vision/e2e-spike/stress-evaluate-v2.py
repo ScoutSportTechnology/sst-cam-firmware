@@ -283,20 +283,20 @@ def evaluate_runs(root, minutes_a=90, minutes_b=20):
     trials['run-b/superfast'] = summarize(root, 'run-b/superfast', minutes_b)
     if trials['run-b/superfast']['status'] == 'PASS':
         return {'status': trials['run-a']['status'], 'holding_preset': 'superfast', 'trials': trials}
+    slow = Path(root) / 'run-b/ultrafast/e2e.log'
+    if slow.exists():
+        trials['run-b/ultrafast'] = summarize(root, 'run-b/ultrafast', minutes_b)
     # A failed, measured trial permits fallback; missing provenance is not a failed preset.
     if not (trials['run-b/superfast']['limits']['telemetry_coverage'] and
             trials['run-b/superfast']['window_evidence_complete'] and
             trials['run-b/superfast']['limits']['encoder_configuration'] and
             trials['run-b/superfast']['limits']['memory'] and
             trials['run-b/superfast']['limits']['no_throttling'] and
-            trials['run-b/superfast']['limits']['zero_gaps'] and
             trials['run-b/superfast']['limits']['viewer'] and
             trials['run-b/superfast']['independent_decode_valid']):
         return {'status': 'NO_COMPLETE_EVIDENCE', 'holding_preset': None, 'trials': trials}
-    slow = Path(root) / 'run-b/ultrafast/e2e.log'
     if not slow.exists():
         return {'status': 'FAIL', 'holding_preset': None, 'trials': trials}
-    trials['run-b/ultrafast'] = summarize(root, 'run-b/ultrafast', minutes_b)
     return {'status': ('PASS' if trials['run-a']['status'] == 'PASS' and
                         trials['run-b/ultrafast']['status'] == 'PASS' else 'FAIL'),
             'holding_preset': 'ultrafast' if trials['run-b/ultrafast']['status'] == 'PASS' else None,

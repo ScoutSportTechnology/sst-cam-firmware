@@ -243,6 +243,34 @@ class StressEvaluateV2Test(unittest.TestCase):
         self.assertEqual(report['trials']['run-b/superfast']['status'], 'FAIL')
         self.assertEqual(report['trials']['run-b/ultrafast']['lost_frames']['rtmp'], 0)
 
+    def test_superfast_capture_gap_and_clean_frame_loss_fall_back_to_ultrafast(self):
+        self.make_trial('run-b/superfast', minutes=1)
+        self.make_trial('run-b/ultrafast', minutes=1)
+        log = self.root / 'run-b/superfast/e2e.log'
+        log.write_text(log.read_text().replace('capture_id_gaps=0', 'capture_id_gaps=1')
+                       .replace('no_drop=PASS', 'no_drop=FAIL')
+                       .replace('encoded_frames=1800', 'encoded_frames=1626'))
+        mp4 = self.root / 'run-b-superfast-mp4.json'
+        mp4.write_text(mp4.read_text().replace('"nb_read_frames": 1800', '"nb_read_frames": 1626'))
+        report = evaluator.evaluate_runs(self.root, minutes_a=2, minutes_b=1)
+        self.assertEqual(report['status'], 'PASS', report)
+        self.assertEqual(report['holding_preset'], 'ultrafast')
+        self.assertEqual(report['trials']['run-a']['status'], 'PASS')
+        self.assertEqual(report['trials']['run-b/superfast']['status'], 'FAIL')
+        self.assertFalse(report['trials']['run-b/superfast']['limits']['zero_gaps'])
+        self.assertEqual(report['trials']['run-b/superfast']['lost_frames']['mp4'], 174)
+        self.assertEqual(report['trials']['run-b/ultrafast']['status'], 'PASS')
+        (self.root / 'run-b/ultrafast/e2e.log').unlink()
+        missing = evaluator.evaluate_runs(self.root, minutes_a=2, minutes_b=1)
+        self.assertNotEqual(missing['status'], 'PASS')
+        self.assertIsNone(missing['holding_preset'])
+        self.make_trial('run-b/ultrafast', minutes=1)
+        (self.root / 'run-b-ultrafast-mp4.json').unlink()
+        incomplete = evaluator.evaluate_runs(self.root, minutes_a=2, minutes_b=1)
+        self.assertEqual(incomplete['status'], 'FAIL')
+        self.assertIsNone(incomplete['holding_preset'])
+        self.assertEqual(incomplete['trials']['run-b/ultrafast']['status'], 'FAIL')
+
     def test_missing_superfast_minute_field_cannot_be_called_measured_fallback(self):
         self.make_trial('run-b/superfast', minutes=1)
         self.make_trial('run-b/ultrafast', minutes=1)
