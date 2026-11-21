@@ -64,13 +64,14 @@ ci scope="":
 # Usage: just deploy-firmware user@jetson.local
 #        just deploy-firmware jetson.local --no-camera   # extra install.sh flags pass through
 deploy-firmware HOST *flags: build
-    @BIN="dist/sst_cam_firmware-aarch64"; \
+    @BIN="dist/sst_cam_firmware-aarch64"; LIB="dist/libsst_argus_hardware.so"; \
      [ -f "$BIN" ] || { echo "binary not found: $BIN (just build failed?)" >&2; exit 1; }; \
+     [ -f "$LIB" ] || { echo "Argus diagnostic library not found: $LIB" >&2; exit 1; }; \
      command -v scp >/dev/null || { echo "scp not found on host PATH" >&2; exit 1; }; \
-     echo "Copying ${BIN} + install.sh to {{HOST}} ..."; \
-      scp "$BIN" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
+     echo "Copying ${BIN} + ${LIB} + install.sh to {{HOST}} ..."; \
+      scp "$BIN" "$LIB" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
       echo "Running install.sh --binary on {{HOST}} (sudo) ..."; \
-      ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 {{flags}}"
+      ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 --argus-library /tmp/libsst_argus_hardware.so {{flags}}"
 
 # --- housekeeping ---------------------------------------------------------
 

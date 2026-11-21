@@ -30,4 +30,4 @@ struct VideoSurface {
     }
 };
 
-}
+}  // namespace sst::capture

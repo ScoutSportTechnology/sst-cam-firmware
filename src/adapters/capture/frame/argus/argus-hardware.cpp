@@ -71,10 +71,10 @@ struct Slot {
     UniqueObj<Buffer> buffer;
     CUgraphicsResource resource{nullptr};
     ~Slot() {
-        buffer.reset();
         if (resource != nullptr) {
             cuGraphicsUnregisterResource(resource);
         }
+        buffer.reset();
         if (surface != nullptr) {
             if (image != EGL_NO_IMAGE_KHR) {
                 NvBufSurfaceUnMapEglImage(surface, 0);
@@ -167,7 +167,9 @@ class ArgusHardware final : public Hardware {
         }
         camera.request.reset(camera.capture->createRequest(CAPTURE_INTENT_VIDEO_RECORD));
         auto* request = interface_cast<IRequest>(camera.request);
-        camera.source = interface_cast<ISourceSettings>(camera.request);
+        camera.source = request != nullptr
+                            ? interface_cast<ISourceSettings>(request->getSourceSettings())
+                            : nullptr;
         camera.auto_control =
             request != nullptr
                 ? interface_cast<IAutoControlSettings>(request->getAutoControlSettings())
@@ -201,7 +203,6 @@ class ArgusHardware final : public Hardware {
               edge->setEdgeEnhanceMode(EDGE_ENHANCE_MODE_FAST) == STATUS_OK &&
               edge->setEdgeEnhanceStrength(settings.edge_strength) == STATUS_OK);
         Apply(camera_index, Controls{});
-        Check(camera.capture->repeat(camera.request.get()) == STATUS_OK);
     }
     auto Acquire(int camera_index) -> std::optional<Sample> override {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
@@ -244,7 +245,9 @@ class ArgusHardware final : public Hardware {
         if (cuGraphicsResourceGetMappedEglFrame(&frame, mutable_slot->resource, 0, 0) !=
                 CUDA_SUCCESS ||
             frame.frameType != CU_EGL_FRAME_TYPE_PITCH || frame.planeCount < 2 ||
-            frame.pitch < kSensorWidth) {
+            frame.frame.pPitch[0] == nullptr || frame.frame.pPitch[1] == nullptr ||
+            slot->surface->surfaceList[0].planeParams.pitch[0] < kSensorWidth ||
+            slot->surface->surfaceList[0].planeParams.pitch[1] < kSensorWidth) {
             camera.output->releaseBuffer(buffer);
             throw std::runtime_error("CUDA EGL frame unavailable");
         }
@@ -253,7 +256,7 @@ class ArgusHardware final : public Hardware {
             CUDA_MEMCPY2D copy{};
             copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
             copy.srcDevice = reinterpret_cast<CUdeviceptr>(frame.frame.pPitch[plane]);
-            copy.srcPitch = frame.pitch;
+            copy.srcPitch = slot->surface->surfaceList[0].planeParams.pitch[plane];
             copy.dstMemoryType = CU_MEMORYTYPE_HOST;
             copy.dstHost = pixels.data() + plane * kPlaneSamples;
             copy.dstPitch = kSampleColumns;
@@ -313,12 +316,14 @@ class ArgusHardware final : public Hardware {
               camera.auto_control->setIspDigitalGainRange(Range<float>(controls.isp_gain)) ==
                   STATUS_OK &&
               camera.auto_control->setWbGains(
-                  BayerTuple<float>(controls.wb_red, 1.F, 1.F, controls.wb_blue)) == STATUS_OK);
+                  BayerTuple<float>(controls.wb_red, 1.F, 1.F, controls.wb_blue)) == STATUS_OK &&
+              camera.capture->repeat(camera.request.get()) == STATUS_OK);
     }
     auto Close(int camera_index) -> void override {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
         if (camera.capture != nullptr) {
             camera.capture->stopRepeat();
+            camera.capture->waitForIdle();
         }
         if (camera.output != nullptr) {
             camera.output->endOfStream();
@@ -340,6 +345,6 @@ class ArgusHardware final : public Hardware {
     bool cuda_initialized_{false};
     std::array<Camera, 2> cameras_;
 };
-}
+}  // namespace
 extern "C" auto CreateArgusHardware() -> Hardware* { return new ArgusHardware(); }
-}
+}  // namespace sst::capture::argus

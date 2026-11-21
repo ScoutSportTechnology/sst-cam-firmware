@@ -18,7 +18,8 @@
 #      /opt/sst-cam/bin dir, and installs + enables the systemd unit if missing.
 #   1. Resolves a Release by tag (--version) OR by recorded binary digest
 #      (--sha256), defaulting to `latest`.
-#   2. Downloads the `sst_cam_firmware-<tag>-aarch64` asset; fails BEFORE
+#   2. Downloads the `sst_cam_firmware-<tag>-aarch64` asset and optional
+#      diagnostic sidecar; fails BEFORE
 #      touching the service on a bad download, non-aarch64 ELF, platform
 #      mismatch, or a sha256 that disagrees with the release notes.
 #   3. No-op if the installed binary already matches (sha256).
@@ -38,6 +39,7 @@ INSTALL_ROOT="/opt/sst-cam"
 INSTALL_DIR="${INSTALL_ROOT}/bin"
 INSTALL_PATH="${INSTALL_DIR}/sst_cam_firmware"
 BACKUP_PATH="${INSTALL_PATH}.bak"
+ARGUS_LIBRARY_PATH="${INSTALL_DIR}/libsst_argus_hardware.so"
 STA_SCRIPT_PATH="${INSTALL_DIR}/sst-sta-dhclient-script"
 BT_RECOVER_PATH="/usr/local/libexec/sst-bt-recover"
 BT_RECOVER_UNIT_PATH="/etc/systemd/system/sst-bt-recover.service"
@@ -107,6 +109,7 @@ RUNTIME_DEPS=(libsdbus-c++1 libgstrtspserver-1.0-0 libopencv-videoio406t64)
 VERSION="latest"        # tag selector (default)
 WANT_SHA=""             # --sha256 selector / verifier
 LOCAL_BINARY=""         # --binary <path>: install a local build, skip GitHub
+LOCAL_ARGUS_LIBRARY=""  # --argus-library <path>: optional local diagnostic library
 
 # --- Logging helpers ---------------------------------------------------------
 log() { printf '[install] %s\n' "$*"; }
@@ -131,6 +134,7 @@ Selects the release to install (default: latest):
                      JetPack-platform guards, atomic swap, backup, and rollback
                      all still apply. --version is ignored; --sha256, if given,
                      is checked against the local file.
+  --argus-library <path>  Pair a local Argus diagnostic library with --binary.
   --no-setup         Skip the one-time setup (user/dir/systemd unit) check.
   -h, --help         Show this help.
 
@@ -149,6 +153,7 @@ Environment:
   GITHUB_TOKEN            Optional; lifts the GitHub API rate limit only.
   SST_SKIP_PLATFORM_CHECK Set to 1 to bypass the JetPack-7.2 device guard.
   SST_CAMERA_OVERLAY      Default camera overlay (same value as --camera-overlay).
+  SST_REQUIRE_ARGUS_LIBRARY  Set to 1 for diagnostic deployments: reject older releases without sidecar.
 EOF
 }
 
@@ -168,6 +173,10 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || die "--binary requires a path to a local aarch64 binary"
       LOCAL_BINARY="$2"; shift 2 ;;
     --binary=*) LOCAL_BINARY="${1#*=}"; shift ;;
+    --argus-library)
+      [ "$#" -ge 2 ] || die "--argus-library requires a path"
+      LOCAL_ARGUS_LIBRARY="$2"; shift 2 ;;
+    --argus-library=*) LOCAL_ARGUS_LIBRARY="${1#*=}"; shift ;;
     --no-setup) DO_SETUP="no"; shift ;;
     --no-camera) PROVISION_CAMERA="no"; shift ;;
     --camera-overlay)
@@ -187,6 +196,8 @@ while [ "$#" -gt 0 ]; do
     *) die "Unknown argument: $1 (try --help)" ;;
   esac
 done
+
+[ -z "$LOCAL_ARGUS_LIBRARY" ] || [ -n "$LOCAL_BINARY" ] || die "--argus-library requires --binary"
 
 # Normalise / validate a provided digest.
 if [ -n "$WANT_SHA" ]; then
@@ -1219,6 +1230,13 @@ if [ -n "$LOCAL_BINARY" ]; then
     die "sha256 mismatch: local binary ${dl_sha} != requested ${WANT_SHA}."
   fi
   log "Local binary sha256: ${dl_sha}"
+  if [ "${SST_REQUIRE_ARGUS_LIBRARY:-0}" = 1 ] && [ -z "$LOCAL_ARGUS_LIBRARY" ]; then
+    die "local diagnostic deployment requires --argus-library"
+  fi
+  if [ -n "$LOCAL_ARGUS_LIBRARY" ]; then
+    [ -s "$LOCAL_ARGUS_LIBRARY" ] || die "--argus-library missing or empty: ${LOCAL_ARGUS_LIBRARY}"
+    cp -f "$LOCAL_ARGUS_LIBRARY" "${TMP_DIR}/libsst_argus_hardware.so"
+  fi
 else
 
 if [ -n "$WANT_SHA" ] && [ "$VERSION" = "latest" ]; then
@@ -1243,6 +1261,7 @@ log "Resolved tag: ${resolved_tag}"
 
 # Recorded digest from the release notes (the verified hand-off contract).
 notes_sha="$(printf '%s' "$release_json" | jq -r '.body // ""' \
+  | grep -E "sha256:[[:space:]]*[0-9a-fA-F]{64}[[:space:]]+sst_cam_firmware-${resolved_tag}-aarch64([[:space:]]|$)" \
   | sed -nE 's/.*sha256:[[:space:]]*([0-9a-fA-F]{64}).*/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]')"
 
 # --- Find the aarch64 asset --------------------------------------------------
@@ -1254,6 +1273,9 @@ asset_name="$(printf '%s' "$release_json" \
   | head -n1)"
 [ -n "$asset_url" ] || die "no '*-aarch64' asset found on release ${resolved_tag}"
 log "Found asset: ${asset_name}"
+argus_asset_name="libsst_argus_hardware-${resolved_tag}-aarch64.so"
+argus_url="$(printf '%s' "$release_json" | jq -r --arg name "$argus_asset_name" \
+  '.assets[] | select(.name == $name) | .browser_download_url' | head -n1)"
 
 # --- Download the asset (public browser_download_url, no auth) ----------------
 new_bin="${TMP_DIR}/sst_cam_firmware"
@@ -1271,7 +1293,38 @@ if [ -n "$WANT_SHA" ] && [ "$dl_sha" != "$WANT_SHA" ]; then
   die "sha256 mismatch: downloaded ${dl_sha} != requested ${WANT_SHA}."
 fi
 log "Verified sha256: ${dl_sha}"
+# Older releases predate this optional diagnostic; new release notes declare
+# a sidecar hash so a missing asset fails before touching the service.
+argus_notes_sha="$(printf '%s' "$release_json" | jq -r '.body // ""' | \
+  sed -nE 's/.*argus-sha256:[[:space:]]*([0-9a-fA-F]{64}).*/\1/p' | head -n1 | tr '[:upper:]' '[:lower:]')"
+if [ -z "$argus_url" ] && { [ -n "$argus_notes_sha" ] || [ "${SST_REQUIRE_ARGUS_LIBRARY:-0}" = 1 ]; }; then
+  die "release ${resolved_tag} has no Argus diagnostic library asset"
+fi
+if [ -n "$argus_url" ]; then
+  argus_sha="$(printf '%s' "$release_json" | jq -r --arg name "$argus_asset_name" \
+    '.assets[] | select(.name == $name) | .digest // empty' | head -n1)"
+  if [[ ! "$argus_sha" =~ ^sha256:[0-9a-f]{64}$ ]] && [ -n "$argus_notes_sha" ]; then
+    argus_sha="sha256:${argus_notes_sha}"
+  fi
+  [[ "$argus_sha" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die "Argus library release asset lacks SHA-256 digest"
+  if [ -n "$argus_notes_sha" ] && [ "$argus_sha" != "sha256:${argus_notes_sha}" ]; then
+    die "Argus library digest disagrees with release notes"
+  fi
+  curl -fsSL -o "${TMP_DIR}/libsst_argus_hardware.so" "$argus_url" \
+    || die "Argus library download failed for ${resolved_tag}"
+  [ -s "${TMP_DIR}/libsst_argus_hardware.so" ] || die "Argus library asset is empty"
+  [ "sha256:$(sha256sum "${TMP_DIR}/libsst_argus_hardware.so" | awk '{print $1}')" = "$argus_sha" ] \
+    || die "Argus library SHA-256 digest mismatch"
+fi
 fi  # end release-download vs --binary branch
+
+if [ -f "${TMP_DIR}/libsst_argus_hardware.so" ]; then
+  case "$(file -b "${TMP_DIR}/libsst_argus_hardware.so")" in
+    *ELF*aarch64*shared\ object*) ;;
+    *) die "Argus diagnostic library must be an aarch64 ELF shared object" ;;
+  esac
+fi
 
 # --- Validate it is an aarch64 ELF (still BEFORE touching the service) -------
 # Runs for BOTH paths: a local host-arch (x86_64) build is correctly rejected
@@ -1331,6 +1384,12 @@ install_sta_dhcp_script
 if [ -f "$INSTALL_PATH" ]; then
   cur_sum="$(sha256sum "$INSTALL_PATH" | awk '{print $1}')"
   if [ "$dl_sha" = "$cur_sum" ]; then
+    if [ -f "${TMP_DIR}/libsst_argus_hardware.so" ]; then
+      if [ ! -f "$ARGUS_LIBRARY_PATH" ] || ! cmp -s "${TMP_DIR}/libsst_argus_hardware.so" "$ARGUS_LIBRARY_PATH"; then
+        install -m 755 "${TMP_DIR}/libsst_argus_hardware.so" "${ARGUS_LIBRARY_PATH}.new"
+        mv -f "${ARGUS_LIBRARY_PATH}.new" "$ARGUS_LIBRARY_PATH"
+      fi
+    fi
     log "Installed binary already matches ${resolved_tag} (sha256 ${dl_sha}). No-op."
     # A matching binary is useless if the unit is down (e.g. a prior crash-loop
     # left it inactive/failed). On a no-op, bring it back up if it isn't active.
@@ -1362,6 +1421,17 @@ fi
 log "Stopping ${SERVICE} ..."
 systemctl stop "$SERVICE" || log "warning: stop returned non-zero (service may not have been running)"
 
+if [ -f "${TMP_DIR}/libsst_argus_hardware.so" ]; then
+  if [ -f "$ARGUS_LIBRARY_PATH" ]; then
+    cp -p "$ARGUS_LIBRARY_PATH" "${ARGUS_LIBRARY_PATH}.bak"
+  else
+    rm -f "${ARGUS_LIBRARY_PATH}.bak"
+  fi
+  # The normal service never loads this sidecar; swap only after the service stopped.
+  install -m 755 "${TMP_DIR}/libsst_argus_hardware.so" "${ARGUS_LIBRARY_PATH}.new"
+  mv -f "${ARGUS_LIBRARY_PATH}.new" "$ARGUS_LIBRARY_PATH"
+fi
+
 if [ -f "$INSTALL_PATH" ]; then
   log "Backing up current binary -> ${BACKUP_PATH}"
   cp -p "$INSTALL_PATH" "$BACKUP_PATH"
@@ -1378,6 +1448,7 @@ start_failed="no"
 systemctl start "$SERVICE" || start_failed="yes"
 
 if [ "$start_failed" = "no" ] && systemctl is-active --quiet "$SERVICE"; then
+  rm -f "${ARGUS_LIBRARY_PATH}.bak"
   log "Update to ${resolved_tag} complete."
   log "Service status: $(systemctl is-active "$SERVICE")"
   log "Logs: journalctl -u ${SERVICE} -f"
@@ -1386,6 +1457,11 @@ fi
 
 # --- Rollback on failure -----------------------------------------------------
 err "${SERVICE} did not become active after update to ${resolved_tag}."
+if [ -f "${ARGUS_LIBRARY_PATH}.bak" ]; then
+  mv -f "${ARGUS_LIBRARY_PATH}.bak" "$ARGUS_LIBRARY_PATH"
+elif [ -f "${TMP_DIR}/libsst_argus_hardware.so" ]; then
+  rm -f "$ARGUS_LIBRARY_PATH"
+fi
 if [ -f "$BACKUP_PATH" ]; then
   err "Restoring previous binary from backup ..."
   mv -f "$BACKUP_PATH" "$INSTALL_PATH"

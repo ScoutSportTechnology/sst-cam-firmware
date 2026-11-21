@@ -45,4 +45,4 @@ auto FramePairRing::Clear() -> void {
     stats_.depth = 0;
     stats_.bytes = 0;
 }
-}
+}  // namespace sst::pipeline

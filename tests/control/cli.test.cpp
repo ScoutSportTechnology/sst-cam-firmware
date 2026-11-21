@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,33 @@ TEST(CliTest, MultipleArgsFirstUnknownWins) {
     EXPECT_EQ(result.action, CliAction::kError);
     EXPECT_EQ(result.exit_code, 2);
     EXPECT_TRUE(result.error.find("unrecognized option") != std::string::npos);
+}
+
+TEST(CliTest, CaptureDiagnosticRequiresExplicitFlag) {
+    std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
+                               const_cast<char*>("--capture-diagnostic")};
+    setenv("SST_ENABLE_ARGUS_DIAGNOSTIC", "1", 1);
+    auto result = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    unsetenv("SST_ENABLE_ARGUS_DIAGNOSTIC");
+    EXPECT_EQ(result.action, CliAction::kCaptureDiagnostic);
+}
+
+TEST(CliTest, CaptureDiagnosticIsOffUnlessEnvironmentGateEnabled) {
+    std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
+                               const_cast<char*>("--capture-diagnostic")};
+    unsetenv("SST_ENABLE_ARGUS_DIAGNOSTIC");
+    auto result = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(result.action, CliAction::kError);
+    EXPECT_EQ(result.exit_code, 2);
+}
+
+TEST(CliTest, CaptureDiagnosticRejectsOtherOptions) {
+    std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
+                               const_cast<char*>("--capture-diagnostic"),
+                               const_cast<char*>("--version")};
+    auto result = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(result.action, CliAction::kError);
+    EXPECT_EQ(result.exit_code, 2);
 }
 
 TEST(CliTest, VersionWithDevVersion) {

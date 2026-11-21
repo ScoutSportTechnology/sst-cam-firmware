@@ -11,6 +11,7 @@ enum class CliAction : std::uint8_t {
     kRunFirmware,
     kPrintVersion,
     kPrintHelp,
+    kCaptureDiagnostic,
     kError,
 };
 

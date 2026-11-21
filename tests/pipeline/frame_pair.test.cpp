@@ -42,6 +42,19 @@ TEST(FramePair, NearestWithinThresholdOnly) {
     EXPECT_EQ(sync.Stats().paired, 1);
 }
 
+TEST(FramePair, AcceptsEighteenMillisecondsButRejectsNineteen) {
+    FramePairSynchronizer accepted;
+    EXPECT_FALSE(accepted.Push(0, Surface(0, 100ms)));
+    auto pair = accepted.Push(1, Surface(1, 118ms));
+    ASSERT_TRUE(pair);
+    EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).skew, 18ms);
+
+    FramePairSynchronizer rejected;
+    EXPECT_FALSE(rejected.Push(0, Surface(0, 100ms)));
+    EXPECT_FALSE(rejected.Push(1, Surface(1, 119ms)));
+    EXPECT_EQ(rejected.Stats().paired, 0);
+}
+
 TEST(FramePair, RejectsOldEpochDuplicateAndRestartedPartner) {
     FramePairSynchronizer sync;
     EXPECT_FALSE(sync.Push(0, Surface(0, 100ms)));
@@ -54,6 +67,25 @@ TEST(FramePair, RejectsOldEpochDuplicateAndRestartedPartner) {
     ASSERT_TRUE(pair);
     EXPECT_TRUE(pair.value_or(sst::pipeline::FramePair{}).discontinuity);
     EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).cam0.capture_pts, 201ms);
+}
+
+TEST(FramePair, KeepsFuturePartnerAfterRejectingOlderUnmatchedFrame) {
+    FramePairSynchronizer sync;
+    EXPECT_FALSE(sync.Push(1, Surface(1, 100ms)));
+    EXPECT_FALSE(sync.Push(1, Surface(1, 132ms)));
+    auto pair = sync.Push(0, Surface(0, 129ms));
+    ASSERT_TRUE(pair);
+    EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).cam1.capture_pts, 132ms);
+    EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).skew, 3ms);
+}
+
+TEST(FramePair, DoesNotPairExpiredFrameWithNewerPartner) {
+    FramePairSynchronizer sync;
+    EXPECT_FALSE(sync.Push(0, Surface(0, 100ms)));
+    EXPECT_FALSE(sync.Push(0, Surface(0, 134ms)));
+    auto pair = sync.Push(1, Surface(1, 101ms));
+    EXPECT_FALSE(pair);
+    EXPECT_EQ(sync.Stats().paired, 0);
 }
 
 TEST(FramePair, DropsUnmatchedAfterOneFrame) {
@@ -87,6 +119,29 @@ TEST(FramePairRing, BoundedByPairsAndBytesAndRetainsReaders) {
     EXPECT_EQ(due.value_or(sst::pipeline::FramePair{}).pts, 134ms);
 }
 
+TEST(FramePairRing, EvictionDefersReturnUntilReaderFinishes) {
+    FramePairRing ring(1, 4 * kSurfaceBytes);
+    int released = 0;
+    auto make = [&](int index, int timestamp) {
+        auto left = Surface(0, std::chrono::milliseconds(timestamp));
+        left.owner = std::shared_ptr<void>(new int(index), [&](void* ptr) {
+            ++released;
+            delete static_cast<int*>(ptr);
+        });
+        auto right = Surface(1, std::chrono::milliseconds(timestamp));
+        return sst::pipeline::FramePair{.cam0 = std::move(left),
+                                        .cam1 = std::move(right),
+                                        .pts = std::chrono::milliseconds(timestamp)};
+    };
+    auto first = make(1, static_cast<int>((100ms).count()));
+    auto reader = first.cam0.owner;
+    EXPECT_TRUE(ring.Push(std::move(first)));
+    EXPECT_TRUE(ring.Push(make(2, static_cast<int>((134ms).count()))));
+    EXPECT_EQ(released, 0);
+    reader.reset();
+    EXPECT_EQ(released, 1);
+}
+
 TEST(FramePairRing, ThirtyPairFallbackIsBounded) {
     FramePairSynchronizer sync;
     FramePairRing ring(kFallbackPairs, 2 * kFallbackPairs * kSurfaceBytes);
@@ -100,4 +155,4 @@ TEST(FramePairRing, ThirtyPairFallbackIsBounded) {
     EXPECT_EQ(ring.Stats().depth, kFallbackPairs);
     EXPECT_EQ(ring.Stats().dropped, kFullPairs - kFallbackPairs);
 }
-}
+}  // namespace

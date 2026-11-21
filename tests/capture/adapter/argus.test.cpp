@@ -71,6 +71,9 @@ TEST(DirectArgus, SelectsRoundedThirtyFpsAndAppliesIdenticalManualSettings) {
     ASSERT_EQ(hardware->applied.size(), 2);
     EXPECT_EQ(hardware->applied[0].exposure_ns, hardware->applied[1].exposure_ns);
     EXPECT_FLOAT_EQ(hardware->applied[0].analog_gain, hardware->applied[1].analog_gain);
+    EXPECT_FLOAT_EQ(hardware->applied[0].isp_gain, hardware->applied[1].isp_gain);
+    EXPECT_FLOAT_EQ(hardware->applied[0].wb_red, hardware->applied[1].wb_red);
+    EXPECT_FLOAT_EQ(hardware->applied[0].wb_blue, hardware->applied[1].wb_blue);
     capture.Stop();
     EXPECT_EQ(hardware->released, 2);
 }
@@ -118,6 +121,24 @@ TEST(DirectArgus, FailedSecondCameraOpenReleasesItsPartialResources) {
     capture.Stop();
 }
 
+TEST(DirectArgus, ClockJumpResetsBothBaselinesForFreshPairs) {
+    auto hardware = std::make_shared<FakeHardware>();
+    DirectCapture capture(hardware, true);
+    capture.Start();
+    capture.Poll(0);
+    capture.Poll(1);
+    const auto paired_before = capture.PairingStats().paired;
+    constexpr std::uint64_t kClockJumpNs = 3'000'000'000ULL;
+    hardware->tick += kClockJumpNs;
+    capture.Poll(0);
+    EXPECT_EQ(capture.PairingStats().paired, paired_before);
+    capture.Poll(1);
+    capture.Poll(0);
+    capture.Poll(1);
+    EXPECT_GT(capture.PairingStats().paired, paired_before);
+    capture.Stop();
+}
+
 TEST(DirectArgus, GateAndUnsupportedModeRejectBeforeOpeningSensors) {
     auto hardware = std::make_shared<FakeHardware>();
     DirectCapture disabled(hardware, false);
@@ -139,6 +160,33 @@ TEST(DirectArgusHardware, CapturesComparableSensorTimestampsWithoutCpuMaps) {
     capture.Stop();
 }
 
+TEST(SharedArgusControls, ExposureDefaultsToOneFlickerPeriodAndGainTakesOverAtCap) {
+    sst::capture::argus::SharedController controller;
+    const auto dark = std::array{Sample{.luma = kLowLuma, .red = 1.F, .blue = 1.F},
+                                 Sample{.luma = kLowLuma, .red = 1.F, .blue = 1.F}};
+    for (int i = 0; i < kConvergenceFrames; ++i) {
+        auto next = controller.Update(dark);
+        EXPECT_EQ(next.exposure_ns, sst::capture::argus::kFlickerExposureNs);
+    }
+    EXPECT_GT(controller.Current().analog_gain, 1.F);
+    EXPECT_LE(controller.Current().analog_gain, 16.F);
+    EXPECT_LE(controller.Current().isp_gain, 4.F);
+}
+
+TEST(SharedArgusControls, ConfigurableExposureSnapsAndDoesNotExceedCap) {
+    sst::capture::argus::SharedController controller(3 * sst::capture::argus::kFlickerExposureNs);
+    const auto dark = std::array{Sample{.luma = kLowLuma, .red = 1.F, .blue = 1.F},
+                                 Sample{.luma = kLowLuma, .red = 1.F, .blue = 1.F}};
+    for (int i = 0; i < kConvergenceFrames; ++i) {
+        const auto next = controller.Update(dark);
+        EXPECT_EQ(next.exposure_ns % sst::capture::argus::kFlickerExposureNs, 0);
+        EXPECT_LE(next.exposure_ns, 3 * sst::capture::argus::kFlickerExposureNs);
+    }
+    EXPECT_EQ(controller.Current().exposure_ns, 3 * sst::capture::argus::kFlickerExposureNs);
+    EXPECT_GT(controller.Current().analog_gain, 1.F);
+    EXPECT_THROW(sst::capture::argus::SharedController(7'000'000), std::invalid_argument);
+}
+
 TEST(SharedArgusControls, BothViewsBoundStepsAndConverge) {
     sst::capture::argus::SharedController controller;
     auto first = controller.Update({Sample{.luma = kLowLuma, .red = kRedHigh, .blue = kBlueLow},
@@ -150,8 +198,8 @@ TEST(SharedArgusControls, BothViewsBoundStepsAndConverge) {
                                    Sample{.luma = kHighLuma, .red = kBlueLow, .blue = kRedHigh}});
     }
     EXPECT_GT(first.analog_gain * first.isp_gain, 1.0F);
-    EXPECT_LE(first.exposure_ns, 25'000'000ULL);
+    EXPECT_EQ(first.exposure_ns, sst::capture::argus::kFlickerExposureNs);
     EXPECT_NEAR(first.wb_red, 1.F, .05F);
     EXPECT_NEAR(first.wb_blue, 1.F, .05F);
 }
-}
+}  // namespace

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,7 @@
 #include "adapters/storage/opencv/opencv-thumbnail-writer.hpp"
 #include "adapters/streaming/gst_rtmp/gst-rtmp-streamer.hpp"
 #include "adapters/streaming/gst_rtsp/gst-rtsp-app-stream-server.hpp"
+#include "app/capture/services/capture-diagnostic.hpp"
 #include "app/config/services/config_loader/config-loader.hpp"
 #include "app/control/cli.hpp"
 #include "app/control/services/dispatcher/command-dispatcher.hpp"
@@ -695,6 +697,18 @@ auto main(int argc, char* argv[]) -> int {
     if (cli_result.action == sst::control::CliAction::kError) {
         std::fprintf(stderr, "%s", cli_result.error.c_str());
         return cli_result.exit_code;
+    }
+
+    // The operator-only diagnostic must not initialize the normal GStreamer/control plane.
+    if (cli_result.action == sst::control::CliAction::kCaptureDiagnostic) {
+        try {
+            constexpr auto kDiagnosticDuration = std::chrono::minutes(10);
+            return sst::capture::RunCaptureDiagnostic(sst::capture::argus::MakeArgusHardware(),
+                                                      kDiagnosticDuration, std::cout);
+        } catch (const std::exception& e) {
+            spdlog::critical("capture diagnostic failed: {}", e.what());
+            return 1;
+        }
     }
 
     sigset_t mask;

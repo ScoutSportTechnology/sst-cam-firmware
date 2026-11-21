@@ -22,18 +22,27 @@ constexpr float kAnalogGainLimit = 16.F;
 constexpr float kIspGainLimit = 4.F;
 constexpr float kWbMin = 0.5F;
 constexpr float kWbMax = 2.F;
+}  // namespace
+
+SharedController::SharedController(std::uint64_t max_exposure_ns)
+    : max_exposure_ns_(max_exposure_ns) {
+    if (max_exposure_ns < kFlickerNs || max_exposure_ns % kFlickerNs != 0) {
+        throw std::invalid_argument("max exposure must be a positive 60 Hz half-cycle multiple");
+    }
 }
 auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls {
     const float luma = std::clamp((samples[0].luma + samples[1].luma) / 2, kMinLuma, 1.F);
     const float ratio = std::clamp(kTargetLuma / luma, kMinGainStep, kMaxGainStep);
-    const float next_exposure =
-        std::clamp(static_cast<float>(controls_.exposure_ns) * ratio,
-                   static_cast<float>(kFlickerNs), static_cast<float>(3 * kFlickerNs));
-    const auto steps =
-        static_cast<std::uint64_t>(std::round(next_exposure / static_cast<float>(kFlickerNs)));
-    controls_.exposure_ns = std::clamp<std::uint64_t>(steps, 1, 3) * kFlickerNs;
-    if (std::abs(ratio - 1.F) > kExposureHysteresis) {
-        auto gain = std::clamp(controls_.analog_gain * ratio, 1.F, kAnalogGainLimit);
+    desired_exposure_ns_ = std::clamp(desired_exposure_ns_ * ratio, static_cast<float>(kFlickerNs),
+                                      static_cast<float>(max_exposure_ns_));
+    const auto steps = static_cast<std::uint64_t>(
+        std::round(desired_exposure_ns_ / static_cast<float>(kFlickerNs)));
+    controls_.exposure_ns =
+        std::clamp<std::uint64_t>(steps, 1, max_exposure_ns_ / kFlickerNs) * kFlickerNs;
+    if (std::abs(ratio - 1.F) > kExposureHysteresis &&
+        ((ratio > 1.F && controls_.exposure_ns == max_exposure_ns_) ||
+         (ratio < 1.F && controls_.exposure_ns == kFlickerNs))) {
+        const float gain = std::clamp(controls_.analog_gain * ratio, 1.F, kAnalogGainLimit);
         controls_.analog_gain = gain;
         if ((gain == kAnalogGainLimit && ratio > 1.F) || (gain == 1.F && ratio < 1.F)) {
             controls_.isp_gain = std::clamp(controls_.isp_gain * ratio, 1.F, kIspGainLimit);
@@ -52,9 +61,12 @@ auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls 
     return controls_;
 }
 DirectCapture::DirectCapture(std::shared_ptr<Hardware> hardware, bool deployment_gate,
-                             std::size_t max_pairs, std::size_t max_bytes)
+                             std::size_t max_pairs, std::size_t max_bytes,
+                             std::chrono::nanoseconds extra_skew, std::uint64_t max_exposure_ns)
     : hardware_(std::move(hardware)),
       deployment_gate_(deployment_gate),
+      controller_(max_exposure_ns),
+      sync_(sst::pipeline::FramePairSynchronizer::kDefaultFps, extra_skew),
       ring_(max_pairs, max_bytes) {
     if (!hardware_) {
         throw std::invalid_argument("capture hardware missing");
@@ -67,8 +79,8 @@ auto DirectCapture::Start() -> void {
     if (!deployment_gate_) {
         throw std::runtime_error("direct Argus deployment gate disabled");
     }
-    if (!previous_lifetime_.expired() || lifetime_.use_count() != 1 ||
-        lifetime_->opened[0] || lifetime_->opened[1]) {
+    if (!previous_lifetime_.expired() || lifetime_.use_count() != 1 || lifetime_->opened[0] ||
+        lifetime_->opened[1]) {
         throw std::runtime_error("direct Argus session still in use");
     }
     for (int camera = 0; camera < 2; ++camera) {
@@ -122,7 +134,7 @@ auto DirectCapture::Poll(int camera) -> void {
     }
     last_timestamp_[camera] = sample->timestamp_ns;
     if (clock_epoch_[camera] == 0) {
-        clock_epoch_[camera] = 1;
+        clock_epoch_[camera] = epoch_;
     }
     samples_[camera] = *sample;
     auto lifetime = lifetime_;
@@ -162,11 +174,13 @@ auto DirectCapture::Reset(int camera) -> void {
     if (camera < 0 || camera > 1) {
         throw std::invalid_argument("invalid camera index");
     }
-    sync_.Restart(static_cast<std::uint16_t>(camera));
+    sync_.Restart(0);
+    sync_.Restart(1);
     ring_.Clear();
     samples_ = {};
-    last_timestamp_[camera] = 0;
-    clock_epoch_[camera] = 0;
+    last_timestamp_ = {};
+    clock_epoch_ = {};
+    ++epoch_;
 }
 auto DirectCapture::PopDue(std::chrono::nanoseconds now, std::chrono::nanoseconds delay)
     -> std::optional<sst::pipeline::FramePair> {
@@ -201,10 +215,11 @@ auto DirectCapture::Stop() -> void {
     samples_ = {};
     last_timestamp_ = {};
     clock_epoch_ = {};
+    ++epoch_;
     if (lifetime_->opened[0] || lifetime_->opened[1]) {
         previous_lifetime_ = lifetime_;
     }
     lifetime_ = std::make_shared<SessionLifetime>();
     lifetime_->hardware = hardware_;
 }
-}
+}  // namespace sst::capture::argus

@@ -48,4 +48,4 @@ class FramePairSynchronizer {
     bool discontinuity_{false};
 };
 
-}
+}  // namespace sst::pipeline

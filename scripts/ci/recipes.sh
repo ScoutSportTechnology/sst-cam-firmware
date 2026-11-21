@@ -155,6 +155,8 @@ build)
   cmake --build --preset release -j "$(nproc)"
   mkdir -p dist
   cp build/release/bin/sst_cam_firmware dist/sst_cam_firmware-aarch64
+  cp build/release/bin/libsst_argus_hardware.so dist/libsst_argus_hardware.so
+  bash scripts/ci/test-capture-package.sh
   ;;
 ci)
   # ci [changed]

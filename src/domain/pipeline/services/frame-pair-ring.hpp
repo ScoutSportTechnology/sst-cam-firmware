@@ -30,4 +30,4 @@ class FramePairRing {
     std::deque<FramePair> pairs_;
     FramePairRingStats stats_;
 };
-}
+}  // namespace sst::pipeline

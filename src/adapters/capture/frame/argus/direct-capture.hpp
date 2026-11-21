@@ -61,10 +61,13 @@ class Hardware {
 };
 class SharedController {
    public:
+    explicit SharedController(std::uint64_t max_exposure_ns = kFlickerExposureNs);
     auto Update(const std::array<Sample, 2>& samples) -> Controls;
     [[nodiscard]] auto Current() const -> Controls { return controls_; }
 
    private:
+    std::uint64_t max_exposure_ns_;
+    float desired_exposure_ns_{static_cast<float>(kFlickerExposureNs)};
     Controls controls_;
 };
 class DirectCapture {
@@ -72,7 +75,9 @@ class DirectCapture {
     explicit DirectCapture(std::shared_ptr<Hardware> hardware, bool deployment_gate,
                            std::size_t max_pairs = kRingPairs,
                            std::size_t max_bytes = static_cast<std::size_t>(kRingPairs) * 2 *
-                                                   kNv12Bytes);
+                                                   kNv12Bytes,
+                           std::chrono::nanoseconds extra_skew = std::chrono::milliseconds(2),
+                           std::uint64_t max_exposure_ns = kFlickerExposureNs);
     ~DirectCapture();
     auto Start() -> void;
     auto Poll(int camera) -> void;
@@ -81,6 +86,8 @@ class DirectCapture {
                 std::chrono::nanoseconds delay) -> std::optional<sst::pipeline::FramePair>;
     auto Stop() -> void;
     [[nodiscard]] auto Stats() const -> sst::pipeline::FramePairRingStats { return ring_.Stats(); }
+    [[nodiscard]] auto PairingStats() const -> sst::pipeline::PairStats { return sync_.Stats(); }
+    [[nodiscard]] auto CurrentControls() const -> Controls { return controller_.Current(); }
 
    private:
     std::shared_ptr<Hardware> hardware_;
@@ -101,6 +108,7 @@ class DirectCapture {
     std::array<std::optional<Sample>, 2> samples_;
     std::array<std::uint64_t, 2> last_timestamp_{};
     std::array<std::uint64_t, 2> clock_epoch_{};
+    std::uint64_t epoch_{1};
     std::array<std::chrono::steady_clock::time_point, 2> last_log_{};
     SharedController controller_;
     sst::pipeline::FramePairSynchronizer sync_;
@@ -108,4 +116,4 @@ class DirectCapture {
 };
 
 auto MakeArgusHardware() -> std::shared_ptr<Hardware>;
-}
+}  // namespace sst::capture::argus

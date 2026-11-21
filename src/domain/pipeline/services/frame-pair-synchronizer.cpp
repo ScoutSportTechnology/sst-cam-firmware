@@ -119,4 +119,4 @@ auto FramePairSynchronizer::Stats() const -> PairStats {
     result.pending = {pending_[0].size(), pending_[1].size()};
     return result;
 }
-}
+}  // namespace sst::pipeline

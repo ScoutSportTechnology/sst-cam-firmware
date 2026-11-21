@@ -1,7 +1,8 @@
 # Deploying sst-cam-firmware to a Jetson
 
-Each GitHub Release carries **one** asset — the cross-built binary
-`sst_cam_firmware-<tag>-aarch64` (JetPack 7.2 / L4T r39.2). The installer
+Each GitHub Release carries the cross-built binary
+`sst_cam_firmware-<tag>-aarch64` and its optional diagnostic sidecar
+`libsst_argus_hardware-<tag>-aarch64.so` (JetPack 7.2 / L4T r39.2). The installer
 (`deploy/install.sh`) lives only here in the repo — the single source of truth —
 and is run straight from the repo at the tag you're installing (the exact command
 is printed in every release's notes). A release is either a **beta**
@@ -27,9 +28,9 @@ just deploy-firmware jetson.local --no-camera     # extra install.sh flags pass 
 Or by hand:
 
 ```bash
-just build                                           # binary → dist/sst_cam_firmware-aarch64
-scp dist/sst_cam_firmware-aarch64 deploy/install.sh user@jetson:/tmp/
-ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64"
+just build  # binary + libsst_argus_hardware.so → dist/
+scp dist/sst_cam_firmware-aarch64 dist/libsst_argus_hardware.so deploy/install.sh user@jetson:/tmp/
+ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 --argus-library /tmp/libsst_argus_hardware.so"
 ```
 
 `--binary <path>` skips the GitHub release resolve/download entirely and feeds the
@@ -38,6 +39,19 @@ accidental x86_64 host build is rejected), the JetPack-platform guard, the atomi
 swap with backup, and rollback-on-failure. `--version` is ignored; `--sha256`, if
 given, is checked against the local file. Requires `ssh`/`scp` on the host and
 key-based access to the device.
+
+The normal systemd service remains GStreamer-backed and never opens the Argus
+sidecar. For an operator-only 10-minute dual-camera diagnostic, stop the service
+(to release both sensors) and run the following manually:
+
+```bash
+SST_ENABLE_ARGUS_DIAGNOSTIC=1 /opt/sst-cam/bin/sst_cam_firmware --capture-diagnostic
+```
+
+The command prints per-camera fps, inferred sensor-timestamp drops/gaps,
+paired count, ring drops/depth, skew p99,
+MemAvailable (KiB), and requested controls versus applied sensor metadata.
+It exits nonzero if no pairs were captured. Restart the service afterwards.
 
 ---
 
