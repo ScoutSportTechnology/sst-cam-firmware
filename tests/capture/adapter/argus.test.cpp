@@ -189,6 +189,14 @@ TEST(SharedArgusControls, ConfigurableExposureSnapsAndDoesNotExceedCap) {
     EXPECT_THROW(sst::capture::argus::SharedController(7'000'000), std::invalid_argument);
 }
 
+TEST(SharedArgusControls, WhiteBalanceRequestsUseUnitGreenNormalization) {
+    sst::capture::argus::SharedController controller;
+    auto result = controller.Update({Sample{.luma = kHighLuma, .red = kRedHigh, .blue = kBlueLow},
+                                     Sample{.luma = kHighLuma, .red = kRedHigh, .blue = kBlueLow}});
+    EXPECT_FLOAT_EQ(result.wb_red, 1.F);
+    EXPECT_NEAR(result.wb_blue, 1.105263F, 0.00001F);
+}
+
 TEST(SharedArgusControls, GainLimitsAreSharedAcrossSensors) {
     sst::capture::argus::SharedController controller;
     controller.SetGainLimits({.analog_min = 1.F,

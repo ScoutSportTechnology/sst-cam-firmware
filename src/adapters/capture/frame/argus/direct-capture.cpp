@@ -65,6 +65,9 @@ auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls 
         std::clamp(controls_.wb_blue *
                        std::clamp(1.F / blue, 1.F - kExposureHysteresis, 1.F + kExposureHysteresis),
                    kWbMin, kWbMax);
+    const auto normalization = std::min(controls_.wb_red, controls_.wb_blue);
+    controls_.wb_red /= normalization;
+    controls_.wb_blue /= normalization;
     return controls_;
 }
 DirectCapture::DirectCapture(std::shared_ptr<Hardware> hardware, bool deployment_gate,

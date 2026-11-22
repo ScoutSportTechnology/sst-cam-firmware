@@ -28,6 +28,19 @@ auto Surface(int camera, std::chrono::nanoseconds pts, std::uint64_t epoch = 1) 
             .bytes = kSurfaceBytes};
 }
 
+TEST(FramePair, RetainsCounterpartWhenCurrentFrameAlreadyMatched) {
+    FramePairSynchronizer sync;
+    EXPECT_FALSE(sync.Push(0, Surface(0, 100ms)));
+    EXPECT_FALSE(sync.Push(0, Surface(0, 133ms)));
+    auto first = sync.Push(1, Surface(1, 101ms));
+    ASSERT_TRUE(first);
+    EXPECT_EQ(first.value_or(sst::pipeline::FramePair{}).cam0.capture_pts, 100ms);
+    auto second = sync.Push(1, Surface(1, 134ms));
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second.value_or(sst::pipeline::FramePair{}).cam0.capture_pts, 133ms);
+    EXPECT_EQ(sync.Stats().paired, 2);
+}
+
 TEST(FramePair, NearestWithinThresholdOnly) {
     FramePairSynchronizer sync;
     EXPECT_FALSE(sync.Push(1, Surface(1, 100ms)));
@@ -79,20 +92,21 @@ TEST(FramePair, KeepsFuturePartnerAfterRejectingOlderUnmatchedFrame) {
     EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).skew, 3ms);
 }
 
-TEST(FramePair, DoesNotPairExpiredFrameWithNewerPartner) {
+TEST(FramePair, RetainsCounterpartAcrossOneFrameArrivalLag) {
     FramePairSynchronizer sync;
     EXPECT_FALSE(sync.Push(0, Surface(0, 100ms)));
     EXPECT_FALSE(sync.Push(0, Surface(0, 134ms)));
     auto pair = sync.Push(1, Surface(1, 101ms));
-    EXPECT_FALSE(pair);
-    EXPECT_EQ(sync.Stats().paired, 0);
+    ASSERT_TRUE(pair);
+    EXPECT_EQ(pair.value_or(sst::pipeline::FramePair{}).cam0.capture_pts, 100ms);
+    EXPECT_EQ(sync.Stats().paired, 1);
 }
 
-TEST(FramePair, DropsUnmatchedAfterOneFrame) {
+TEST(FramePair, DropsUnmatchedWhenCounterpartIsNewer) {
     FramePairSynchronizer sync;
     EXPECT_FALSE(sync.Push(0, Surface(0, 100ms)));
     EXPECT_FALSE(sync.Push(0, Surface(0, 134ms)));
-    EXPECT_FALSE(sync.Push(1, Surface(1, 101ms)));
+    EXPECT_FALSE(sync.Push(1, Surface(1, 167ms)));
     EXPECT_GT(sync.Stats().dropped[0], 0);
 }
 

@@ -47,13 +47,6 @@ auto FramePairSynchronizer::Push(std::uint16_t camera_index,
     auto& own = pending_[camera_index];
     auto& other = pending_[1 - camera_index];
     own.push_back(std::move(surface));
-    if (other.empty()) {
-        while (own.size() > 1 && own.back().capture_pts - own.front().capture_pts >= interval_) {
-            own.pop_front();
-            ++stats_.dropped[camera_index];
-            discontinuity_ = true;
-        }
-    }
     while (own.size() > kMaxPendingPerCamera) {
         own.pop_front();
         ++stats_.dropped[camera_index];
