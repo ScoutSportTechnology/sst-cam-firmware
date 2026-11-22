@@ -162,6 +162,16 @@ class MeasuredHardware final : public argus::Hardware {
     std::array<std::map<std::uint32_t, argus::Controls>, 2> request_history_{};
     std::array<std::uint64_t, 2> steady_frames_{};
     std::array<std::uint64_t, 2> warmup_frames_{};
+    std::uint64_t steady_pairs_{0};
+    auto CountPair(const sst::pipeline::FramePair& pair) -> void {
+        const auto threshold =
+            static_cast<std::int64_t>(first_timestamp_) +
+            std::chrono::duration_cast<std::chrono::nanoseconds>(kWarmup).count();
+        steady_pairs_ +=
+            pair.cam0.capture_pts.count() >= threshold && pair.cam1.capture_pts.count() >= threshold
+                ? 1
+                : 0;
+    }
     std::array<std::uint64_t, 2> steady_gaps_{};
     std::array<std::uint64_t, 2> steady_dropped_{};
     std::array<std::uint64_t, 2> startup_dropped_{};
@@ -214,12 +224,7 @@ auto Report(std::ostream& output, const MeasuredHardware& hardware,
     const auto captured = paired + ring.depth;
     const auto steady_expected = std::max(hardware.steady_frames_[0] + hardware.steady_dropped_[0],
                                           hardware.steady_frames_[1] + hardware.steady_dropped_[1]);
-    const auto steady_pairs =
-        capture.PairingStats().paired >
-                std::max(hardware.warmup_frames_[0], hardware.warmup_frames_[1])
-            ? capture.PairingStats().paired -
-                  std::max(hardware.warmup_frames_[0], hardware.warmup_frames_[1])
-            : 0;
+    const auto steady_pairs = hardware.steady_pairs_;
     const auto steady_coverage = steady_expected == 0 ? 0.0
                                                       : 100.0 * static_cast<double>(steady_pairs) /
                                                             static_cast<double>(steady_expected);
@@ -299,6 +304,7 @@ auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch());
         while (auto pair = capture.PopDue(before, kRingDelay)) {
             ++paired;
+            measured->CountPair(*pair);
             if (skews.size() < kMaxSkewSamples) {
                 skews.push_back(static_cast<double>(pair->skew.count()) /
                                 kNanosecondsPerMillisecond);
@@ -311,6 +317,7 @@ auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
             std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch());
         while (auto pair = capture.PopDue(now_ns, kRingDelay)) {
             ++paired;
+            measured->CountPair(*pair);
             if (skews.size() < kMaxSkewSamples) {
                 skews.push_back(static_cast<double>(pair->skew.count()) /
                                 kNanosecondsPerMillisecond);
@@ -332,6 +339,7 @@ auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
         kRingDelay;
     while (auto pair = capture.PopDue(final_ns, kRingDelay)) {
         ++paired;
+        measured->CountPair(*pair);
         if (skews.size() < kMaxSkewSamples) {
             skews.push_back(static_cast<double>(pair->skew.count()) / kNanosecondsPerMillisecond);
         }
