@@ -30,6 +30,14 @@ struct Settings {
     float denoise_strength{kDenoiseStrength};
     float edge_strength{kEdgeStrength};
 };
+inline constexpr float kDefaultAnalogGainMax = 16.F;
+inline constexpr float kDefaultIspGainMax = 4.F;
+struct GainLimits {
+    float analog_min{1.F};
+    float analog_max{kDefaultAnalogGainMax};
+    float isp_min{1.F};
+    float isp_max{kDefaultIspGainMax};
+};
 struct Controls {
     std::uint64_t exposure_ns{kFlickerExposureNs};
     float analog_gain{1};
@@ -39,6 +47,7 @@ struct Controls {
 };
 struct Sample {
     int slot{0};
+    std::uint32_t capture_id{0};
     std::uint64_t timestamp_ns{0};
     float luma{0};
     float red{1};
@@ -54,6 +63,7 @@ class Hardware {
     virtual ~Hardware() = default;
     virtual auto Modes(int camera) -> std::vector<std::uint64_t> = 0;
     virtual auto Open(int camera, const Settings& settings) -> void = 0;
+    virtual auto Limits(int /*camera*/) -> GainLimits { return {}; }
     virtual auto Acquire(int camera) -> std::optional<Sample> = 0;
     virtual auto Release(std::pair<int, int> camera_slot) -> void = 0;
     virtual auto Apply(int camera, const Controls& controls) -> void = 0;
@@ -63,12 +73,14 @@ class SharedController {
    public:
     explicit SharedController(std::uint64_t max_exposure_ns = kFlickerExposureNs);
     auto Update(const std::array<Sample, 2>& samples) -> Controls;
+    auto SetGainLimits(GainLimits limits) -> void;
     [[nodiscard]] auto Current() const -> Controls { return controls_; }
 
    private:
     std::uint64_t max_exposure_ns_;
     float desired_exposure_ns_{static_cast<float>(kFlickerExposureNs)};
     Controls controls_;
+    GainLimits limits_;
 };
 class DirectCapture {
    public:

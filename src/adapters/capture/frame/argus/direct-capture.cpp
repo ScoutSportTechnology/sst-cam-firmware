@@ -18,8 +18,6 @@ constexpr float kMinLuma = 0.02F;
 constexpr float kMaxGainStep = 1.25F;
 constexpr float kMinGainStep = 0.8F;
 constexpr float kExposureHysteresis = 0.05F;
-constexpr float kAnalogGainLimit = 16.F;
-constexpr float kIspGainLimit = 4.F;
 constexpr float kWbMin = 0.5F;
 constexpr float kWbMax = 2.F;
 }  // namespace
@@ -29,6 +27,11 @@ SharedController::SharedController(std::uint64_t max_exposure_ns)
     if (max_exposure_ns < kFlickerNs || max_exposure_ns % kFlickerNs != 0) {
         throw std::invalid_argument("max exposure must be a positive 60 Hz half-cycle multiple");
     }
+}
+auto SharedController::SetGainLimits(GainLimits limits) -> void {
+    limits_ = limits;
+    controls_.analog_gain = std::clamp(controls_.analog_gain, limits.analog_min, limits.analog_max);
+    controls_.isp_gain = std::clamp(controls_.isp_gain, limits.isp_min, limits.isp_max);
 }
 auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls {
     const float luma = std::clamp((samples[0].luma + samples[1].luma) / 2, kMinLuma, 1.F);
@@ -42,10 +45,13 @@ auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls 
     if (std::abs(ratio - 1.F) > kExposureHysteresis &&
         ((ratio > 1.F && controls_.exposure_ns == max_exposure_ns_) ||
          (ratio < 1.F && controls_.exposure_ns == kFlickerNs))) {
-        const float gain = std::clamp(controls_.analog_gain * ratio, 1.F, kAnalogGainLimit);
+        const float gain =
+            std::clamp(controls_.analog_gain * ratio, limits_.analog_min, limits_.analog_max);
         controls_.analog_gain = gain;
-        if ((gain == kAnalogGainLimit && ratio > 1.F) || (gain == 1.F && ratio < 1.F)) {
-            controls_.isp_gain = std::clamp(controls_.isp_gain * ratio, 1.F, kIspGainLimit);
+        if ((gain == limits_.analog_max && ratio > 1.F) ||
+            (gain == limits_.analog_min && ratio < 1.F)) {
+            controls_.isp_gain =
+                std::clamp(controls_.isp_gain * ratio, limits_.isp_min, limits_.isp_max);
         }
     }
     const auto red = std::max((samples[0].red + samples[1].red) / 2, kMinLuma);
@@ -83,6 +89,7 @@ auto DirectCapture::Start() -> void {
         lifetime_->opened[1]) {
         throw std::runtime_error("direct Argus session still in use");
     }
+    GainLimits shared_limits;
     for (int camera = 0; camera < 2; ++camera) {
         std::vector<std::uint64_t> modes;
         try {
@@ -103,12 +110,23 @@ auto DirectCapture::Start() -> void {
         try {
             hardware_->Open(camera, Settings{.duration_ns = *selected});
             lifetime_->opened[camera] = true;
+            const auto limits = hardware_->Limits(camera);
+            shared_limits.analog_min = std::max(shared_limits.analog_min, limits.analog_min);
+            shared_limits.analog_max = std::min(shared_limits.analog_max, limits.analog_max);
+            shared_limits.isp_min = std::max(shared_limits.isp_min, limits.isp_min);
+            shared_limits.isp_max = std::min(shared_limits.isp_max, limits.isp_max);
         } catch (...) {
             hardware_->Close(camera);
             Stop();
             throw;
         }
     }
+    if (shared_limits.analog_min > shared_limits.analog_max ||
+        shared_limits.isp_min > shared_limits.isp_max) {
+        Stop();
+        throw std::runtime_error("camera gain ranges do not overlap");
+    }
+    controller_.SetGainLimits(shared_limits);
 }
 auto DirectCapture::Poll(int camera) -> void {
     if (camera < 0 || camera > 1 || !lifetime_->opened[camera]) {

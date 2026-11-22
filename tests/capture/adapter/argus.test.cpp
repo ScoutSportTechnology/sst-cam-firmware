@@ -16,6 +16,8 @@ constexpr float kHighLuma = 0.3F;
 constexpr float kRedHigh = 1.2F;
 constexpr float kBlueLow = 0.8F;
 constexpr int kConvergenceFrames = 30;
+constexpr float kLimitedAnalogGain = 2.F;
+constexpr float kLimitedIspGain = 1.5F;
 using sst::capture::argus::Controls;
 using sst::capture::argus::DirectCapture;
 using sst::capture::argus::Hardware;
@@ -185,6 +187,22 @@ TEST(SharedArgusControls, ConfigurableExposureSnapsAndDoesNotExceedCap) {
     EXPECT_EQ(controller.Current().exposure_ns, 3 * sst::capture::argus::kFlickerExposureNs);
     EXPECT_GT(controller.Current().analog_gain, 1.F);
     EXPECT_THROW(sst::capture::argus::SharedController(7'000'000), std::invalid_argument);
+}
+
+TEST(SharedArgusControls, GainLimitsAreSharedAcrossSensors) {
+    sst::capture::argus::SharedController controller;
+    controller.SetGainLimits({.analog_min = 1.F,
+                              .analog_max = kLimitedAnalogGain,
+                              .isp_min = 1.F,
+                              .isp_max = kLimitedIspGain});
+    const auto dark = std::array{Sample{.luma = kLowLuma}, Sample{.luma = kLowLuma}};
+    for (int i = 0; i < kConvergenceFrames; ++i) {
+        const auto controls = controller.Update(dark);
+        EXPECT_LE(controls.analog_gain, kLimitedAnalogGain);
+        EXPECT_LE(controls.isp_gain, kLimitedIspGain);
+    }
+    EXPECT_FLOAT_EQ(controller.Current().analog_gain, kLimitedAnalogGain);
+    EXPECT_FLOAT_EQ(controller.Current().isp_gain, kLimitedIspGain);
 }
 
 TEST(SharedArgusControls, BothViewsBoundStepsAndConverge) {

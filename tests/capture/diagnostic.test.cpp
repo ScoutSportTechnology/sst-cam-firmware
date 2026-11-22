@@ -63,5 +63,11 @@ TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     EXPECT_NE(metrics.find("mem_available_kib="), std::string::npos);
     EXPECT_NE(metrics.find("requested_exposure_ns="), std::string::npos);
     EXPECT_NE(metrics.find("applied_exposure_ns="), std::string::npos);
+    EXPECT_NE(metrics.find("capture_frame camera=0"), std::string::npos);
+    EXPECT_NE(metrics.find("capture_frame camera=1"), std::string::npos);
+    EXPECT_NE(metrics.find("steady_fps0="), std::string::npos);
+    EXPECT_NE(metrics.find("startup_dropped0="), std::string::npos);
+    EXPECT_NE(metrics.find("steady_mismatch0="), std::string::npos);
+    EXPECT_NE(metrics.find("ae_converged_frames="), std::string::npos);
 }
 }  // namespace sst::capture::test

@@ -17,7 +17,7 @@
 namespace sst::capture::argus {
 namespace {
 using Argus::AE_ANTIBANDING_MODE_60HZ;
-using Argus::AWB_MODE_OFF;
+using Argus::AWB_MODE_MANUAL;
 using Argus::BayerTuple;
 using Argus::Buffer;
 using Argus::BUFFER_TYPE_EGL_IMAGE;
@@ -55,8 +55,9 @@ using Argus::STREAM_TYPE_BUFFER;
 using Argus::UniqueObj;
 
 constexpr std::uint64_t kAcquireTimeoutNs = 200'000'000;
-constexpr std::size_t kSampleRows = 4;
-constexpr std::size_t kSampleColumns = 8;
+constexpr std::uint64_t kForcedWrongExposureNs = 1'000'000;
+constexpr std::size_t kSampleRows = 18;
+constexpr std::size_t kSampleColumns = 32;
 constexpr std::size_t kPlaneSamples = kSampleRows * kSampleColumns;
 constexpr float kPixelMax = 255.F;
 constexpr float kChromaNeutral = 128.F;
@@ -92,6 +93,7 @@ struct Camera {
     ICaptureSession* capture{nullptr};
     ISourceSettings* source{nullptr};
     IAutoControlSettings* auto_control{nullptr};
+    GainLimits limits;
 };
 class ArgusHardware final : public Hardware {
    public:
@@ -191,18 +193,36 @@ class ArgusHardware final : public Hardware {
                 break;
             }
         }
-        Check(selected != nullptr &&
-              request->enableOutputStream(camera.stream.get()) == STATUS_OK &&
+        Check(selected != nullptr);
+        const auto* selected_mode = interface_cast<ISensorMode>(selected);
+        const auto* properties =
+            interface_cast<ICameraProperties>(devices_.at(static_cast<std::size_t>(camera_index)));
+        const auto analog = selected_mode->getAnalogGainRange();
+        const auto isp = properties->getIspDigitalGainRange();
+        camera.limits = {.analog_min = analog.min(),
+                         .analog_max = analog.max(),
+                         .isp_min = isp.min(),
+                         .isp_max = isp.max()};
+        Check(request->enableOutputStream(camera.stream.get()) == STATUS_OK &&
               camera.source->setSensorMode(selected) == STATUS_OK &&
               camera.source->setFrameDurationRange(Range<std::uint64_t>(settings.duration_ns)) ==
                   STATUS_OK &&
               camera.auto_control->setAeAntibandingMode(AE_ANTIBANDING_MODE_60HZ) == STATUS_OK &&
-              camera.auto_control->setAwbMode(AWB_MODE_OFF) == STATUS_OK &&
+              camera.auto_control->setAwbMode(AWB_MODE_MANUAL) == STATUS_OK &&
               denoise->setDenoiseMode(DENOISE_MODE_HIGH_QUALITY) == STATUS_OK &&
               denoise->setDenoiseStrength(settings.denoise_strength) == STATUS_OK &&
               edge->setEdgeEnhanceMode(EDGE_ENHANCE_MODE_FAST) == STATUS_OK &&
               edge->setEdgeEnhanceStrength(settings.edge_strength) == STATUS_OK);
-        Apply(camera_index, Controls{});
+        Controls initial;
+        initial.exposure_ns = std::clamp<std::uint64_t>(
+            kForcedWrongExposureNs, selected_mode->getExposureTimeRange().min(),
+            selected_mode->getExposureTimeRange().max());
+        initial.analog_gain = std::clamp(1.F, camera.limits.analog_min, camera.limits.analog_max);
+        initial.isp_gain = std::clamp(1.F, camera.limits.isp_min, camera.limits.isp_max);
+        Apply(camera_index, initial);
+    }
+    auto Limits(int camera_index) -> GainLimits override {
+        return cameras_.at(static_cast<std::size_t>(camera_index)).limits;
     }
     auto Acquire(int camera_index) -> std::optional<Sample> override {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
@@ -251,34 +271,41 @@ class ArgusHardware final : public Hardware {
             camera.output->releaseBuffer(buffer);
             throw std::runtime_error("CUDA EGL frame unavailable");
         }
-        std::array<std::uint8_t, 2 * kPlaneSamples> pixels{};
+        // Sample evenly spaced rows across each entire plane, not the top-left corner.
+        std::array<std::uint8_t, 2 * kSampleRows * kSensorWidth> pixels{};
         for (std::size_t plane = 0; plane < 2; ++plane) {
-            CUDA_MEMCPY2D copy{};
-            copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-            copy.srcDevice = reinterpret_cast<CUdeviceptr>(frame.frame.pPitch[plane]);
-            copy.srcPitch = slot->surface->surfaceList[0].planeParams.pitch[plane];
-            copy.dstMemoryType = CU_MEMORYTYPE_HOST;
-            copy.dstHost = pixels.data() + plane * kPlaneSamples;
-            copy.dstPitch = kSampleColumns;
-            copy.WidthInBytes = kSampleColumns;
-            copy.Height = kSampleRows;
-            if (cuMemcpy2D(&copy) != CUDA_SUCCESS) {
-                camera.output->releaseBuffer(buffer);
-                throw std::runtime_error("CUDA EGL sample failed");
+            const auto pitch = slot->surface->surfaceList[0].planeParams.pitch[plane];
+            const auto height = static_cast<std::size_t>(kSensorHeight) / (plane + 1);
+            for (std::size_t row = 0; row < kSampleRows; ++row) {
+                CUDA_MEMCPY2D copy{};
+                copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+                copy.srcDevice = reinterpret_cast<CUdeviceptr>(frame.frame.pPitch[plane]) +
+                                 pitch * ((2 * row + 1) * height / (2 * kSampleRows));
+                copy.srcPitch = pitch;
+                copy.dstMemoryType = CU_MEMORYTYPE_HOST;
+                copy.dstHost = pixels.data() + (plane * kSampleRows + row) * kSensorWidth;
+                copy.dstPitch = kSensorWidth;
+                copy.WidthInBytes = kSensorWidth;
+                copy.Height = 1;
+                if (cuMemcpy2D(&copy) != CUDA_SUCCESS) {
+                    camera.output->releaseBuffer(buffer);
+                    throw std::runtime_error("CUDA EGL sample failed");
+                }
             }
         }
         float luma = 0;
         float red = 0;
         float blue = 0;
-        for (std::size_t index = 0; index < kPlaneSamples; ++index) {
-            luma +=
-                static_cast<float>(pixels[index]) / (static_cast<float>(kPlaneSamples) * kPixelMax);
-        }
-        for (std::size_t index = 0; index < kPlaneSamples; index += 2) {
-            blue += static_cast<float>(pixels[kPlaneSamples + index]) /
-                    ((static_cast<float>(kPlaneSamples) * kChromaNeutral / 2));
-            red += static_cast<float>(pixels[kPlaneSamples + index + 1]) /
-                   ((static_cast<float>(kPlaneSamples) * kChromaNeutral / 2));
+        for (std::size_t row = 0; row < kSampleRows; ++row) {
+            for (std::size_t col = 0; col < kSampleColumns; ++col) {
+                const auto offset = row * kSensorWidth + col * kSensorWidth / kSampleColumns;
+                const auto chroma = offset & ~std::size_t{1};
+                luma += static_cast<float>(pixels[offset]) / (kPlaneSamples * kPixelMax);
+                blue += static_cast<float>(pixels[kSampleRows * kSensorWidth + chroma]) /
+                        (kPlaneSamples * kChromaNeutral);
+                red += static_cast<float>(pixels[kSampleRows * kSensorWidth + chroma + 1]) /
+                       (kPlaneSamples * kChromaNeutral);
+            }
         }
         const auto index = static_cast<int>(std::distance(
             camera.slots.begin(),
@@ -290,6 +317,7 @@ class ArgusHardware final : public Hardware {
         }
         const auto wb_gains = metadata->getAwbGains();
         return Sample{.slot = index,
+                      .capture_id = metadata->getCaptureId(),
                       .timestamp_ns = metadata->getSensorTimestamp(),
                       .luma = luma,
                       .red = red,
@@ -312,9 +340,11 @@ class ArgusHardware final : public Hardware {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
         Check(camera.source->setExposureTimeRange(Range<std::uint64_t>(controls.exposure_ns)) ==
                   STATUS_OK &&
-              camera.source->setGainRange(Range<float>(controls.analog_gain)) == STATUS_OK &&
-              camera.auto_control->setIspDigitalGainRange(Range<float>(controls.isp_gain)) ==
+              camera.source->setGainRange(Range<float>(std::clamp(
+                  controls.analog_gain, camera.limits.analog_min, camera.limits.analog_max))) ==
                   STATUS_OK &&
+              camera.auto_control->setIspDigitalGainRange(Range<float>(std::clamp(
+                  controls.isp_gain, camera.limits.isp_min, camera.limits.isp_max))) == STATUS_OK &&
               camera.auto_control->setWbGains(
                   BayerTuple<float>(controls.wb_red, 1.F, 1.F, controls.wb_blue)) == STATUS_OK &&
               camera.capture->repeat(camera.request.get()) == STATUS_OK);
