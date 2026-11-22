@@ -82,17 +82,9 @@ jobs:
           asset="dist/sst_cam_firmware-${TAG}-aarch64"
           mv dist/sst_cam_firmware-aarch64 "$asset"
           echo "path=$asset" >> "$GITHUB_OUTPUT"
-          library="dist/libsst_argus_hardware-${TAG}-aarch64.so"
-          mv dist/libsst_argus_hardware.so "$library"
-          echo "library=$library" >> "$GITHUB_OUTPUT"
-          echo "argus_digest=$(sha256sum "$library" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: ScoutSportTechnology/.github/actions/publish-release@v1.1.0
         with:
           tag: ${{ inputs.tag }}
-          files: |
-            ${{ steps.asset.outputs.path }}
-            ${{ steps.asset.outputs.library }}
+          files: ${{ steps.asset.outputs.path }}
           prerelease: ${{ inputs.prerelease }}
-          notes: |
-            ${{ inputs.notes }}
-            argus-sha256: ${{ steps.asset.outputs.argus_digest }}
+          notes: ${{ inputs.notes }}

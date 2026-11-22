@@ -1,8 +1,7 @@
 # Deploying sst-cam-firmware to a Jetson
 
 Each GitHub Release carries the cross-built binary
-`sst_cam_firmware-<tag>-aarch64` and its optional diagnostic sidecar
-`libsst_argus_hardware-<tag>-aarch64.so` (JetPack 7.2 / L4T r39.2). The installer
+`sst_cam_firmware-<tag>-aarch64` (JetPack 7.2 / L4T r39.2). The installer
 (`deploy/install.sh`) lives only here in the repo — the single source of truth —
 and is run straight from the repo at the tag you're installing (the exact command
 is printed in every release's notes). A release is either a **beta**
@@ -28,9 +27,11 @@ just deploy-firmware jetson.local --no-camera     # extra install.sh flags pass 
 Or by hand:
 
 ```bash
-just build  # binary + libsst_argus_hardware.so → dist/
+just build  # binary + diagnostic library → dist/
 scp dist/sst_cam_firmware-aarch64 dist/libsst_argus_hardware.so deploy/install.sh user@jetson:/tmp/
-ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 --argus-library /tmp/libsst_argus_hardware.so"
+ssh -t user@jetson "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64"
+# Diagnostic-only: install the local library beside the binary after verifying the device build.
+ssh user@jetson "sudo install -m 755 /tmp/libsst_argus_hardware.so /opt/sst-cam/bin/libsst_argus_hardware.so"
 ```
 
 `--binary <path>` skips the GitHub release resolve/download entirely and feeds the
@@ -40,8 +41,9 @@ swap with backup, and rollback-on-failure. `--version` is ignored; `--sha256`, i
 given, is checked against the local file. Requires `ssh`/`scp` on the host and
 key-based access to the device.
 
-The normal systemd service remains GStreamer-backed and never opens the Argus
-sidecar. For an operator-only 10-minute dual-camera diagnostic, stop the service
+The normal systemd service remains GStreamer-backed and never opens the local Argus
+library. The release/installer sidecar digest integration is a separate follow-up.
+For an operator-only 10-minute dual-camera diagnostic, stop the service
 (to release both sensors) and run the following manually:
 
 ```bash

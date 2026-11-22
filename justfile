@@ -71,7 +71,8 @@ deploy-firmware HOST *flags: build
      echo "Copying ${BIN} + ${LIB} + install.sh to {{HOST}} ..."; \
       scp "$BIN" "$LIB" deploy/install.sh "{{HOST}}:/tmp/" || exit 1; \
       echo "Running install.sh --binary on {{HOST}} (sudo) ..."; \
-      ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 --argus-library /tmp/libsst_argus_hardware.so {{flags}}"
+      ssh -t "{{HOST}}" "sudo bash /tmp/install.sh --binary /tmp/sst_cam_firmware-aarch64 {{flags}}" || exit 1; \
+      ssh -t "{{HOST}}" "sudo install -m 755 /tmp/libsst_argus_hardware.so /opt/sst-cam/bin/libsst_argus_hardware.so"
 
 # --- housekeeping ---------------------------------------------------------
 
