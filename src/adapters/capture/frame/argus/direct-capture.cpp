@@ -20,6 +20,7 @@ constexpr float kMinGainStep = 0.8F;
 constexpr float kExposureHysteresis = 0.05F;
 constexpr float kWbMin = 0.5F;
 constexpr float kWbMax = 2.F;
+constexpr int kHardwareAbiVersion = 2;
 }  // namespace
 
 SharedController::SharedController(std::uint64_t max_exposure_ns)
@@ -210,6 +211,11 @@ auto MakeArgusHardware() -> std::shared_ptr<Hardware> {
     void* library = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (library == nullptr) {
         throw std::runtime_error("Argus hardware library unavailable");
+    }
+    auto* abi = reinterpret_cast<int (*)()>(dlsym(library, "ArgusHardwareAbiVersion"));
+    if (abi == nullptr || abi() != kHardwareAbiVersion) {
+        dlclose(library);
+        throw std::runtime_error("Argus hardware library ABI mismatch");
     }
     auto* create = reinterpret_cast<Hardware* (*)()>(dlsym(library, "CreateArgusHardware"));
     if (create == nullptr) {

@@ -21,6 +21,7 @@ class DiagnosticHardware final : public argus::Hardware {
         const auto frame = ++acquired[camera];
         return argus::Sample{
             .slot = frame % argus::kPoolBuffers,
+            .request_id = request_id[camera],
             .timestamp_ns = epoch_ns + static_cast<std::uint64_t>(frame) * kFramePeriodNs,
             .luma = kTestLuma,
             .red = 1.F,
@@ -32,13 +33,20 @@ class DiagnosticHardware final : public argus::Hardware {
             .wb_blue = 1.F};
     }
     auto Release(std::pair<int, int> /*slot*/) -> void override { ++released; }
-    auto Apply(int /*camera*/, const argus::Controls& /*controls*/) -> void override { ++applied; }
+    auto Apply(int camera, const argus::Controls& controls) -> void override {
+        ++applied;
+        last_request[camera] = controls;
+        ++request_id[camera];
+    }
+    auto RequestId(int camera) -> std::uint32_t override { return request_id[camera]; }
     auto Close(int /*camera*/) -> void override { ++closed; }
     int opened = 0;
     int closed = 0;
     int released = 0;
     int applied = 0;
     std::array<int, 2> acquired{};
+    std::array<std::uint32_t, 2> request_id{};
+    std::array<argus::Controls, 2> last_request{};
     std::uint64_t epoch_ns =
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                        std::chrono::steady_clock::now().time_since_epoch())
@@ -69,5 +77,8 @@ TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     EXPECT_NE(metrics.find("startup_dropped0="), std::string::npos);
     EXPECT_NE(metrics.find("steady_mismatch0="), std::string::npos);
     EXPECT_NE(metrics.find("ae_converged_frames="), std::string::npos);
+    EXPECT_NE(metrics.find("steady_pair_coverage_pct="), std::string::npos);
+    EXPECT_NE(metrics.find("steady_id_gaps0="), std::string::npos);
+    EXPECT_NE(metrics.find("requested_client_data="), std::string::npos);
 }
 }  // namespace sst::capture::test

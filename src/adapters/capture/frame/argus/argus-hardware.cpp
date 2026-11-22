@@ -94,6 +94,8 @@ struct Camera {
     ISourceSettings* source{nullptr};
     IAutoControlSettings* auto_control{nullptr};
     GainLimits limits;
+    Controls initial_controls;
+    std::uint32_t request_id{0};
 };
 class ArgusHardware final : public Hardware {
    public:
@@ -219,10 +221,17 @@ class ArgusHardware final : public Hardware {
             selected_mode->getExposureTimeRange().max());
         initial.analog_gain = std::clamp(1.F, camera.limits.analog_min, camera.limits.analog_max);
         initial.isp_gain = std::clamp(1.F, camera.limits.isp_min, camera.limits.isp_max);
+        camera.initial_controls = initial;
         Apply(camera_index, initial);
     }
     auto Limits(int camera_index) -> GainLimits override {
         return cameras_.at(static_cast<std::size_t>(camera_index)).limits;
+    }
+    auto RequestId(int camera_index) -> std::uint32_t override {
+        return cameras_.at(static_cast<std::size_t>(camera_index)).request_id;
+    }
+    auto InitialControls(int camera_index) -> Controls override {
+        return cameras_.at(static_cast<std::size_t>(camera_index)).initial_controls;
     }
     auto Acquire(int camera_index) -> std::optional<Sample> override {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
@@ -318,6 +327,7 @@ class ArgusHardware final : public Hardware {
         const auto wb_gains = metadata->getAwbGains();
         return Sample{.slot = index,
                       .capture_id = metadata->getCaptureId(),
+                      .request_id = metadata->getClientData(),
                       .timestamp_ns = metadata->getSensorTimestamp(),
                       .luma = luma,
                       .red = red,
@@ -338,7 +348,9 @@ class ArgusHardware final : public Hardware {
     }
     auto Apply(int camera_index, const Controls& controls) -> void override {
         auto& camera = cameras_.at(static_cast<std::size_t>(camera_index));
-        Check(camera.source->setExposureTimeRange(Range<std::uint64_t>(controls.exposure_ns)) ==
+        auto* request = interface_cast<IRequest>(camera.request);
+        Check(request != nullptr && request->setClientData(++camera.request_id) == STATUS_OK &&
+              camera.source->setExposureTimeRange(Range<std::uint64_t>(controls.exposure_ns)) ==
                   STATUS_OK &&
               camera.source->setGainRange(Range<float>(std::clamp(
                   controls.analog_gain, camera.limits.analog_min, camera.limits.analog_max))) ==
@@ -376,5 +388,6 @@ class ArgusHardware final : public Hardware {
     std::array<Camera, 2> cameras_;
 };
 }  // namespace
+extern "C" auto ArgusHardwareAbiVersion() -> int { return 2; }
 extern "C" auto CreateArgusHardware() -> Hardware* { return new ArgusHardware(); }
 }  // namespace sst::capture::argus

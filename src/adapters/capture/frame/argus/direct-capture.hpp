@@ -48,6 +48,7 @@ struct Controls {
 struct Sample {
     int slot{0};
     std::uint32_t capture_id{0};
+    std::uint32_t request_id{0};
     std::uint64_t timestamp_ns{0};
     float luma{0};
     float red{1};
@@ -64,6 +65,8 @@ class Hardware {
     virtual auto Modes(int camera) -> std::vector<std::uint64_t> = 0;
     virtual auto Open(int camera, const Settings& settings) -> void = 0;
     virtual auto Limits(int /*camera*/) -> GainLimits { return {}; }
+    virtual auto RequestId(int /*camera*/) -> std::uint32_t { return 0; }
+    virtual auto InitialControls(int /*camera*/) -> Controls { return {}; }
     virtual auto Acquire(int camera) -> std::optional<Sample> = 0;
     virtual auto Release(std::pair<int, int> camera_slot) -> void = 0;
     virtual auto Apply(int camera, const Controls& controls) -> void = 0;

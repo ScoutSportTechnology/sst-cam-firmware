@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -19,6 +20,7 @@ constexpr auto kReportInterval = std::chrono::seconds(10);
 constexpr auto kRingDelay = std::chrono::milliseconds(1500);
 constexpr auto kWarmup = std::chrono::seconds(5);
 constexpr std::uint64_t kExposureToleranceNs = 2;
+constexpr std::size_t kRequestHistoryLength = 8;
 constexpr float kGainTolerance = 0.02F;
 constexpr float kConvergenceTolerance = 0.05F;
 constexpr float kTargetLuma = 0.45F;
@@ -37,8 +39,16 @@ class MeasuredHardware final : public argus::Hardware {
     }
     auto Open(int camera, const argus::Settings& settings) -> void override {
         delegate_->Open(camera, settings);
+        const auto request_id = delegate_->RequestId(camera);
+        if (request_id != 0) {
+            request_history_[camera][request_id] = delegate_->InitialControls(camera);
+        }
     }
     auto Limits(int camera) -> argus::GainLimits override { return delegate_->Limits(camera); }
+    auto RequestId(int camera) -> std::uint32_t override { return delegate_->RequestId(camera); }
+    auto InitialControls(int camera) -> argus::Controls override {
+        return delegate_->InitialControls(camera);
+    }
     auto Acquire(int camera) -> std::optional<argus::Sample> override {
         auto sample = delegate_->Acquire(camera);
         if (sample) {
@@ -73,9 +83,11 @@ class MeasuredHardware final : public argus::Hardware {
             first_timestamp_ +
                 std::chrono::duration_cast<std::chrono::nanoseconds>(kWarmup).count();
         CountWindow(camera, *sample, steady, id_gap);
-        const auto& request = requested_[camera];
+        const auto matched = request_history_[camera].find(sample->request_id);
+        const bool known_request = matched != request_history_[camera].end();
+        const auto& request = known_request ? matched->second : requested_[camera];
         const bool mismatch =
-            requested_count_[camera] > 0 &&
+            known_request &&
             ((sample->exposure_ns > request.exposure_ns
                   ? sample->exposure_ns - request.exposure_ns
                   : request.exposure_ns - sample->exposure_ns) > kExposureToleranceNs ||
@@ -83,16 +95,18 @@ class MeasuredHardware final : public argus::Hardware {
              std::abs(sample->isp_gain - request.isp_gain) > kGainTolerance ||
              std::abs(sample->wb_red - request.wb_red) > kGainTolerance ||
              std::abs(sample->wb_blue - request.wb_blue) > kGainTolerance);
-        steady_mismatch_[camera] += steady && mismatch ? 1 : 0;
-        if (converged_frame_ == 0 &&
-            std::abs(sample->luma - kTargetLuma) <= kConvergenceTolerance) {
-            converged_frame_ = frames_[camera];
+        steady_mismatch_[camera] += steady && (mismatch || !known_request) ? 1 : 0;
+        ae_ready_[camera] = std::abs(sample->luma - kTargetLuma) <= kConvergenceTolerance;
+        if (converged_frame_ == 0 && ae_ready_[0] && ae_ready_[1]) {
+            converged_frame_ = std::max(frames_[0], frames_[1]);
             converged_seconds_ = static_cast<double>(sample->timestamp_ns - first_timestamp_) /
                                  kNanosecondsPerSecond;
         }
         output_ << "capture_frame camera=" << camera << " id=" << sample->capture_id
                 << " sensor_ts=" << sample->timestamp_ns << " steady=" << steady
                 << " requested_seq=" << requested_count_[camera]
+                << " requested_client_data=" << sample->request_id
+                << " known_request=" << known_request
                 << " requested_exposure_ns=" << request.exposure_ns
                 << " applied_exposure_ns=" << sample->exposure_ns
                 << " requested_analog=" << request.analog_gain
@@ -127,6 +141,13 @@ class MeasuredHardware final : public argus::Hardware {
     auto Apply(int camera, const argus::Controls& controls) -> void override {
         delegate_->Apply(camera, controls);
         requested_[camera] = controls;
+        const auto request_id = delegate_->RequestId(camera);
+        if (request_id != 0) {
+            request_history_[camera][request_id] = controls;
+            if (request_history_[camera].size() > kRequestHistoryLength) {
+                request_history_[camera].erase(request_history_[camera].begin());
+            }
+        }
         ++requested_count_[camera];
     }
     auto Close(int camera) -> void override { delegate_->Close(camera); }
@@ -138,6 +159,7 @@ class MeasuredHardware final : public argus::Hardware {
     std::array<argus::Sample, 2> applied_{};
     std::array<argus::Controls, 2> requested_{};
     std::array<std::uint64_t, 2> requested_count_{};
+    std::array<std::map<std::uint32_t, argus::Controls>, 2> request_history_{};
     std::array<std::uint64_t, 2> steady_frames_{};
     std::array<std::uint64_t, 2> warmup_frames_{};
     std::array<std::uint64_t, 2> steady_gaps_{};
@@ -152,6 +174,7 @@ class MeasuredHardware final : public argus::Hardware {
     std::uint64_t first_steady_timestamp_{0};
     std::uint64_t converged_frame_{0};
     double converged_seconds_{0};
+    std::array<bool, 2> ae_ready_{};
 
    private:
     std::shared_ptr<argus::Hardware> delegate_;
