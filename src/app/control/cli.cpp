@@ -16,11 +16,45 @@ SST Camera Firmware - Jetson Orin Nano embedded runtime
 
 Options:
   --version             Print version information and exit
-  --capture-diagnostic  Run isolated Argus check (gate SST_ENABLE_ARGUS_DIAGNOSTIC=1; optional SST_ARGUS_DIAGNOSTIC_START=dark|bright and SST_ARGUS_DIAGNOSTIC_SECONDS=1..600)
+  --capture-diagnostic  Run isolated Argus check (gate SST_ENABLE_ARGUS_DIAGNOSTIC=1; optional SST_ARGUS_DIAGNOSTIC_START=dark|bright, SST_ARGUS_DIAGNOSTIC_SECONDS=1..600, SST_ARGUS_DIAGNOSTIC_TARGET=0.30 test-only)
   -h, --help            Print this help message and exit
 
 Without options, starts the firmware (normal systemd behavior).
 )";
+
+auto ParseDiagnosticSeconds(CliResult& result) -> bool {
+    const char* seconds = std::getenv("SST_ARGUS_DIAGNOSTIC_SECONDS");
+    if (seconds == nullptr) {
+        return true;
+    }
+    const std::string value(seconds);
+    int parsed = 0;
+    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (error != std::errc{} || end != value.data() + value.size() || parsed < 1 ||
+        parsed > kDefaultDiagnosticSeconds) {
+        result.action = CliAction::kError;
+        result.error = "sst_cam_firmware: diagnostic seconds must be 1..600\n";
+        result.exit_code = 2;
+        return false;
+    }
+    result.diagnostic_seconds = parsed;
+    return true;
+}
+
+auto ParseDiagnosticTarget(CliResult& result) -> bool {
+    const char* target = std::getenv("SST_ARGUS_DIAGNOSTIC_TARGET");
+    if (target == nullptr) {
+        return true;
+    }
+    if (std::string(target) != "0.30") {
+        result.action = CliAction::kError;
+        result.error = "sst_cam_firmware: diagnostic target must be 0.30\n";
+        result.exit_code = 2;
+        return false;
+    }
+    result.diagnostic_target = kApprovedDiagnosticTarget;
+    return true;
+}
 
 }  // namespace
 
@@ -50,20 +84,8 @@ auto ParseArgs(int argc, char** argv, const std::string& version,
             result.exit_code = 2;
             return result;
         }
-        const char* seconds = std::getenv("SST_ARGUS_DIAGNOSTIC_SECONDS");
-        if (seconds != nullptr) {
-            const std::string value(seconds);
-            int parsed = 0;
-            const auto [end, error] =
-                std::from_chars(value.data(), value.data() + value.size(), parsed);
-            if (error != std::errc{} || end != value.data() + value.size() || parsed < 1 ||
-                parsed > kDefaultDiagnosticSeconds) {
-                result.action = CliAction::kError;
-                result.error = "sst_cam_firmware: diagnostic seconds must be 1..600\n";
-                result.exit_code = 2;
-                return result;
-            }
-            result.diagnostic_seconds = parsed;
+        if (!ParseDiagnosticSeconds(result) || !ParseDiagnosticTarget(result)) {
+            return result;
         }
         result.action = CliAction::kCaptureDiagnostic;
         return result;

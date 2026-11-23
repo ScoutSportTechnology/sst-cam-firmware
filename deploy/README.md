@@ -53,7 +53,10 @@ SST_ENABLE_ARGUS_DIAGNOSTIC=1 /opt/sst-cam/bin/sst_cam_firmware --capture-diagno
 For a short convergence start, add `SST_ARGUS_DIAGNOSTIC_START=dark` (1 ms,
 minimum gains) or `bright` (8.333 ms, maximum gains), and
 `SST_ARGUS_DIAGNOSTIC_SECONDS=30`. The duration defaults to 600 seconds and is
-bounded to 1–600; the diagnostic gate is still required.
+bounded to 1–600; the diagnostic gate is still required. For the lit workshop
+AE test only, `SST_ARGUS_DIAGNOSTIC_TARGET=0.30` selects a 0.30 luma target;
+without this explicit override, production and diagnostic capture use 0.45.
+The 0.45 production target still needs a separate daylight check.
 
 The command prints per-camera fps, inferred sensor-timestamp drops/gaps,
 paired count, ring drops/depth, skew p99,

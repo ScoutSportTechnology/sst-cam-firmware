@@ -194,6 +194,17 @@ TEST(SharedArgusControls, ExposureDefaultsToOneFlickerPeriodAndGainTakesOverAtCa
     EXPECT_LE(controller.Current().isp_gain, 4.F);
 }
 
+TEST(SharedArgusControls, DiagnosticTargetChangesControlWithoutChangingDefault) {
+    constexpr float kDiagnosticTarget = 0.30F;
+    constexpr float kSceneLuma = 0.35F;
+    const auto scene = std::array{Sample{.luma = kSceneLuma}, Sample{.luma = kSceneLuma}};
+    sst::capture::argus::SharedController normal;
+    sst::capture::argus::SharedController diagnostic;
+    diagnostic.SetTargetLuma(kDiagnosticTarget);
+    EXPECT_GT(normal.Update(scene).analog_gain, 1.F);
+    EXPECT_FLOAT_EQ(diagnostic.Update(scene).analog_gain, 1.F);
+}
+
 TEST(SharedArgusControls, ConfigurableExposureSnapsAndDoesNotExceedCap) {
     sst::capture::argus::SharedController controller(3 * sst::capture::argus::kFlickerExposureNs);
     const auto dark = std::array{Sample{.luma = kLowLuma, .red = 1.F, .blue = 1.F},

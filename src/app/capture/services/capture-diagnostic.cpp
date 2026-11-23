@@ -23,7 +23,6 @@ constexpr std::uint64_t kExposureToleranceNs = 2;
 constexpr std::size_t kRequestHistoryLength = 8;
 constexpr float kGainTolerance = 0.02F;
 constexpr float kConvergenceTolerance = 0.05F;
-constexpr float kTargetLuma = 0.45F;
 constexpr double kNanosecondsPerSecond = 1'000'000'000.0;
 constexpr std::uint64_t kFramePeriodNs = 33'333'333;
 constexpr std::uint64_t kGapThresholdNs = 50'000'000;
@@ -32,8 +31,9 @@ constexpr double kNanosecondsPerMillisecond = 1'000'000.0;
 
 class MeasuredHardware final : public argus::Hardware {
    public:
-    MeasuredHardware(std::shared_ptr<argus::Hardware> delegate, std::ostream& output)
-        : delegate_(std::move(delegate)), output_(output) {}
+    MeasuredHardware(std::shared_ptr<argus::Hardware> delegate, std::ostream& output,
+                     float target_luma)
+        : delegate_(std::move(delegate)), output_(output), target_luma_(target_luma) {}
     auto Modes(int camera) -> std::vector<std::uint64_t> override {
         return delegate_->Modes(camera);
     }
@@ -96,7 +96,7 @@ class MeasuredHardware final : public argus::Hardware {
              std::abs(sample->wb_red - request.wb_red) > kGainTolerance ||
              std::abs(sample->wb_blue - request.wb_blue) > kGainTolerance);
         steady_mismatch_[camera] += steady && (mismatch || !known_request) ? 1 : 0;
-        ae_ready_[camera] = std::abs(sample->luma - kTargetLuma) <= kConvergenceTolerance;
+        ae_ready_[camera] = std::abs(sample->luma - target_luma_) <= kConvergenceTolerance;
         if (converged_frame_ == 0 && ae_ready_[0] && ae_ready_[1]) {
             converged_frame_ = std::max(frames_[0], frames_[1]);
             converged_seconds_ = static_cast<double>(sample->timestamp_ns - first_timestamp_) /
@@ -185,10 +185,12 @@ class MeasuredHardware final : public argus::Hardware {
     std::uint64_t converged_frame_{0};
     double converged_seconds_{0};
     std::array<bool, 2> ae_ready_{};
+    [[nodiscard]] auto TargetLuma() const -> float { return target_luma_; }
 
    private:
     std::shared_ptr<argus::Hardware> delegate_;
     std::ostream& output_;
+    float target_luma_;
 };
 
 auto MemAvailableKib() -> std::uint64_t {
@@ -236,7 +238,8 @@ auto Report(std::ostream& output, const MeasuredHardware& hardware,
     const auto coverage =
         expected == 0 ? 0.0 : 100.0 * static_cast<double>(captured) / static_cast<double>(expected);
     // `dropped` is inferred from sensor timestamp gaps; it is not an Argus drop counter.
-    output << "capture_diag elapsed_s=" << elapsed_seconds
+    output << "capture_diag ae_target_luma=" << hardware.TargetLuma()
+           << " elapsed_s=" << elapsed_seconds
            << " fps0=" << static_cast<double>(hardware.frames_[0]) / elapsed_seconds
            << " fps1=" << static_cast<double>(hardware.frames_[1]) / elapsed_seconds
            << " steady_fps0="
@@ -290,13 +293,14 @@ auto Report(std::ostream& output, const MeasuredHardware& hardware,
 }  // namespace
 
 auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
-                          std::chrono::steady_clock::duration duration,
-                          std::ostream& output) -> int {
+                          std::chrono::steady_clock::duration duration, std::ostream& output,
+                          float target_luma) -> int {
     if (!hardware || duration <= Clock::duration::zero()) {
         throw std::invalid_argument("capture diagnostic requires hardware and positive duration");
     }
-    auto measured = std::make_shared<MeasuredHardware>(std::move(hardware), output);
+    auto measured = std::make_shared<MeasuredHardware>(std::move(hardware), output, target_luma);
     argus::DirectCapture capture(measured, true);
+    capture.SetTargetLuma(target_luma);
     capture.Start();
     const auto start = Clock::now();
     auto next_report = start + kReportInterval;

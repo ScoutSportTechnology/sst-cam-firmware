@@ -127,6 +127,23 @@ TEST(CliTest, CaptureDiagnosticAcceptsOnlyGatedBrightAndDarkStarts) {
     unsetenv("SST_ENABLE_ARGUS_DIAGNOSTIC");
 }
 
+TEST(CliTest, CaptureDiagnosticTargetIsGatedAndRestrictedToApprovedValue) {
+    std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
+                               const_cast<char*>("--capture-diagnostic")};
+    setenv("SST_ENABLE_ARGUS_DIAGNOSTIC", "1", 1);
+    setenv("SST_ARGUS_DIAGNOSTIC_TARGET", "0.30", 1);
+    auto approved = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(approved.action, CliAction::kCaptureDiagnostic);
+    EXPECT_FLOAT_EQ(approved.diagnostic_target, 0.30F);
+    setenv("SST_ARGUS_DIAGNOSTIC_TARGET", "0.31", 1);
+    auto rejected = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(rejected.action, CliAction::kError);
+    unsetenv("SST_ENABLE_ARGUS_DIAGNOSTIC");
+    auto gated = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(gated.action, CliAction::kError);
+    unsetenv("SST_ARGUS_DIAGNOSTIC_TARGET");
+}
+
 TEST(CliTest, CaptureDiagnosticIsOffUnlessEnvironmentGateEnabled) {
     std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
                                const_cast<char*>("--capture-diagnostic")};

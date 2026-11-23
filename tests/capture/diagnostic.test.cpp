@@ -87,6 +87,19 @@ TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     EXPECT_NE(metrics.find("requested_client_data="), std::string::npos);
 }
 
+TEST(CaptureDiagnosticTest, DiagnosticUsesItsTargetToScoreConvergence) {
+    auto hardware = std::make_shared<DiagnosticHardware>();
+    constexpr std::uint64_t kTimestampLeadNs = 10'000'000'000ULL;
+    hardware->epoch_ns -= kTimestampLeadNs;
+    std::ostringstream output;
+    constexpr float kDiagnosticTarget = 0.30F;
+    ASSERT_EQ(
+        RunCaptureDiagnostic(hardware, std::chrono::milliseconds(30), output, kDiagnosticTarget),
+        0);
+    EXPECT_NE(output.str().find("ae_target_luma=0.3"), std::string::npos);
+    EXPECT_NE(output.str().find("ae_converged_frames=0"), std::string::npos);
+}
+
 TEST(CaptureDiagnosticTest, ReportsTrailingUnpairedFrameWithoutFailingPairCoverage) {
     auto hardware = std::make_shared<DiagnosticHardware>();
     constexpr int kPairedFrames = 160;

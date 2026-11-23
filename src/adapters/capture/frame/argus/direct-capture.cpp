@@ -13,7 +13,6 @@ namespace sst::capture::argus {
 namespace {
 constexpr auto kFlickerNs = kFlickerExposureNs;
 constexpr auto kSurfaceBytes = kNv12Bytes;
-constexpr float kTargetLuma = 0.45F;
 constexpr float kMinLuma = 0.02F;
 constexpr float kMaxGainStep = 1.25F;
 constexpr float kMinGainStep = 0.8F;
@@ -29,6 +28,12 @@ SharedController::SharedController(std::uint64_t max_exposure_ns)
         throw std::invalid_argument("max exposure must be a positive 60 Hz half-cycle multiple");
     }
 }
+auto SharedController::SetTargetLuma(float target_luma) -> void {
+    if (target_luma <= 0.F || target_luma > 1.F || !std::isfinite(target_luma)) {
+        throw std::invalid_argument("target luma must be in (0, 1]");
+    }
+    target_luma_ = target_luma;
+}
 auto SharedController::SetGainLimits(GainLimits limits) -> void {
     limits_ = limits;
     controls_.analog_gain = std::clamp(controls_.analog_gain, limits.analog_min, limits.analog_max);
@@ -40,7 +45,7 @@ auto SharedController::Seed(Controls initial) -> void {
 }
 auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls {
     const float luma = std::clamp((samples[0].luma + samples[1].luma) / 2, kMinLuma, 1.F);
-    const float ratio = std::clamp(kTargetLuma / luma, kMinGainStep, kMaxGainStep);
+    const float ratio = std::clamp(target_luma_ / luma, kMinGainStep, kMaxGainStep);
     desired_exposure_ns_ = std::clamp(desired_exposure_ns_ * ratio, static_cast<float>(kFlickerNs),
                                       static_cast<float>(max_exposure_ns_));
     const auto steps = static_cast<std::uint64_t>(
@@ -89,6 +94,12 @@ DirectCapture::DirectCapture(std::shared_ptr<Hardware> hardware, bool deployment
     lifetime_->hardware = hardware_;
 }
 DirectCapture::~DirectCapture() { Stop(); }
+auto DirectCapture::SetTargetLuma(float target_luma) -> void {
+    if (lifetime_->opened[0] || lifetime_->opened[1]) {
+        throw std::runtime_error("target cannot change during capture");
+    }
+    controller_.SetTargetLuma(target_luma);
+}
 auto DirectCapture::Start() -> void {
     if (!deployment_gate_) {
         throw std::runtime_error("direct Argus deployment gate disabled");

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "adapters/capture/frame/argus/direct-capture.hpp"
+
 namespace sst::control {
 
 enum class CliAction : std::uint8_t {
@@ -16,6 +18,7 @@ enum class CliAction : std::uint8_t {
 };
 
 inline constexpr int kDefaultDiagnosticSeconds = 600;
+inline constexpr float kApprovedDiagnosticTarget = 0.30F;
 
 struct CliResult {
     CliAction action = CliAction::kRunFirmware;
@@ -23,6 +26,7 @@ struct CliResult {
     std::string error;   // For error messages
     int exit_code = 0;
     int diagnostic_seconds = kDefaultDiagnosticSeconds;
+    float diagnostic_target = sst::capture::argus::kDefaultTargetLuma;
 };
 
 auto ParseArgs(int argc, char** argv, const std::string& version,

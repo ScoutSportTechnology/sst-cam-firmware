@@ -704,7 +704,8 @@ auto main(int argc, char* argv[]) -> int {
         try {
             const auto kDiagnosticDuration = std::chrono::seconds(cli_result.diagnostic_seconds);
             return sst::capture::RunCaptureDiagnostic(sst::capture::argus::MakeArgusHardware(),
-                                                      kDiagnosticDuration, std::cout);
+                                                      kDiagnosticDuration, std::cout,
+                                                      cli_result.diagnostic_target);
         } catch (const std::exception& e) {
             spdlog::critical("capture diagnostic failed: {}", e.what());
             return 1;

@@ -19,6 +19,7 @@ inline constexpr int kAntibandingHz = 60;
 inline constexpr float kDenoiseStrength = 0.9F;
 inline constexpr float kEdgeStrength = 0.4F;
 inline constexpr std::uint64_t kFlickerExposureNs = 8'333'333;
+inline constexpr float kDefaultTargetLuma = 0.45F;
 inline constexpr std::size_t kNv12Bytes =
     static_cast<std::size_t>(kSensorWidth) * kSensorHeight * 3 / 2;
 struct Settings {
@@ -75,6 +76,7 @@ class Hardware {
 class SharedController {
    public:
     explicit SharedController(std::uint64_t max_exposure_ns = kFlickerExposureNs);
+    auto SetTargetLuma(float target_luma) -> void;
     auto Update(const std::array<Sample, 2>& samples) -> Controls;
     auto SetGainLimits(GainLimits limits) -> void;
     auto Seed(Controls initial) -> void;
@@ -82,6 +84,7 @@ class SharedController {
 
    private:
     std::uint64_t max_exposure_ns_;
+    float target_luma_{kDefaultTargetLuma};
     float desired_exposure_ns_{static_cast<float>(kFlickerExposureNs)};
     Controls controls_;
     GainLimits limits_;
@@ -96,6 +99,7 @@ class DirectCapture {
                            std::uint64_t max_exposure_ns = kFlickerExposureNs);
     ~DirectCapture();
     auto Start() -> void;
+    auto SetTargetLuma(float target_luma) -> void;
     auto Poll(int camera) -> void;
     auto Reset(int camera) -> void;
     auto PopDue(std::chrono::nanoseconds now,

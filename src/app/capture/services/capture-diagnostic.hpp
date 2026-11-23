@@ -9,6 +9,6 @@
 namespace sst::capture {
 // An operator-only capture check; never called by normal firmware startup.
 auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
-                          std::chrono::steady_clock::duration duration,
-                          std::ostream& output) -> int;
+                          std::chrono::steady_clock::duration duration, std::ostream& output,
+                          float target_luma = argus::kDefaultTargetLuma) -> int;
 }  // namespace sst::capture
