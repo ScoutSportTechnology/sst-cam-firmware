@@ -6,10 +6,15 @@
 #include <gst/gstcaps.h>
 #include <gst/gstelement.h>
 #include <gst/gstmemory.h>
+#include <gst/gstmeta.h>
 #include <gst/video/video.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,10 +34,11 @@ using sst::common::PixelFormat;
 using sst::common::utils::GetCurrentTimestamp;
 
 GStreamerAdapter::GStreamerAdapter(const CameraConfig& camera_config, std::string device_model,
-                                   std::uint16_t camera_index)
+                                   std::uint16_t camera_index, bool nvmm_mode)
     : camera_config_(camera_config),
       device_model_(std::move(device_model)),
-      camera_index_(camera_index) {
+      camera_index_(camera_index),
+      nvmm_mode_(nvmm_mode) {
     gst_init(nullptr, nullptr);
 }
 
@@ -84,6 +90,13 @@ auto GStreamerAdapter::CreatePipeline() -> std::string {
     std::string gst_pipeline;
     switch (*model_version) {
         case 1:
+            if (nvmm_mode_) {
+                gst_pipeline = "nvarguscamerasrc sensor-id=" + sensor_id + " " + isp_tuning +
+                               " ! video/x-raw(memory:NVMM),width=" + sensor_width +
+                               ",height=" + sensor_height + ",framerate=" + fps +
+                               "/1,format=NV12 ! appsink name=" + gst_sink_name_ + " sync=false";
+                break;
+            }
             gst_pipeline = "nvarguscamerasrc sensor-id=" + sensor_id + " " + isp_tuning +
                            " ! video/x-raw(memory:NVMM),width=" + sensor_width +
                            ",height=" + sensor_height + ",framerate=" + fps + "/1,format=NV12" +
@@ -170,6 +183,11 @@ auto GStreamerAdapter::Start() -> void {
     gst_app_sink_set_max_buffers(gst_appsink, kMaxBuffers);
     gst_app_sink_set_emit_signals(gst_appsink, 0);
 
+    if (nvmm_mode_) {
+        GstClock* clock = gst_system_clock_obtain();
+        gst_pipeline_use_clock(GST_PIPELINE(gst_pipeline_), clock);
+        gst_object_unref(clock);
+    }
     const GstStateChangeReturn ret = gst_element_set_state(gst_pipeline_, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
         g_printerr("Failed to set pipeline to PLAYING state\n");
@@ -186,11 +204,12 @@ auto GStreamerAdapter::Start() -> void {
         if (gstSample != nullptr) {
             auto owner = std::shared_ptr<GstSample>(
                 gstSample, [](GstSample* sample) { gst_sample_unref(sample); });
-
-            auto capturedFrame = CreateFrameFromSample(owner.get());
-            if (capturedFrame) {
-                std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
-                last_frame_ = *capturedFrame;
+            if (!nvmm_mode_) {
+                auto capturedFrame = CreateFrameFromSample(owner.get());
+                if (capturedFrame) {
+                    std::lock_guard<std::mutex> lastFrameLock(last_frame_mtx_);
+                    last_frame_ = *capturedFrame;
+                }
             }
         } else {
             spdlog::warn("GStreamer: did not receive initial frame during Start() prime");
@@ -208,6 +227,9 @@ auto GStreamerAdapter::Stop() -> void {
     last_frame_.reset();
 
     is_running_ = false;
+    last_base_time_ = 0;
+    last_surface_pts_.reset();
+    surface_discontinuity_ = true;
 };
 
 auto GStreamerAdapter::IsRunning() const -> bool {
@@ -377,7 +399,7 @@ auto GStreamerAdapter::CreateFrameFromSample(GstSample* gst_sample) -> std::opti
 }
 
 auto GStreamerAdapter::Capture() -> std::optional<Frame> {
-    if (!is_running_ || (gst_pipeline_ == nullptr) || (gst_sink_ == nullptr) ||
+    if (nvmm_mode_ || !is_running_ || (gst_pipeline_ == nullptr) || (gst_sink_ == nullptr) ||
         (gst_bus_ == nullptr)) {
         return std::nullopt;
     }
@@ -424,6 +446,86 @@ auto GStreamerAdapter::Capture() -> std::optional<Frame> {
         last_frame_ = *fresh;
     }
     return fresh;
+}
+
+auto GStreamerAdapter::SurfaceFromSample(GstSample* sample, GstClock* clock,
+                                         std::uint64_t base_time) -> std::optional<VideoSurface> {
+    if (!nvmm_mode_ || sample == nullptr) {
+        return std::nullopt;
+    }
+    GstCaps* caps = gst_sample_get_caps(sample);
+    GstBuffer* buffer = gst_sample_get_buffer(sample);
+    GstClock* common_clock = gst_system_clock_obtain();
+    const bool shared_clock = clock != nullptr && clock == common_clock;
+    gst_object_unref(common_clock);
+    if (caps == nullptr || buffer == nullptr || gst_buffer_n_memory(buffer) == 0 || !shared_clock ||
+        !GST_CLOCK_TIME_IS_VALID(base_time) || base_time == 0 ||
+        !GST_CLOCK_TIME_IS_VALID(GST_BUFFER_PTS(buffer)) ||
+        base_time > std::numeric_limits<std::int64_t>::max() ||
+        GST_BUFFER_PTS(buffer) > std::numeric_limits<std::int64_t>::max() - base_time) {
+        return std::nullopt;
+    }
+    const GstCapsFeatures* features = gst_caps_get_features(caps, 0);
+    GstVideoInfo info;
+    if (features == nullptr || gst_caps_features_contains(features, "memory:NVMM") == 0 ||
+        gst_video_info_from_caps(&info, caps) == 0 ||
+        GST_VIDEO_INFO_FORMAT(&info) != GST_VIDEO_FORMAT_NV12 ||
+        GST_VIDEO_INFO_WIDTH(&info) != camera_config_.sensor_width ||
+        GST_VIDEO_INFO_HEIGHT(&info) != camera_config_.sensor_height ||
+        camera_config_.fps != CameraConfig::kDefaultFps) {
+        return std::nullopt;
+    }
+    GstMemory* memory = gst_buffer_peek_memory(buffer, 0);
+    if (memory == nullptr || gst_memory_is_type(memory, "NVMM") == 0) {
+        return std::nullopt;
+    }
+    const GstClockTime pts = GST_BUFFER_PTS(buffer);
+    if (base_time != last_base_time_) {
+        last_base_time_ = base_time;
+        last_surface_pts_.reset();
+        surface_discontinuity_ = true;
+    }
+    if (last_surface_pts_ && pts <= *last_surface_pts_) {
+        surface_discontinuity_ = true;
+        return std::nullopt;
+    }
+    if (GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DISCONT)) {
+        surface_discontinuity_ = true;
+    }
+    last_surface_pts_ = pts;
+    const bool discontinuity = std::exchange(surface_discontinuity_, false);
+    GstBuffer* retained = gst_buffer_ref(buffer);
+    return VideoSurface{
+        .owner = std::shared_ptr<void>(
+            retained, [](void* ptr) { gst_buffer_unref(static_cast<GstBuffer*>(ptr)); }),
+        .producer_fence = {},
+        .camera_index = camera_index_,
+        .capture_pts = std::chrono::nanoseconds(base_time + pts),
+        .raw_pts = std::chrono::nanoseconds(pts),
+        .clock_epoch = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(clock)),
+        .discontinuity = discontinuity,
+        .geometry = {.width = static_cast<std::uint32_t>(GST_VIDEO_INFO_WIDTH(&info)),
+                     .height = static_cast<std::uint32_t>(GST_VIDEO_INFO_HEIGHT(&info))},
+        .bytes = gst_buffer_get_size(buffer)};
+}
+
+auto GStreamerAdapter::CaptureSurface() -> std::optional<VideoSurface> {
+    if (!nvmm_mode_ || !IsRunning() || gst_sink_ == nullptr || !HandleBusMessages()) {
+        return std::nullopt;
+    }
+    constexpr GstClockTime kCaptureTimeout = 200 * GST_MSECOND;
+    GstSample* sample = gst_app_sink_try_pull_sample(GST_APP_SINK(gst_sink_), kCaptureTimeout);
+    if (sample == nullptr) {
+        return std::nullopt;
+    }
+    GstClock* clock = gst_element_get_clock(gst_pipeline_);
+    const GstClockTime base_time = gst_element_get_base_time(gst_pipeline_);
+    auto surface = SurfaceFromSample(sample, clock, base_time);
+    if (clock != nullptr) {
+        gst_object_unref(clock);
+    }
+    gst_sample_unref(sample);
+    return surface;
 }
 
 }  // namespace sst::capture

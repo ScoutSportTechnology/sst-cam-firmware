@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gst/gstclock.h>
+
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -7,6 +9,7 @@
 
 #include "app/capture/ports/frame-src.hpp"
 #include "domain/capture/models/camera-config.hpp"
+#include "domain/capture/models/video-surface.hpp"
 
 extern "C" {
 using GstElement = struct _GstElement;  // NOLINT(bugprone-reserved-identifier)
@@ -23,7 +26,7 @@ using sst::capture::ICaptureFrame;
 class GStreamerAdapter final : public ICaptureFrame {
    public:
     GStreamerAdapter(const CameraConfig& camera_config, std::string device_model,
-                     std::uint16_t camera_index);
+                     std::uint16_t camera_index, bool nvmm_mode = false);
 
     ~GStreamerAdapter() override = default;
 
@@ -32,11 +35,18 @@ class GStreamerAdapter final : public ICaptureFrame {
     auto IsRunning() const -> bool override;
     auto Capture() -> std::optional<Frame> override;
     auto CreatePipeline() -> std::string;
+    auto CaptureSurface() -> std::optional<VideoSurface>;
+    auto SurfaceFromSample(GstSample* sample, GstClock* clock,
+                           std::uint64_t base_time) -> std::optional<VideoSurface>;
 
    private:
     CameraConfig camera_config_;
     std::string device_model_;
     std::uint16_t camera_index_{0};
+    bool nvmm_mode_{false};
+    std::uint64_t last_base_time_{0};
+    std::optional<std::uint64_t> last_surface_pts_;
+    bool surface_discontinuity_{true};
     std::uint64_t frame_counter_{0};
     bool is_running_{false};
     std::string pipeline_str_;
