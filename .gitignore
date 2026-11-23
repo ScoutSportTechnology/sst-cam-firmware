@@ -85,6 +85,19 @@ dist/
 # ------------------------------------------------------------
 Testing/
 
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Test recordings: keep logs and hashes in Git, never the footage
+*.mp4
+*.mkv
+*.h264
+
+# Cross-compiled probe/test binaries and core dumps
+*-aarch64
+*.core
+
 # Agent tooling / local devcontainer lock (not part of the firmware)
 # Agent harness folders: per-user, machine-specific state, never committed.
 # Shared agent rules live in AGENTS.md and shared skills in .agents/ (tracked).
