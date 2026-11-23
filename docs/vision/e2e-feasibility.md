@@ -1,0 +1,9 @@
+# Vision E2E feasibility, Orin Nano, 2026-11-19 (final, session 3 of 3)
+- **4K30: PASS.** 625 s steady window: dual capture 30.000/30.002 fps, 100% paired, 0 drops/gaps; RF-DETR Small FP16 batch-2 15.000 Hz (9376 batches, 0 skipped, p99 36.3 ms); render 30.000; one x264 for MP4+RTMP 29.997 fps.
+- **1080p30: PASS.** Dual capture 30.009/30.009 fps, 99.995% paired, 0 drops; detection 15.000 Hz (p99 29.4 ms); render 30.007; x264 30.004 fps.
+- Recorded MP4 (local PyAV decode): 4K 18,828 frames/627.6 s = 30.000 fps; 1080 18,835/627.7 s = 30.007 fps. Viewer stream (HTTPS HLS, 600 s decoded): 4K 30.000 fps PTS, 1080 30.007, 0 missed segments, 0 discontinuities.
+- Min MemAvailable 4K 3.67 GiB, 1080 4.73 GiB. CPU core means 4K 46/41/41/40/38/38%, 1080 44/39/39/38/37/37%; GPU mean ~36% (peaks 99%). Peak Tj 65.3/64.5 °C, 0 kernel thermal/over-current events, CPU still reached 1728 MHz: no throttling observed.
+- Recommendation: **adopt dual 4K30 capture.** It meets every gate with headroom (detector p99 36 ms vs 66.7 ms budget, >3.6 GiB free); at 2× zoom it gives 4× the native pixels of 1080 capture (see `zoom-detail.md`, geometry only).
+- Sessions 1–2 failures were tooling, fixed before session 3: HLS collector TLS (PyAV has no CA store), render timer drifting against the 30.009 fps 1080 sensor (now sensor-paced), and 15 Hz gate quantization (now "0 skipped slots, within 1 batch").
+- Not covered: fake fixed virtual-camera geometry (calibration not validated), one ~10 min run per mode, no audio, no real sports content in the detector.
+- Evidence: archived code and raw logs at [`archive/spike-vision-e2e-2026-11`](https://github.com/ScoutSportTechnology/sst-cam-firmware/tree/archive/spike-vision-e2e-2026-11), `tools/vision/e2e-spike/logs-session3/` (raw logs, MP4 SHA-256; MP4s kept locally). Jetson firmware restored active; `jetson-hil.sh status` = off.

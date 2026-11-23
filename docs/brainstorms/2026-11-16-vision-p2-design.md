@@ -10,6 +10,13 @@ status: decisions-approved-for-incremental-implementation
 
 Replace independent CPU-heavy camera processing and video encodes with synchronized 4K capture, GPU analysis/rendering, one clean H.264 encode shared with the overlay-off live outputs, and a second encode only when live overlay is requested. Raul approved the decisions below on 2026-11-16 for incremental implementation; performance, calibration, and interop remain hardware gates. The legacy pipeline stays the default until integrated HIL acceptance. This document makes no product code, proto, or app changes.
 
+## Decisions 2026-11-19/20
+
+- Adopt dual 4K30 capture: the [E2E feasibility report](../vision/e2e-feasibility.md) measured synchronized capture, inference, and output at rate.
+- Default live overlay **OFF**: ONE x264 `veryfast` 8000 kbps encode tee'd to MP4 + RTMP passed 90 minutes with zero lost frames in the [stress report](../vision/e2e-stress.md).
+- Overlay **ON**: second x264 `ultrafast` encode for the stream passed 20 minutes only; a 90-minute check is still required. `superfast` failed clean-frame retention.
+- Outdoor thermal margin remains open; the measured workshop ambient does not establish hotter-weather behavior.
+
 ## Existing system and scope
 
 `src/adapters/capture/frame/gstreamer/gstreamer.cpp:85-93,256-374` reads 4K from Argus, VIC-downscales to 1080p **system-memory** NV12, maps each buffer on CPU and timestamps at sample conversion. `src/app/pipeline/services/orchestrator/pipeline-orchestrator.cpp:175-201,209-290` copies source planes into CPU memory, samples two latest-only camera slots without timestamp pairing, CPU-postprocesses, then sends frames to independent record/stream sinks. The stream can be CPU-composited side-by-side (`:294-355`); the recording is already clean. `src/adapters/raw_capture/` writes two 854x480@15 H.264 proxy MP4s; `src/adapters/storage/gstreamer/`, `src/adapters/streaming/gst_rtmp/` and `src/adapters/streaming/gst_rtsp/` each own an x264 encoder. RTSP only starts its encoder on a viewer. The timeline-backed on-demand L2 export already exists in `src/adapters/overlay/burn/` and stays. Current capture IDs are per camera, and `captured_at` is not a camera clock: neither proves synchronization. Existing `calibration.json` has per-camera K and distortion but no relative R; defaults are placeholders (`src/app/config/services/config_loader/config-defaults.hpp:37-43`). The app/BLE surface has manual camera selection, side-by-side preview, independently selectable record/stream modes, and no dedicated live-overlay toggle.

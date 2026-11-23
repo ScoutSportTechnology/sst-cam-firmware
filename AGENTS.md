@@ -2,6 +2,13 @@
 
 Guidance for coding agents (any harness) working in this repository.
 
+## Tidy-up (end of every job)
+- Before finishing, remove the job's own worktrees, delete its merged or superseded local and remote branches,
+  and delete large test artifacts (recordings, binaries, core dumps).
+- Never delete anything whose content is not merged into development, contained in another pushed branch, or
+  saved under an `archive/<name>` tag. If unsure, ask.
+- Keep raw test logs out of development; summaries and reports go to docs/.
+
 ## Project
 
 SST Cam firmware — C++20 embedded runtime for NVIDIA Jetson Orin Nano (JetPack 7.2 / L4T r39.2 / Ubuntu 24.04). Dual IMX477 cameras, GStreamer pipeline, AI sports tracking. `_old/` contains deprecated Python prototypes; ignore it.
