@@ -702,7 +702,7 @@ auto main(int argc, char* argv[]) -> int {
     // The operator-only diagnostic must not initialize the normal GStreamer/control plane.
     if (cli_result.action == sst::control::CliAction::kCaptureDiagnostic) {
         try {
-            constexpr auto kDiagnosticDuration = std::chrono::minutes(10);
+            const auto kDiagnosticDuration = std::chrono::seconds(cli_result.diagnostic_seconds);
             return sst::capture::RunCaptureDiagnostic(sst::capture::argus::MakeArgusHardware(),
                                                       kDiagnosticDuration, std::cout);
         } catch (const std::exception& e) {

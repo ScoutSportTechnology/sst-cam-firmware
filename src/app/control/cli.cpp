@@ -1,5 +1,6 @@
 #include "app/control/cli.hpp"
 
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -15,7 +16,7 @@ SST Camera Firmware - Jetson Orin Nano embedded runtime
 
 Options:
   --version             Print version information and exit
-  --capture-diagnostic  Run isolated 10-minute Argus check (requires SST_ENABLE_ARGUS_DIAGNOSTIC=1)
+  --capture-diagnostic  Run isolated Argus check (gate SST_ENABLE_ARGUS_DIAGNOSTIC=1; optional SST_ARGUS_DIAGNOSTIC_START=dark|bright and SST_ARGUS_DIAGNOSTIC_SECONDS=1..600)
   -h, --help            Print this help message and exit
 
 Without options, starts the firmware (normal systemd behavior).
@@ -41,6 +42,28 @@ auto ParseArgs(int argc, char** argv, const std::string& version,
                 "SST_ENABLE_ARGUS_DIAGNOSTIC=1)\n";
             result.exit_code = 2;
             return result;
+        }
+        const char* start = std::getenv("SST_ARGUS_DIAGNOSTIC_START");
+        if (start != nullptr && std::string(start) != "dark" && std::string(start) != "bright") {
+            result.action = CliAction::kError;
+            result.error = "sst_cam_firmware: invalid diagnostic start (dark or bright)\n";
+            result.exit_code = 2;
+            return result;
+        }
+        const char* seconds = std::getenv("SST_ARGUS_DIAGNOSTIC_SECONDS");
+        if (seconds != nullptr) {
+            const std::string value(seconds);
+            int parsed = 0;
+            const auto [end, error] =
+                std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (error != std::errc{} || end != value.data() + value.size() || parsed < 1 ||
+                parsed > kDefaultDiagnosticSeconds) {
+                result.action = CliAction::kError;
+                result.error = "sst_cam_firmware: diagnostic seconds must be 1..600\n";
+                result.exit_code = 2;
+                return result;
+            }
+            result.diagnostic_seconds = parsed;
         }
         result.action = CliAction::kCaptureDiagnostic;
         return result;

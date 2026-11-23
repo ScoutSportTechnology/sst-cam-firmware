@@ -34,6 +34,10 @@ auto SharedController::SetGainLimits(GainLimits limits) -> void {
     controls_.analog_gain = std::clamp(controls_.analog_gain, limits.analog_min, limits.analog_max);
     controls_.isp_gain = std::clamp(controls_.isp_gain, limits.isp_min, limits.isp_max);
 }
+auto SharedController::Seed(Controls initial) -> void {
+    controls_ = initial;
+    desired_exposure_ns_ = static_cast<float>(initial.exposure_ns);
+}
 auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls {
     const float luma = std::clamp((samples[0].luma + samples[1].luma) / 2, kMinLuma, 1.F);
     const float ratio = std::clamp(kTargetLuma / luma, kMinGainStep, kMaxGainStep);
@@ -130,6 +134,7 @@ auto DirectCapture::Start() -> void {
         Stop();
         throw std::runtime_error("camera gain ranges do not overlap");
     }
+    controller_.Seed(hardware_->InitialControls(0));
     controller_.SetGainLimits(shared_limits);
 }
 auto DirectCapture::Poll(int camera) -> void {

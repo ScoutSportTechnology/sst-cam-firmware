@@ -77,6 +77,7 @@ class SharedController {
     explicit SharedController(std::uint64_t max_exposure_ns = kFlickerExposureNs);
     auto Update(const std::array<Sample, 2>& samples) -> Controls;
     auto SetGainLimits(GainLimits limits) -> void;
+    auto Seed(Controls initial) -> void;
     [[nodiscard]] auto Current() const -> Controls { return controls_; }
 
    private:

@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include "adapters/capture/frame/argus/direct-capture.hpp"
@@ -216,11 +218,14 @@ class ArgusHardware final : public Hardware {
               edge->setEdgeEnhanceMode(EDGE_ENHANCE_MODE_FAST) == STATUS_OK &&
               edge->setEdgeEnhanceStrength(settings.edge_strength) == STATUS_OK);
         Controls initial;
-        initial.exposure_ns = std::clamp<std::uint64_t>(
-            kForcedWrongExposureNs, selected_mode->getExposureTimeRange().min(),
-            selected_mode->getExposureTimeRange().max());
-        initial.analog_gain = std::clamp(1.F, camera.limits.analog_min, camera.limits.analog_max);
-        initial.isp_gain = std::clamp(1.F, camera.limits.isp_min, camera.limits.isp_max);
+        const char* start = std::getenv("SST_ARGUS_DIAGNOSTIC_START");
+        const bool bright = start != nullptr && std::string_view(start) == "bright";
+        initial.exposure_ns =
+            std::clamp<std::uint64_t>(bright ? kFlickerExposureNs : kForcedWrongExposureNs,
+                                      selected_mode->getExposureTimeRange().min(),
+                                      selected_mode->getExposureTimeRange().max());
+        initial.analog_gain = bright ? camera.limits.analog_max : camera.limits.analog_min;
+        initial.isp_gain = bright ? camera.limits.isp_max : camera.limits.isp_min;
         camera.initial_controls = initial;
         Apply(camera_index, initial);
     }

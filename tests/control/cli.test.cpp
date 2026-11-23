@@ -102,6 +102,31 @@ TEST(CliTest, CaptureDiagnosticRequiresExplicitFlag) {
     EXPECT_EQ(result.action, CliAction::kCaptureDiagnostic);
 }
 
+TEST(CliTest, CaptureDiagnosticAcceptsOnlyGatedBrightAndDarkStarts) {
+    std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
+                               const_cast<char*>("--capture-diagnostic")};
+    setenv("SST_ENABLE_ARGUS_DIAGNOSTIC", "1", 1);
+    setenv("SST_ARGUS_DIAGNOSTIC_START", "bright", 1);
+    auto bright = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(bright.action, CliAction::kCaptureDiagnostic);
+    EXPECT_EQ(bright.diagnostic_seconds, 600);
+    setenv("SST_ARGUS_DIAGNOSTIC_START", "dark", 1);
+    auto dark = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(dark.action, CliAction::kCaptureDiagnostic);
+    setenv("SST_ARGUS_DIAGNOSTIC_SECONDS", "30", 1);
+    auto short_run = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(short_run.diagnostic_seconds, 30);
+    setenv("SST_ARGUS_DIAGNOSTIC_SECONDS", "invalid", 1);
+    auto invalid_duration = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(invalid_duration.action, CliAction::kError);
+    unsetenv("SST_ARGUS_DIAGNOSTIC_SECONDS");
+    setenv("SST_ARGUS_DIAGNOSTIC_START", "invalid", 1);
+    auto invalid = ParseArgs(static_cast<int>(args.size()), args.data(), "dev", "unknown");
+    EXPECT_EQ(invalid.action, CliAction::kError);
+    unsetenv("SST_ARGUS_DIAGNOSTIC_START");
+    unsetenv("SST_ENABLE_ARGUS_DIAGNOSTIC");
+}
+
 TEST(CliTest, CaptureDiagnosticIsOffUnlessEnvironmentGateEnabled) {
     std::vector<char*> args = {const_cast<char*>("sst_cam_firmware"),
                                const_cast<char*>("--capture-diagnostic")};

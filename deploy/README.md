@@ -50,6 +50,11 @@ For an operator-only 10-minute dual-camera diagnostic, stop the service
 SST_ENABLE_ARGUS_DIAGNOSTIC=1 /opt/sst-cam/bin/sst_cam_firmware --capture-diagnostic
 ```
 
+For a short convergence start, add `SST_ARGUS_DIAGNOSTIC_START=dark` (1 ms,
+minimum gains) or `bright` (8.333 ms, maximum gains), and
+`SST_ARGUS_DIAGNOSTIC_SECONDS=30`. The duration defaults to 600 seconds and is
+bounded to 1–600; the diagnostic gate is still required.
+
 The command prints per-camera fps, inferred sensor-timestamp drops/gaps,
 paired count, ring drops/depth, skew p99,
 MemAvailable (KiB), and requested controls versus applied sensor metadata.

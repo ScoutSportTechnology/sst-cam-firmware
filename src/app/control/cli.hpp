@@ -15,11 +15,14 @@ enum class CliAction : std::uint8_t {
     kError,
 };
 
+inline constexpr int kDefaultDiagnosticSeconds = 600;
+
 struct CliResult {
     CliAction action = CliAction::kRunFirmware;
     std::string output;  // For --version/--help
     std::string error;   // For error messages
     int exit_code = 0;
+    int diagnostic_seconds = kDefaultDiagnosticSeconds;
 };
 
 auto ParseArgs(int argc, char** argv, const std::string& version,

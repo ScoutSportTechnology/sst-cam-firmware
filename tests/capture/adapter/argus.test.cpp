@@ -34,6 +34,8 @@ class FakeHardware : public Hardware {
     int fail_camera = -1;
     std::uint64_t tick = 5'000'000'000ULL;
     auto Modes(int /*unused*/) -> std::vector<std::uint64_t> override { return modes; }
+    auto InitialControls(int /*camera*/) -> Controls override { return initial; }
+    Controls initial{};
     auto Open(int camera, const Settings& settings) -> void override {
         if (camera == fail_camera) {
             fail_camera = -1;
@@ -78,6 +80,23 @@ TEST(DirectArgus, SelectsRoundedThirtyFpsAndAppliesIdenticalManualSettings) {
     EXPECT_FLOAT_EQ(hardware->applied[0].wb_blue, hardware->applied[1].wb_blue);
     capture.Stop();
     EXPECT_EQ(hardware->released, 2);
+}
+
+TEST(DirectArgus, SeedsSharedControllerFromInitialManualGains) {
+    auto hardware = std::make_shared<FakeHardware>();
+    constexpr std::uint64_t kDarkStartNs = 1'000'000;
+    constexpr float kInitialAnalog = 4.F;
+    constexpr float kInitialIsp = 2.F;
+    hardware->initial = {
+        .exposure_ns = kDarkStartNs, .analog_gain = kInitialAnalog, .isp_gain = kInitialIsp};
+    DirectCapture capture(hardware, true);
+    capture.Start();
+    capture.Poll(0);
+    capture.Poll(1);
+    ASSERT_EQ(hardware->applied.size(), 2);
+    EXPECT_GT(hardware->applied[0].analog_gain, 4.F);
+    EXPECT_FLOAT_EQ(hardware->applied[0].isp_gain, 2.F);
+    capture.Stop();
 }
 
 TEST(DirectArgus, ReaderRetainsArgusSessionPastCaptureStop) {

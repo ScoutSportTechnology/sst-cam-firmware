@@ -103,8 +103,8 @@ class MeasuredHardware final : public argus::Hardware {
                                  kNanosecondsPerSecond;
         }
         output_ << "capture_frame camera=" << camera << " id=" << sample->capture_id
-                << " sensor_ts=" << sample->timestamp_ns << " steady=" << steady
-                << " requested_seq=" << requested_count_[camera]
+                << " sensor_ts=" << sample->timestamp_ns << " luma=" << sample->luma
+                << " steady=" << steady << " requested_seq=" << requested_count_[camera]
                 << " requested_client_data=" << sample->request_id
                 << " known_request=" << known_request
                 << " requested_exposure_ns=" << request.exposure_ns
@@ -207,7 +207,8 @@ auto MemAvailableKib() -> std::uint64_t {
 
 auto Report(std::ostream& output, const MeasuredHardware& hardware,
             const argus::DirectCapture& capture, std::vector<double>& skews, std::uint64_t paired,
-            std::chrono::duration<double> elapsed, std::uint64_t min_mem_kib) -> void {
+            std::chrono::duration<double> elapsed, std::uint64_t min_mem_kib,
+            bool final = false) -> void {
     const auto elapsed_seconds = elapsed.count();
     const auto steady_seconds =
         hardware.first_steady_timestamp_ == 0
@@ -222,12 +223,16 @@ auto Report(std::ostream& output, const MeasuredHardware& hardware,
     const auto expected = std::max(hardware.frames_[0] + hardware.dropped_[0],
                                    hardware.frames_[1] + hardware.dropped_[1]);
     const auto captured = paired + ring.depth;
-    const auto steady_expected = std::max(hardware.steady_frames_[0] + hardware.steady_dropped_[0],
-                                          hardware.steady_frames_[1] + hardware.steady_dropped_[1]);
     const auto steady_pairs = hardware.steady_pairs_;
-    const auto steady_coverage = steady_expected == 0 ? 0.0
-                                                      : 100.0 * static_cast<double>(steady_pairs) /
-                                                            static_cast<double>(steady_expected);
+    const auto terminal = final ? capture.PairingStats().pending : std::array<std::size_t, 2>{};
+    const auto eligible =
+        std::max(hardware.steady_frames_[0] + hardware.steady_dropped_[0] -
+                     std::min<std::uint64_t>(hardware.steady_frames_[0], terminal[0]),
+                 hardware.steady_frames_[1] + hardware.steady_dropped_[1] -
+                     std::min<std::uint64_t>(hardware.steady_frames_[1], terminal[1]));
+    const auto steady_coverage =
+        eligible == 0 ? 0.0
+                      : 100.0 * static_cast<double>(steady_pairs) / static_cast<double>(eligible);
     const auto coverage =
         expected == 0 ? 0.0 : 100.0 * static_cast<double>(captured) / static_cast<double>(expected);
     // `dropped` is inferred from sensor timestamp gaps; it is not an Argus drop counter.
@@ -258,8 +263,10 @@ auto Report(std::ostream& output, const MeasuredHardware& hardware,
            << " dropped0=" << hardware.dropped_[0] << " dropped1=" << hardware.dropped_[1]
            << " gaps0=" << hardware.gaps_[0] << " gaps1=" << hardware.gaps_[1]
            << " paired=" << captured << " pair_coverage_pct=" << coverage
-           << " steady_pair_coverage_pct=" << steady_coverage << " ring_dropped=" << ring.dropped
-           << " ring_depth=" << ring.depth << " ring_target_ms=1500" << " skew_p99_ms=" << p99
+           << " steady_pair_coverage_pct=" << steady_coverage
+           << " terminal_unpaired0=" << terminal[0] << " terminal_unpaired1=" << terminal[1]
+           << " ring_dropped=" << ring.dropped << " ring_depth=" << ring.depth
+           << " ring_target_ms=1500" << " skew_p99_ms=" << p99
            << " mem_available_kib=" << MemAvailableKib() << " mem_available_min_kib=" << min_mem_kib
            << " requested_exposure_ns=" << hardware.requested_[0].exposure_ns << ','
            << hardware.requested_[1].exposure_ns
@@ -345,7 +352,7 @@ auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
         }
     }
     min_mem_kib = std::min(min_mem_kib, MemAvailableKib());
-    Report(output, *measured, capture, skews, paired, elapsed, min_mem_kib);
+    Report(output, *measured, capture, skews, paired, elapsed, min_mem_kib, true);
     const bool has_pairs = paired > 0;
     capture.Stop();
     return has_pairs ? 0 : 1;

@@ -18,6 +18,9 @@ class DiagnosticHardware final : public argus::Hardware {
     auto Modes(int /*camera*/) -> std::vector<std::uint64_t> override { return {kFramePeriodNs}; }
     auto Open(int /*camera*/, const argus::Settings& /*settings*/) -> void override { ++opened; }
     auto Acquire(int camera) -> std::optional<argus::Sample> override {
+        if (acquired[camera] >= max_frames[camera]) {
+            return std::nullopt;
+        }
         const auto frame = ++acquired[camera];
         return argus::Sample{
             .slot = frame % argus::kPoolBuffers,
@@ -45,6 +48,7 @@ class DiagnosticHardware final : public argus::Hardware {
     int released = 0;
     int applied = 0;
     std::array<int, 2> acquired{};
+    std::array<int, 2> max_frames{100'000, 100'000};
     std::array<std::uint32_t, 2> request_id{};
     std::array<argus::Controls, 2> last_request{};
     std::uint64_t epoch_ns =
@@ -73,6 +77,7 @@ TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     EXPECT_NE(metrics.find("applied_exposure_ns="), std::string::npos);
     EXPECT_NE(metrics.find("capture_frame camera=0"), std::string::npos);
     EXPECT_NE(metrics.find("capture_frame camera=1"), std::string::npos);
+    EXPECT_NE(metrics.find(" luma="), std::string::npos);
     EXPECT_NE(metrics.find("steady_fps0="), std::string::npos);
     EXPECT_NE(metrics.find("startup_dropped0="), std::string::npos);
     EXPECT_NE(metrics.find("steady_mismatch0="), std::string::npos);
@@ -80,5 +85,18 @@ TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     EXPECT_NE(metrics.find("steady_pair_coverage_pct="), std::string::npos);
     EXPECT_NE(metrics.find("steady_id_gaps0="), std::string::npos);
     EXPECT_NE(metrics.find("requested_client_data="), std::string::npos);
+}
+
+TEST(CaptureDiagnosticTest, ReportsTrailingUnpairedFrameWithoutFailingPairCoverage) {
+    auto hardware = std::make_shared<DiagnosticHardware>();
+    constexpr int kPairedFrames = 160;
+    constexpr std::uint64_t kTimestampLeadNs = 10'000'000'000ULL;
+    hardware->max_frames = {kPairedFrames, kPairedFrames + 1};
+    hardware->epoch_ns -= kTimestampLeadNs;
+    std::ostringstream output;
+    ASSERT_EQ(RunCaptureDiagnostic(hardware, std::chrono::seconds(3), output), 0);
+    const auto metrics = output.str();
+    EXPECT_NE(metrics.find("steady_pair_coverage_pct=100"), std::string::npos);
+    EXPECT_NE(metrics.find("terminal_unpaired1=1"), std::string::npos);
 }
 }  // namespace sst::capture::test
