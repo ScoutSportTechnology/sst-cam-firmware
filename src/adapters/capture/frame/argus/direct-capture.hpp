@@ -3,6 +3,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -108,6 +109,9 @@ class DirectCapture {
     [[nodiscard]] auto Stats() const -> sst::pipeline::FramePairRingStats { return ring_.Stats(); }
     [[nodiscard]] auto PairingStats() const -> sst::pipeline::PairStats { return sync_.Stats(); }
     [[nodiscard]] auto CurrentControls() const -> Controls { return controller_.Current(); }
+    auto SetMeterObserver(std::function<void(const std::array<Sample, 2>&)> observer) -> void {
+        meter_observer_ = std::move(observer);
+    }
 
    private:
     std::shared_ptr<Hardware> hardware_;
@@ -131,6 +135,7 @@ class DirectCapture {
     std::uint64_t epoch_{1};
     std::array<std::chrono::steady_clock::time_point, 2> last_log_{};
     SharedController controller_;
+    std::function<void(const std::array<Sample, 2>&)> meter_observer_;
     sst::pipeline::FramePairSynchronizer sync_;
     sst::pipeline::FramePairRing ring_;
 };

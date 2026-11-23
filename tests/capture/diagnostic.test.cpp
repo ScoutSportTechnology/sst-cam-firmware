@@ -26,7 +26,7 @@ class DiagnosticHardware final : public argus::Hardware {
             .slot = frame % argus::kPoolBuffers,
             .request_id = request_id[camera],
             .timestamp_ns = epoch_ns + static_cast<std::uint64_t>(frame) * kFramePeriodNs,
-            .luma = kTestLuma,
+            .luma = luma[camera],
             .red = 1.F,
             .blue = 1.F,
             .exposure_ns = argus::kFlickerExposureNs,
@@ -48,6 +48,7 @@ class DiagnosticHardware final : public argus::Hardware {
     int released = 0;
     int applied = 0;
     std::array<int, 2> acquired{};
+    std::array<float, 2> luma{kTestLuma, kTestLuma};
     std::array<int, 2> max_frames{100'000, 100'000};
     std::array<std::uint32_t, 2> request_id{};
     std::array<argus::Controls, 2> last_request{};
@@ -60,6 +61,8 @@ class DiagnosticHardware final : public argus::Hardware {
 
 TEST(CaptureDiagnosticTest, CapturesPairsReportsMetricsAndClosesBothCameras) {
     auto hardware = std::make_shared<DiagnosticHardware>();
+    constexpr std::uint64_t kTimestampLeadNs = 10'000'000'000ULL;
+    hardware->epoch_ns -= kTimestampLeadNs;
     std::ostringstream output;
     EXPECT_EQ(RunCaptureDiagnostic(hardware, std::chrono::milliseconds(30), output), 0);
     EXPECT_EQ(hardware->opened, 2);
@@ -98,6 +101,19 @@ TEST(CaptureDiagnosticTest, DiagnosticUsesItsTargetToScoreConvergence) {
         0);
     EXPECT_NE(output.str().find("ae_target_luma=0.3"), std::string::npos);
     EXPECT_NE(output.str().find("ae_converged_frames=0"), std::string::npos);
+}
+
+TEST(CaptureDiagnosticTest, ScoresCombinedMeterInsteadOfEachCamera) {
+    auto hardware = std::make_shared<DiagnosticHardware>();
+    constexpr float kTarget = 0.30F;
+    constexpr float kLowView = 0.20F;
+    constexpr float kHighView = 0.40F;
+    constexpr std::uint64_t kTimestampLeadNs = 10'000'000'000ULL;
+    hardware->luma = {kLowView, kHighView};
+    hardware->epoch_ns -= kTimestampLeadNs;
+    std::ostringstream output;
+    ASSERT_EQ(RunCaptureDiagnostic(hardware, std::chrono::milliseconds(30), output, kTarget), 0);
+    EXPECT_NE(output.str().find("ae_converged_frames=1"), std::string::npos);
 }
 
 TEST(CaptureDiagnosticTest, ReportsTrailingUnpairedFrameWithoutFailingPairCoverage) {

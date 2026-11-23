@@ -96,12 +96,6 @@ class MeasuredHardware final : public argus::Hardware {
              std::abs(sample->wb_red - request.wb_red) > kGainTolerance ||
              std::abs(sample->wb_blue - request.wb_blue) > kGainTolerance);
         steady_mismatch_[camera] += steady && (mismatch || !known_request) ? 1 : 0;
-        ae_ready_[camera] = std::abs(sample->luma - target_luma_) <= kConvergenceTolerance;
-        if (converged_frame_ == 0 && ae_ready_[0] && ae_ready_[1]) {
-            converged_frame_ = std::max(frames_[0], frames_[1]);
-            converged_seconds_ = static_cast<double>(sample->timestamp_ns - first_timestamp_) /
-                                 kNanosecondsPerSecond;
-        }
         output_ << "capture_frame camera=" << camera << " id=" << sample->capture_id
                 << " sensor_ts=" << sample->timestamp_ns << " luma=" << sample->luma
                 << " steady=" << steady << " requested_seq=" << requested_count_[camera]
@@ -136,6 +130,20 @@ class MeasuredHardware final : public argus::Hardware {
                 (sample.timestamp_ns - previous + kFramePeriodNs / 2) / kFramePeriodNs - 1;
         }
         last_steady_timestamp_[camera] = sample.timestamp_ns;
+    }
+    auto CountMeter(const std::array<argus::Sample, 2>& samples) -> void {
+        const float combined = (samples[0].luma + samples[1].luma) / 2;
+        if (converged_frame_ == 0 && std::abs(combined - target_luma_) <= kConvergenceTolerance) {
+            converged_frame_ = std::max(frames_[0], frames_[1]);
+            converged_seconds_ =
+                static_cast<double>(std::max(samples[0].timestamp_ns, samples[1].timestamp_ns) -
+                                    first_timestamp_) /
+                kNanosecondsPerSecond;
+        }
+        output_ << "capture_meter sensor_ts="
+                << std::max(samples[0].timestamp_ns, samples[1].timestamp_ns)
+                << " luma=" << combined << " request_ids=" << samples[0].request_id << ','
+                << samples[1].request_id << '\n';
     }
     auto Release(std::pair<int, int> slot) -> void override { delegate_->Release(slot); }
     auto Apply(int camera, const argus::Controls& controls) -> void override {
@@ -184,7 +192,6 @@ class MeasuredHardware final : public argus::Hardware {
     std::uint64_t first_steady_timestamp_{0};
     std::uint64_t converged_frame_{0};
     double converged_seconds_{0};
-    std::array<bool, 2> ae_ready_{};
     [[nodiscard]] auto TargetLuma() const -> float { return target_luma_; }
 
    private:
@@ -301,6 +308,8 @@ auto RunCaptureDiagnostic(std::shared_ptr<argus::Hardware> hardware,
     auto measured = std::make_shared<MeasuredHardware>(std::move(hardware), output, target_luma);
     argus::DirectCapture capture(measured, true);
     capture.SetTargetLuma(target_luma);
+    capture.SetMeterObserver(
+        [measured](const std::array<argus::Sample, 2>& samples) { measured->CountMeter(samples); });
     capture.Start();
     const auto start = Clock::now();
     auto next_report = start + kReportInterval;

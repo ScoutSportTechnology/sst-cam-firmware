@@ -56,6 +56,50 @@ class FakeHardware : public Hardware {
     auto Close(int /*camera*/) -> void override { ++closed; }
 };
 
+class DelayedHardware final : public FakeHardware {
+   public:
+    auto RequestId(int camera) -> std::uint32_t override { return latest_id[camera]; }
+    auto Open(int camera, const Settings& settings) -> void override {
+        FakeHardware::Open(camera, settings);
+        latest_id[camera] = 1;
+    }
+    auto Acquire(int camera) -> std::optional<Sample> override {
+        auto sample = FakeHardware::Acquire(camera).value_or(Sample{});
+        const auto frame = ++frames[camera];
+        const auto applied_id = frame > kLatencyFrames ? latest_id[camera] : 1;
+        sample.request_id = applied_id;
+        sample.analog_gain = applied_id == 1 ? 1.F : applied.back().analog_gain;
+        sample.luma = (camera == 0 ? kLowLuma : kHighLuma) * sample.analog_gain;
+        return sample;
+    }
+    auto Apply(int camera, const Controls& controls) -> void override {
+        FakeHardware::Apply(camera, controls);
+        ++latest_id[camera];
+    }
+    static constexpr int kLatencyFrames = 4;
+    std::array<int, 2> frames{};
+    std::array<std::uint32_t, 2> latest_id{};
+};
+
+TEST(DirectArgus, WaitsForBothSensorsToApplyLatestRequestBeforeNextAeStep) {
+    auto hardware = std::make_shared<DelayedHardware>();
+    DirectCapture capture(hardware, true);
+    capture.SetTargetLuma(kHighLuma);
+    capture.Start();
+    capture.Poll(0);
+    capture.Poll(1);
+    ASSERT_EQ(hardware->applied.size(), 2);
+    for (int i = 1; i < DelayedHardware::kLatencyFrames; ++i) {
+        capture.Poll(0);
+        capture.Poll(1);
+        EXPECT_EQ(hardware->applied.size(), 2);
+    }
+    capture.Poll(0);
+    capture.Poll(1);
+    EXPECT_EQ(hardware->applied.size(), 4);
+    capture.Stop();
+}
+
 TEST(DirectArgus, SelectsRoundedThirtyFpsAndAppliesIdenticalManualSettings) {
     auto hardware = std::make_shared<FakeHardware>();
     DirectCapture capture(hardware, true);
@@ -179,6 +223,23 @@ TEST(DirectArgusHardware, CapturesComparableSensorTimestampsWithoutCpuMaps) {
     }
     EXPECT_GT(capture.Stats().depth, 0);
     capture.Stop();
+}
+
+TEST(SharedArgusControls, DampsGainAndHoldsInsideTargetBand) {
+    constexpr float kTarget = 0.30F;
+    constexpr float kUnderexposed = 0.20F;
+    constexpr float kInBand = 0.29F;
+    constexpr float kInitialGain = 4.F;
+    constexpr float kMaxDampedGain = 4.5F;
+    sst::capture::argus::SharedController controller;
+    controller.SetTargetLuma(kTarget);
+    controller.Seed({.analog_gain = kInitialGain});
+    const auto first =
+        controller.Update({Sample{.luma = kUnderexposed}, Sample{.luma = kUnderexposed}});
+    EXPECT_LE(first.analog_gain, kMaxDampedGain);
+    EXPECT_GT(first.analog_gain, kInitialGain);
+    const auto settled = controller.Update({Sample{.luma = kInBand}, Sample{.luma = kInBand}});
+    EXPECT_FLOAT_EQ(settled.analog_gain, first.analog_gain);
 }
 
 TEST(SharedArgusControls, ExposureDefaultsToOneFlickerPeriodAndGainTakesOverAtCap) {

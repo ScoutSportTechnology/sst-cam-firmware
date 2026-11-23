@@ -17,6 +17,8 @@ constexpr float kMinLuma = 0.02F;
 constexpr float kMaxGainStep = 1.25F;
 constexpr float kMinGainStep = 0.8F;
 constexpr float kExposureHysteresis = 0.05F;
+constexpr float kMaxDampedGainStep = 1.125F;
+constexpr float kMinDampedGainStep = 0.875F;
 constexpr float kWbMin = 0.5F;
 constexpr float kWbMax = 2.F;
 constexpr int kHardwareAbiVersion = 2;
@@ -46,22 +48,25 @@ auto SharedController::Seed(Controls initial) -> void {
 auto SharedController::Update(const std::array<Sample, 2>& samples) -> Controls {
     const float luma = std::clamp((samples[0].luma + samples[1].luma) / 2, kMinLuma, 1.F);
     const float ratio = std::clamp(target_luma_ / luma, kMinGainStep, kMaxGainStep);
-    desired_exposure_ns_ = std::clamp(desired_exposure_ns_ * ratio, static_cast<float>(kFlickerNs),
-                                      static_cast<float>(max_exposure_ns_));
+    const bool in_band = std::abs(target_luma_ - luma) <= kExposureHysteresis;
+    const float gain_ratio =
+        in_band ? 1.F : std::clamp(ratio, kMinDampedGainStep, kMaxDampedGainStep);
+    desired_exposure_ns_ =
+        std::clamp(desired_exposure_ns_ * gain_ratio, static_cast<float>(kFlickerNs),
+                   static_cast<float>(max_exposure_ns_));
     const auto steps = static_cast<std::uint64_t>(
         std::round(desired_exposure_ns_ / static_cast<float>(kFlickerNs)));
     controls_.exposure_ns =
         std::clamp<std::uint64_t>(steps, 1, max_exposure_ns_ / kFlickerNs) * kFlickerNs;
-    if (std::abs(ratio - 1.F) > kExposureHysteresis &&
-        ((ratio > 1.F && controls_.exposure_ns == max_exposure_ns_) ||
-         (ratio < 1.F && controls_.exposure_ns == kFlickerNs))) {
+    if (!in_band && ((ratio > 1.F && controls_.exposure_ns == max_exposure_ns_) ||
+                     (ratio < 1.F && controls_.exposure_ns == kFlickerNs))) {
         const float gain =
-            std::clamp(controls_.analog_gain * ratio, limits_.analog_min, limits_.analog_max);
+            std::clamp(controls_.analog_gain * gain_ratio, limits_.analog_min, limits_.analog_max);
         controls_.analog_gain = gain;
         if ((gain == limits_.analog_max && ratio > 1.F) ||
             (gain == limits_.analog_min && ratio < 1.F)) {
             controls_.isp_gain =
-                std::clamp(controls_.isp_gain * ratio, limits_.isp_min, limits_.isp_max);
+                std::clamp(controls_.isp_gain * gain_ratio, limits_.isp_min, limits_.isp_max);
         }
     }
     const auto red = std::max((samples[0].red + samples[1].red) / 2, kMinLuma);
@@ -193,10 +198,16 @@ auto DirectCapture::Poll(int camera) -> void {
         ring_.Push(std::move(pair.value()));
     }
     if (samples_[0].has_value() && samples_[1].has_value()) {
-        auto controls =
-            controller_.Update({samples_[0].value_or(Sample{}), samples_[1].value_or(Sample{})});
-        hardware_->Apply(0, controls);
-        hardware_->Apply(1, controls);
+        const std::array metered{samples_[0].value_or(Sample{}), samples_[1].value_or(Sample{})};
+        if (meter_observer_) {
+            meter_observer_(metered);
+        }
+        if (metered[0].request_id == hardware_->RequestId(0) &&
+            metered[1].request_id == hardware_->RequestId(1)) {
+            auto controls = controller_.Update(metered);
+            hardware_->Apply(0, controls);
+            hardware_->Apply(1, controls);
+        }
         samples_[0].reset();
         samples_[1].reset();
     }
